@@ -54,7 +54,7 @@ export interface WorkspaceProfile {
   committed?: boolean;
 }
 
-// A brand's tracking space. Users own any number; every entity/prompt/run
+// A brand's tracking space. Users own up to five; every entity/prompt/run
 // hangs off exactly one workspace.
 export const workspaces = sqliteTable('workspaces', {
   id: integer('id').primaryKey({ autoIncrement: true }),

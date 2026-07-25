@@ -1,7 +1,11 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { workspaceDeletionIssue } from '../../shared/workspaces';
+import {
+  MAX_WORKSPACES,
+  WORKSPACE_LIMIT_MESSAGE,
+  workspaceDeletionIssue,
+} from '../../shared/workspaces';
 import type { AuthedBindings } from '../auth/middleware';
 import { getDb } from '../db/client';
 import { entities, results, runs, workspaces } from '../db/schema';
@@ -10,6 +14,10 @@ import { singleLineText } from '../lib/sanitize';
 
 const nameSchema = z.object({ name: singleLineText(1, 60) });
 const deleteSchema = z.object({ confirmation: singleLineText(1, 60) });
+const createdWorkspaceSchema = z.object({
+  id: z.number().int().positive(),
+  name: z.string(),
+});
 
 export const workspaceRoutes = new Hono<AuthedBindings>();
 
@@ -56,12 +64,27 @@ workspaceRoutes.get('/', async (c) => {
 
 workspaceRoutes.post('/', async (c) => {
   const data = await parseBody(c, nameSchema);
-  const db = getDb(c.env);
-  const inserted = await db
-    .insert(workspaces)
-    .values({ name: data.name, ownerUserId: c.get('user').id })
-    .returning();
-  return c.json({ id: inserted[0]?.id, name: inserted[0]?.name }, 201);
+  const ownerId = c.get('user').id;
+  // Keep the count guard and insert in one statement so concurrent requests
+  // cannot both pass a stale preflight count.
+  const row = await c.env.DB.prepare(
+    `insert into workspaces (name, owner_user_id)
+     select ?, ?
+     where (
+       select count(*) from workspaces where owner_user_id = ?
+     ) < ?
+     returning id, name`,
+  )
+    .bind(data.name, ownerId, ownerId, MAX_WORKSPACES)
+    .first();
+  if (row === null) {
+    return c.json({ error: WORKSPACE_LIMIT_MESSAGE }, 409);
+  }
+  const inserted = createdWorkspaceSchema.safeParse(row);
+  if (!inserted.success) {
+    throw new Error('workspace insert returned an invalid row');
+  }
+  return c.json(inserted.data, 201);
 });
 
 workspaceRoutes.patch('/:id', async (c) => {

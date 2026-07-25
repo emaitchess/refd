@@ -22,6 +22,7 @@ import { useTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/providers/auth';
 import { useWorkspace } from '@/providers/workspace';
+import { workspaceLimitReached } from '../../../shared/workspaces';
 
 interface Command {
   id: string;
@@ -135,15 +136,19 @@ export const CommandPalette = ({
         icon: 'competitors',
         run: act(() => navigate('/competitors?new=1')),
       },
-      {
-        id: 'new-workspace',
-        group: 'Workspace',
-        label: 'New workspace',
-        description: 'Set up another monitored brand',
-        keywords: ['add', 'create', 'brand', 'settings'],
-        icon: 'settings',
-        run: act(() => navigate('/settings?new-workspace=1')),
-      },
+      ...(workspaceLimitReached(workspaces.length)
+        ? []
+        : [
+            {
+              id: 'new-workspace',
+              group: 'Workspace' as const,
+              label: 'New workspace',
+              description: 'Set up another monitored brand',
+              keywords: ['add', 'create', 'brand', 'settings'],
+              icon: 'settings' as const,
+              run: act(() => navigate('/settings?new-workspace=1')),
+            },
+          ]),
       ...workspaces
         .filter((workspace) => workspace.id !== current?.id)
         .map((workspace) => ({
