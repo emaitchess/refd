@@ -332,7 +332,9 @@ competitor domains) from the dashboard UI. The onboarding wizard seeds both; the
 
 ## Multi-workspace tenancy — Shipped
 
-- A **workspace** tracks one brand; users own any number.
+- A **workspace** tracks one brand; users own up to five. The create endpoint
+  enforces the limit atomically, and every client creation surface disables at
+  the cap.
 - `entities`, `prompts`, `runs` carry `workspace_id`; everything deeper inherits
   scope. Data routes live under `/api/w/:workspaceId/*` behind `requireWorkspace`
   (owner-only; foreign workspaces 404).

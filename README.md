@@ -15,7 +15,7 @@ bun install
 bun run dev    # applies local migrations, starts vite + Caddy → https://refdlocal.io
 ```
 
-Register on the login screen (business email + password ≥ 8 chars) — your first workspace is created automatically and drops you into a resumable setup wizard: name your brand, let it draft your description from your site, pick competitors and prompts, choose engines, then watch the first report fill in live. Every AI step falls back to typing it yourself. Afterwards, edit anything in Settings / Prompts; more workspaces via the sidebar switcher.
+Register on the login screen (business email + password ≥ 8 chars) — your first workspace is created automatically and drops you into a resumable setup wizard: name your brand, let it draft your description from your site, pick competitors and prompts, choose engines, then watch the first report fill in live. Every AI step falls back to typing it yourself. Afterwards, edit anything in Settings / Prompts; add up to five workspaces via the sidebar switcher.
 
 `bun run dev` also starts Caddy (`Caddyfile`) fronting vite at **https://refdlocal.io** (needs `127.0.0.1 refdlocal.io` in `/etc/hosts` and a one-time `caddy trust`); Caddy stops when dev exits. Plain http://localhost:5173 works too.
 

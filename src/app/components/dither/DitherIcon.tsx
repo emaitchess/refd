@@ -28,6 +28,7 @@ export type DitherIconName =
   | 'logo'
   | 'grip'
   | 'trash'
+  | 'pencil'
   | 'flag'
   | 'text'
   | 'arrow-left'
@@ -433,6 +434,21 @@ const GLYPHS: Record<DitherIconName, string[]> = {
     '.#++++++++#.',
     '.##########.',
     '............',
+    '............',
+  ],
+  // Diagonal pencil: eraser cap top-right, dithered shaft, graphite tip bottom-left.
+  pencil: [
+    '............',
+    '........###.',
+    '.......#+#..',
+    '......#+#...',
+    '.....#+#....',
+    '....#+#.....',
+    '...#+#......',
+    '..#+#.......',
+    '..##........',
+    '.##.........',
+    '.#..........',
     '............',
   ],
 };
