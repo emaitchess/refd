@@ -7,6 +7,11 @@ import { useAsyncAction } from '@/lib/api';
 import { useOnKeyPress } from '@/lib/keyboard';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/providers/workspace';
+import {
+  MAX_WORKSPACES,
+  WORKSPACE_LIMIT_MESSAGE,
+  workspaceLimitReached,
+} from '../../../shared/workspaces';
 import { Fade } from './Fade';
 import { WorkspaceIcon } from './WorkspaceIcon';
 
@@ -15,6 +20,7 @@ import { WorkspaceIcon } from './WorkspaceIcon';
 // expanded button) so the rail's width never squeezes it.
 export const WorkspaceSwitcher = ({ expanded }: { expanded: boolean }) => {
   const { workspaces, current, switchTo, create } = useWorkspace();
+  const atWorkspaceLimit = workspaceLimitReached(workspaces.length);
   const navigate = useNavigate();
   const [menuPos, setMenuPos] = useState<{
     top: number;
@@ -164,13 +170,16 @@ export const WorkspaceSwitcher = ({ expanded }: { expanded: boolean }) => {
           ))}
           <button
             type="button"
+            disabled={atWorkspaceLimit}
             onClick={() => {
               setMenuPos(null);
               setCreating(true);
             }}
-            className="block w-full cursor-pointer whitespace-nowrap border-border border-t px-3 py-1.5 text-left font-mono text-[11px] text-secondary transition-colors hover:bg-bg-card-hover hover:text-primary"
+            className="block w-full cursor-pointer whitespace-nowrap border-border border-t px-3 py-1.5 text-left font-mono text-[11px] text-secondary transition-colors hover:bg-bg-card-hover hover:text-primary disabled:cursor-not-allowed disabled:text-muted disabled:hover:bg-transparent"
           >
-            + new workspace
+            {atWorkspaceLimit
+              ? `workspace limit ${MAX_WORKSPACES}/${MAX_WORKSPACES}`
+              : '+ new workspace'}
           </button>
         </div>
       ) : null}
@@ -191,8 +200,9 @@ export const WorkspaceSwitcher = ({ expanded }: { expanded: boolean }) => {
               />
             </label>
             <p className="text-[12px] text-muted">
-              A workspace tracks one brand: its own competitors, prompts, and
-              runs. Creating it opens the guided brand setup.
+              {atWorkspaceLimit
+                ? WORKSPACE_LIMIT_MESSAGE
+                : 'A workspace tracks one brand: its own competitors, prompts, and runs. Creating it opens the guided brand setup.'}
             </p>
             {error ? <p className="text-[13px] text-error">{error}</p> : null}
             <div className="flex justify-end gap-2">
@@ -203,7 +213,11 @@ export const WorkspaceSwitcher = ({ expanded }: { expanded: boolean }) => {
               >
                 cancel
               </button>
-              <button type="submit" className="btn-primary" disabled={busy}>
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={busy || atWorkspaceLimit}
+              >
                 {busy ? 'creating…' : 'create workspace'}
               </button>
             </div>

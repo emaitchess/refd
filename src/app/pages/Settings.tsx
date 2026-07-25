@@ -12,6 +12,11 @@ import { ALL_SURFACES } from '@/lib/onboarding';
 import { useParamFlag } from '@/lib/params';
 import { cn } from '@/lib/utils';
 import { useWorkspace, type Workspace } from '@/providers/workspace';
+import {
+  MAX_WORKSPACES,
+  WORKSPACE_LIMIT_MESSAGE,
+  workspaceLimitReached,
+} from '../../shared/workspaces';
 
 const WORKSPACE_GRID =
   'grid md:grid-cols-[minmax(220px,1.2fr)_minmax(180px,1fr)_minmax(120px,0.55fr)_minmax(190px,0.8fr)]';
@@ -19,6 +24,7 @@ const WORKSPACE_GRID =
 const WorkspacesCard = () => {
   const { workspaces, current, switchTo, create, rename, deleteWorkspace } =
     useWorkspace();
+  const atWorkspaceLimit = workspaceLimitReached(workspaces.length);
   const navigate = useNavigate();
   const toast = useToast();
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -29,7 +35,11 @@ const WorkspacesCard = () => {
   const { busy, error, setError, run } = useAsyncAction();
   const deleteAction = useAsyncAction();
   const newNameRef = useRef<HTMLInputElement>(null);
-  useParamFlag('new-workspace', () => newNameRef.current?.focus());
+  useParamFlag('new-workspace', () => {
+    if (!atWorkspaceLimit) {
+      newNameRef.current?.focus();
+    }
+  });
 
   const cancelRename = () => {
     setEditingId(null);
@@ -51,6 +61,10 @@ const WorkspacesCard = () => {
 
   const createWorkspace = (event: FormEvent) => {
     event.preventDefault();
+    if (atWorkspaceLimit) {
+      setError(WORKSPACE_LIMIT_MESSAGE);
+      return;
+    }
     run(async () => {
       await create(newName.trim());
       setNewName('');
@@ -93,7 +107,8 @@ const WorkspacesCard = () => {
           <h2 className="section-label text-primary">workspaces</h2>
           <p className="mt-1 max-w-3xl text-[12px] text-muted leading-relaxed">
             Each workspace monitors one brand with isolated competitors,
-            prompts, runs, and reporting history.
+            prompts, runs, and reporting history. Each account can have up to{' '}
+            {MAX_WORKSPACES} workspaces.
           </p>
         </header>
 
@@ -265,7 +280,9 @@ const WorkspacesCard = () => {
               create workspace
             </label>
             <p className="mt-1 text-[12px] text-muted">
-              Creating one switches to its onboarding flow immediately.
+              {atWorkspaceLimit
+                ? WORKSPACE_LIMIT_MESSAGE
+                : 'Creating one switches to its onboarding flow immediately.'}
             </p>
           </div>
           <div className="flex min-w-0 gap-2 md:w-[420px]">
@@ -279,8 +296,13 @@ const WorkspacesCard = () => {
               minLength={1}
               maxLength={60}
               required
+              disabled={atWorkspaceLimit}
             />
-            <button type="submit" className="btn-secondary" disabled={busy}>
+            <button
+              type="submit"
+              className="btn-secondary"
+              disabled={busy || atWorkspaceLimit}
+            >
               {busy ? 'creating…' : 'create'}
             </button>
           </div>

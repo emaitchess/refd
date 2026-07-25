@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type KeyboardEvent,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Select } from '@/components/controls/Select';
 import { SurfaceChips } from '@/components/controls/SurfaceChips';
 import { DitherIcon } from '@/components/dither/DitherIcon';
@@ -11,6 +18,7 @@ import {
   PROMPT_CATEGORIES,
   STEP_TITLES,
 } from '@/lib/onboarding';
+import type { PromptCategory } from '@/lib/prompt-categories';
 import type { OnboardingPrompt, OnboardingState } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { OnboardingScrollArea } from './OnboardingScrollArea';
@@ -39,7 +47,9 @@ export const PromptsStep = ({
 }) => {
   const [list, setList] = useState<OnboardingPrompt[]>(state.profile.prompts);
   const [text, setText] = useState('');
-  const [category, setCategory] = useState<string>(PROMPT_CATEGORIES[0]);
+  const [category, setCategory] = useState<PromptCategory>(
+    PROMPT_CATEGORIES[0],
+  );
   const [adding, setAdding] = useState(false);
   const [generating, setGenerating] = useState(false);
   const draftRef = useRef<HTMLTextAreaElement>(null);
@@ -51,9 +61,16 @@ export const PromptsStep = ({
   const hasBrand = Boolean(state.brand);
   const toast = useToast();
 
-  // Category filter over the list (view-only). Falls back to "all" if the active
-  // category empties out.
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState<PromptCategory>(
+    () =>
+      PROMPT_CATEGORIES.find((promptCategory) =>
+        state.profile.prompts.some(
+          (prompt) => prompt.category === promptCategory,
+        ),
+      ) ?? PROMPT_CATEGORIES[0],
+  );
+  const tabsId = useId();
+  const tabRefs = useRef(new Map<string, HTMLButtonElement>());
   const counts = useMemo(() => {
     const acc: Record<string, number> = {};
     for (const p of list) {
@@ -61,15 +78,34 @@ export const PromptsStep = ({
     }
     return acc;
   }, [list]);
-  const presentCategories = PROMPT_CATEGORIES.filter(
-    (c) => (counts[c] ?? 0) > 0,
-  );
-  const activeFilter =
-    filter !== 'all' && (counts[filter] ?? 0) === 0 ? 'all' : filter;
-  const shown =
-    activeFilter === 'all'
-      ? list
-      : list.filter((p) => p.category === activeFilter);
+  const shown = list.filter((p) => p.category === filter);
+  const tabPanelId = `${tabsId}-panel`;
+
+  const onTabKeyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    current: PromptCategory,
+  ) => {
+    const currentIndex = PROMPT_CATEGORIES.indexOf(current);
+    let nextIndex: number | null = null;
+    if (event.key === 'ArrowLeft') {
+      nextIndex =
+        (currentIndex - 1 + PROMPT_CATEGORIES.length) %
+        PROMPT_CATEGORIES.length;
+    } else if (event.key === 'ArrowRight') {
+      nextIndex = (currentIndex + 1) % PROMPT_CATEGORIES.length;
+    } else if (event.key === 'Home') {
+      nextIndex = 0;
+    } else if (event.key === 'End') {
+      nextIndex = PROMPT_CATEGORIES.length - 1;
+    }
+    if (nextIndex === null) {
+      return;
+    }
+    event.preventDefault();
+    const next = PROMPT_CATEGORIES[nextIndex] ?? PROMPT_CATEGORIES[0];
+    setFilter(next);
+    tabRefs.current.get(next)?.focus();
+  };
 
   const runGenerate = async (regenerate = false) => {
     setGenerating(true);
@@ -127,6 +163,7 @@ export const PromptsStep = ({
       capToast();
       return;
     }
+    setCategory(filter);
     setAdding(true);
   };
 
@@ -151,6 +188,7 @@ export const PromptsStep = ({
       return;
     }
     setList((prev) => [...prev, { text: t, category }]);
+    setFilter(category);
     setText('');
     setAdding(false);
     flow.setError(null);
@@ -240,56 +278,10 @@ export const PromptsStep = ({
         </p>
       ) : null}
 
-      <div className="flex min-w-0 items-start gap-2">
-        <nav
-          className="prompt-category-scroll min-w-0 flex-1 overflow-x-auto overscroll-x-contain pb-1"
-          aria-label="Prompt category filters"
-        >
-          <div className="flex w-max gap-1.5">
-            {['all', ...presentCategories].map((f) => {
-              const active = activeFilter === f;
-              const count = f === 'all' ? list.length : (counts[f] ?? 0);
-              return (
-                <button
-                  key={f}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => setFilter(f)}
-                  className={cn(
-                    'shrink-0 transition-colors focus-visible:outline focus-visible:outline-border-strong',
-                    f === 'all' &&
-                      'flex h-7 items-center gap-1.5 border px-2 font-mono text-[11px]',
-                    f === 'all' &&
-                      (active
-                        ? 'border-border-strong bg-accent-soft text-primary'
-                        : 'border-border text-muted hover:text-secondary'),
-                  )}
-                >
-                  {f === 'all' ? (
-                    <>
-                      All
-                      <span
-                        className={active ? 'text-secondary' : 'text-muted'}
-                      >
-                        {count}
-                      </span>
-                    </>
-                  ) : (
-                    <PromptCategoryTag
-                      category={f}
-                      count={count}
-                      active={active}
-                      size="md"
-                    />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </nav>
+      <div className="flex justify-end">
         <button
           type="button"
-          className="btn-secondary h-7 shrink-0 px-4"
+          className="btn-secondary h-7 px-4"
           onClick={openAdd}
           disabled={generating || adding}
         >
@@ -297,45 +289,98 @@ export const PromptsStep = ({
         </button>
       </div>
 
-      {list.length > 0 ? (
+      <div className="min-w-0 border border-border">
+        <div className="min-w-0 border-border border-b bg-bg-elevated">
+          <nav className="min-w-0" aria-label="Prompt categories">
+            <div
+              className="grid w-full grid-cols-5"
+              role="tablist"
+              aria-label="Prompt categories"
+            >
+              {PROMPT_CATEGORIES.map((promptCategory, index) => {
+                const active = filter === promptCategory;
+                const tabId = `${tabsId}-tab-${index}`;
+                return (
+                  <button
+                    key={promptCategory}
+                    ref={(node) => {
+                      if (node) {
+                        tabRefs.current.set(promptCategory, node);
+                      } else {
+                        tabRefs.current.delete(promptCategory);
+                      }
+                    }}
+                    id={tabId}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    aria-controls={tabPanelId}
+                    tabIndex={active ? 0 : -1}
+                    onClick={() => setFilter(promptCategory)}
+                    onKeyDown={(event) => onTabKeyDown(event, promptCategory)}
+                    className={cn(
+                      'relative flex h-10 min-w-0 items-center justify-center px-2 transition-colors',
+                      'focus-visible:z-10 focus-visible:outline focus-visible:outline-border-strong',
+                      index < PROMPT_CATEGORIES.length - 1 &&
+                        'border-border border-r',
+                      active
+                        ? 'bg-accent-soft after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-primary'
+                        : 'hover:bg-bg-card-hover',
+                    )}
+                  >
+                    <PromptCategoryTag
+                      category={promptCategory}
+                      count={counts[promptCategory] ?? 0}
+                      active={active}
+                      size="md"
+                      className="w-full justify-center border-0 bg-transparent"
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
+        </div>
         <OnboardingScrollArea
           label="Scroll prompts"
           className="max-h-72"
-          viewportClassName="max-h-72 border border-border"
+          viewportClassName="max-h-72"
           scrollbarClassName="hidden [top:1px] [bottom:1px] sm:block"
         >
-          <ul className="flex flex-col divide-y divide-border">
-            {shown.map((prompt) => (
-              <li
-                key={prompt.text}
-                className="group/prompt flex items-start justify-between gap-3 py-2 pr-5 pl-3"
-              >
-                <div className="flex min-w-0 flex-col gap-1">
-                  <PromptCategoryTag
-                    category={prompt.category}
-                    className="self-start"
-                  />
-                  <span className="text-[13px] text-primary leading-snug">
-                    {prompt.text}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  aria-label={`Remove prompt: ${prompt.text}`}
-                  className="btn-ghost h-7 shrink-0 px-2 text-muted opacity-0 pointer-coarse:opacity-100 transition-[opacity,color] duration-150 hover:text-error focus-visible:opacity-100 group-hover/prompt:opacity-100"
-                  onClick={() => remove(prompt.text)}
-                >
-                  <DitherIcon name="trash" size={14} />
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div
+            id={tabPanelId}
+            role="tabpanel"
+            aria-labelledby={`${tabsId}-tab-${PROMPT_CATEGORIES.indexOf(filter)}`}
+          >
+            {shown.length > 0 ? (
+              <ul className="flex flex-col divide-y divide-border">
+                {shown.map((prompt) => (
+                  <li
+                    key={prompt.text}
+                    className="group/prompt flex min-h-12 items-center justify-between gap-3 py-2 pr-5 pl-3"
+                  >
+                    <span className="min-w-0 text-[13px] text-primary leading-snug">
+                      {prompt.text}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={`Remove prompt: ${prompt.text}`}
+                      className="btn-ghost h-7 shrink-0 px-2 text-muted opacity-0 pointer-coarse:opacity-100 transition-[opacity,color] duration-150 hover:text-error focus-visible:opacity-100 group-hover/prompt:opacity-100"
+                      onClick={() => remove(prompt.text)}
+                    >
+                      <DitherIcon name="trash" size={14} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : generating ? null : (
+              <p className="px-3 py-5 text-center text-[12px] text-muted">
+                No {filter.toLowerCase()} prompts yet. Add one to this category.
+              </p>
+            )}
+          </div>
         </OnboardingScrollArea>
-      ) : generating ? null : (
-        <p className="border border-border border-dashed px-3 py-4 text-center text-[12px] text-muted">
-          No prompts yet. Add a few to begin monitoring.
-        </p>
-      )}
+      </div>
 
       {adding ? (
         <div className="flex flex-col gap-3 border border-border p-3">
@@ -357,7 +402,14 @@ export const PromptsStep = ({
             <Select
               value={category}
               options={PROMPT_CATEGORIES}
-              onChange={setCategory}
+              onChange={(value) => {
+                const nextCategory = PROMPT_CATEGORIES.find(
+                  (option) => option === value,
+                );
+                if (nextCategory) {
+                  setCategory(nextCategory);
+                }
+              }}
               disabled={generating}
               ariaLabel="Prompt category"
               openUp
