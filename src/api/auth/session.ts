@@ -1,9 +1,10 @@
 import type { Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
-import { sign, verify } from 'hono/jwt';
+import { jwtVerify, SignJWT } from 'jose';
 import type { AppEnv } from '../env';
 
 const COOKIE_NAME = 'refd_session';
+const ALG = 'HS256';
 export const SESSION_SECONDS = 24 * 60 * 60; // 24h per plan
 const RENEW_BELOW_SECONDS = SESSION_SECONDS / 2; // sliding renewal past half-life
 
@@ -13,24 +14,23 @@ export interface SessionClaims {
   tv: number; // tokenVersion — bumping it revokes all outstanding sessions
   iat: number;
   exp: number;
-  [key: string]: unknown;
 }
+
+const secretKey = (env: AppEnv): Uint8Array =>
+  new TextEncoder().encode(env.JWT_SECRET);
 
 export const issueSession = async <E extends { Bindings: AppEnv }>(
   c: Context<E>,
   user: { id: number; email: string; tokenVersion: number },
 ): Promise<void> => {
   const now = Math.floor(Date.now() / 1000);
-  const token = await sign(
-    {
-      sub: user.id,
-      email: user.email,
-      tv: user.tokenVersion,
-      iat: now,
-      exp: now + SESSION_SECONDS,
-    } satisfies SessionClaims,
-    c.env.JWT_SECRET,
-  );
+  // sub is a string per RFC 7519; readSession parses it back to the user id.
+  const token = await new SignJWT({ email: user.email, tv: user.tokenVersion })
+    .setProtectedHeader({ alg: ALG })
+    .setSubject(String(user.id))
+    .setIssuedAt(now)
+    .setExpirationTime(now + SESSION_SECONDS)
+    .sign(secretKey(c.env));
   setCookie(c, COOKIE_NAME, token, {
     httpOnly: true,
     secure: true,
@@ -54,14 +54,28 @@ export const readSession = async <E extends { Bindings: AppEnv }>(
     return null;
   }
   try {
-    const claims = (await verify(
-      token,
-      c.env.JWT_SECRET,
-      'HS256',
-    )) as unknown as SessionClaims;
-    return typeof claims.sub === 'number' && typeof claims.tv === 'number'
-      ? claims
-      : null;
+    // algorithms pins HS256 so a forged token can't downgrade to "none".
+    // jwtVerify also enforces exp, throwing (and returning null) when expired.
+    const { payload } = await jwtVerify(token, secretKey(c.env), {
+      algorithms: [ALG],
+    });
+    const sub = Number(payload.sub);
+    if (
+      !Number.isInteger(sub) ||
+      typeof payload.tv !== 'number' ||
+      typeof payload.email !== 'string' ||
+      typeof payload.iat !== 'number' ||
+      typeof payload.exp !== 'number'
+    ) {
+      return null;
+    }
+    return {
+      sub,
+      email: payload.email,
+      tv: payload.tv,
+      iat: payload.iat,
+      exp: payload.exp,
+    };
   } catch {
     return null;
   }
