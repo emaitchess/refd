@@ -1,65 +1,30 @@
-// PBKDF2-SHA256 via WebCrypto — native in workerd and Bun; wasm KDFs (bcrypt/
-// argon2) would burn worker CPU instead. OWASP-recommended iteration count.
-const ITERATIONS = 600_000;
-const KEY_BITS = 256;
+import { compare as bcryptCompare, hash as bcryptHash } from 'bcryptjs';
 
-export const toBase64 = (bytes: Uint8Array): string => {
-  let bin = '';
-  for (const b of bytes) {
-    bin += String.fromCharCode(b);
-  }
-  return btoa(bin);
-};
-
-export const fromBase64 = (b64: string): Uint8Array => {
-  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-};
-
-const derive = async (
-  password: string,
-  salt: Uint8Array,
-): Promise<Uint8Array> => {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(password),
-    'PBKDF2',
-    false,
-    ['deriveBits'],
-  );
-  const bits = await crypto.subtle.deriveBits(
-    {
-      name: 'PBKDF2',
-      hash: 'SHA-256',
-      salt: salt as BufferSource,
-      iterations: ITERATIONS,
-    },
-    key,
-    KEY_BITS,
-  );
-  return new Uint8Array(bits);
-};
+// bcrypt via bcryptjs (pure JS). workerd forbids runtime WASM compilation
+// (so argon2/pbkdf2 wasm libs throw "Wasm code generation disallowed") and
+// caps native WebCrypto PBKDF2 at 100k iterations, well under OWASP's target.
+// bcrypt sidesteps both: it's pure JS, purpose-built for passwords, and its
+// output embeds the cost + salt, so the work factor can be raised later without
+// invalidating stored hashes. cost 12 measures ~200ms/hash on workerd.
+const COST = 12;
 
 export const hashPassword = async (
   password: string,
 ): Promise<{ hash: string; salt: string }> => {
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const hash = await derive(password, salt);
-  return { hash: toBase64(hash), salt: toBase64(salt) };
+  // bcrypt embeds its own salt in the hash; the salt column is retained for
+  // schema compatibility and is not read back on verify.
+  return { hash: await bcryptHash(password, COST), salt: '' };
 };
 
+// salt is ignored: bcrypt reads the salt and cost it needs from expectedHash.
 export const verifyPassword = async (
   password: string,
-  salt: string,
+  _salt: string,
   expectedHash: string,
 ): Promise<boolean> => {
-  const actual = await derive(password, fromBase64(salt));
-  const expected = fromBase64(expectedHash);
-  if (actual.length !== expected.length) {
+  try {
+    return await bcryptCompare(password, expectedHash);
+  } catch {
     return false;
   }
-  let diff = 0;
-  for (let i = 0; i < actual.length; i += 1) {
-    diff |= (actual[i] ?? 0) ^ (expected[i] ?? 0);
-  }
-  return diff === 0;
 };
