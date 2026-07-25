@@ -18,6 +18,7 @@ import { changesRoutes } from './routes/changes';
 import { chatRoutes } from './routes/chat';
 import { competitorRoutes } from './routes/competitors';
 import { entityRoutes } from './routes/entities';
+import { faviconRoutes } from './routes/favicon';
 import { onboardingRoutes } from './routes/onboarding';
 import { overviewRoutes } from './routes/overview';
 import { promptRoutes } from './routes/prompts';
@@ -44,6 +45,9 @@ app.route('/api/auth', authRoutes);
 const authed = new Hono<AuthedBindings>();
 authed.use(requireAuth);
 authed.route('/workspaces', workspaceRoutes);
+// Favicon proxy: session-gated, workspace-agnostic (used across onboarding and
+// the dashboard), so it hangs off /api/favicon rather than a workspace scope.
+authed.route('/favicon', faviconRoutes);
 
 const scoped = new Hono<WorkspaceBindings>();
 scoped.use(requireWorkspace);
