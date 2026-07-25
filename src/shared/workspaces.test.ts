@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { resolveWorkspaceDeletion, workspaceDeletionIssue } from './workspaces';
+import {
+  MAX_WORKSPACES,
+  resolveWorkspaceDeletion,
+  workspaceDeletionIssue,
+  workspaceLimitReached,
+} from './workspaces';
 
 const ready = (id: number, name: string) => ({
   id,
@@ -10,6 +15,17 @@ const incomplete = (id: number, name: string) => ({
   id,
   name,
   onboardingCompleted: false,
+});
+
+describe('workspaceLimitReached', () => {
+  test('allows creation below the limit', () => {
+    expect(workspaceLimitReached(MAX_WORKSPACES - 1)).toBe(false);
+  });
+
+  test('blocks creation at and above the limit', () => {
+    expect(workspaceLimitReached(MAX_WORKSPACES)).toBe(true);
+    expect(workspaceLimitReached(MAX_WORKSPACES + 1)).toBe(true);
+  });
 });
 
 describe('workspaceDeletionIssue', () => {

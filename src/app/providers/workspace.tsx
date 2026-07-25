@@ -7,7 +7,11 @@ import {
   useMemo,
   useState,
 } from 'react';
-import { resolveWorkspaceDeletion } from '../../shared/workspaces';
+import {
+  resolveWorkspaceDeletion,
+  WORKSPACE_LIMIT_MESSAGE,
+  workspaceLimitReached,
+} from '../../shared/workspaces';
 import { api, setActiveWorkspaceId } from '../lib/api';
 import { useAuth } from './auth';
 
@@ -98,23 +102,29 @@ export const WorkspaceProvider = ({ children }: { children: ReactNode }) => {
     [workspaces],
   );
 
-  const create = useCallback(async (name: string) => {
-    const created = await api<{ id: number; name: string }>('/workspaces', {
-      method: 'POST',
-      body: JSON.stringify({ name }),
-    });
-    const workspace: Workspace = {
-      ...created,
-      hasBrand: false,
-      brandDomain: null,
-      onboardingCompleted: false,
-    };
-    setWorkspaces((list) => [...list, workspace]);
-    localStorage.setItem(STORAGE_KEY, String(workspace.id));
-    setActiveWorkspaceId(workspace.id);
-    setCurrentId(workspace.id);
-    return workspace;
-  }, []);
+  const create = useCallback(
+    async (name: string) => {
+      if (workspaceLimitReached(workspaces.length)) {
+        throw new Error(WORKSPACE_LIMIT_MESSAGE);
+      }
+      const created = await api<{ id: number; name: string }>('/workspaces', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+      const workspace: Workspace = {
+        ...created,
+        hasBrand: false,
+        brandDomain: null,
+        onboardingCompleted: false,
+      };
+      setWorkspaces((list) => [...list, workspace]);
+      localStorage.setItem(STORAGE_KEY, String(workspace.id));
+      setActiveWorkspaceId(workspace.id);
+      setCurrentId(workspace.id);
+      return workspace;
+    },
+    [workspaces.length],
+  );
 
   const rename = useCallback(async (id: number, name: string) => {
     const updated = await api<{ id: number; name: string }>(

@@ -45,6 +45,10 @@ export const CompetitorsStep = ({
   const [name, setName] = useState('');
   const [domains, setDomains] = useState('');
   const [aliases, setAliases] = useState('');
+  const [editingName, setEditingName] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editDomains, setEditDomains] = useState('');
+  const [editAliases, setEditAliases] = useState('');
   const [suggesting, setSuggesting] = useState(false);
   const [note, setNote] = useState<{
     tone: 'ok' | 'warn';
@@ -95,42 +99,86 @@ export const CompetitorsStep = ({
     }
   }, [list.length, brandDomain]);
 
-  const add = () => {
-    if (full) {
-      flow.setError(`up to ${MAX_COMPETITORS} competitors`);
-      return;
-    }
-    const n = name.trim();
-    const domainList = domains.split(',').map(domainFromUrl).filter(Boolean);
-    const aliasList = aliases
+  // Parse raw form values into a competitor, validating uniqueness against
+  // `others` (the list minus the row being edited, when saving). Sets an error
+  // and returns null on failure so add and save share one validation path.
+  const parseCompetitor = (
+    rawName: string,
+    rawDomains: string,
+    rawAliases: string,
+    others: OnboardingCompetitor[],
+  ): OnboardingCompetitor | null => {
+    const n = rawName.trim();
+    const domainList = rawDomains.split(',').map(domainFromUrl).filter(Boolean);
+    const aliasList = rawAliases
       .split(',')
       .map((a) => a.trim())
       .filter(Boolean)
       .map((value) => ({ value }));
     if (!n || domainList.length === 0) {
       flow.setError('add a competitor name and at least one domain');
-      return;
+      return null;
     }
-    const takenDomains = new Set(list.flatMap((c) => c.domains));
+    const takenDomains = new Set(others.flatMap((c) => c.domains));
     if (
-      list.some((c) => c.name.toLowerCase() === n.toLowerCase()) ||
+      others.some((c) => c.name.toLowerCase() === n.toLowerCase()) ||
       domainList.some((d) => takenDomains.has(d))
     ) {
       flow.setError('that competitor is already in the list');
+      return null;
+    }
+    return { name: n, domains: domainList, aliases: aliasList };
+  };
+
+  const add = () => {
+    if (full) {
+      flow.setError(`up to ${MAX_COMPETITORS} competitors`);
       return;
     }
-    setList((prev) => [
-      ...prev,
-      { name: n, domains: domainList, aliases: aliasList },
-    ]);
+    const comp = parseCompetitor(name, domains, aliases, list);
+    if (!comp) {
+      return;
+    }
+    setList((prev) => [...prev, comp]);
     setName('');
     setDomains('');
     setAliases('');
     flow.setError(null);
   };
 
-  const remove = (compName: string) =>
+  const startEdit = (comp: OnboardingCompetitor) => {
+    setEditingName(comp.name);
+    setEditName(comp.name);
+    setEditDomains(comp.domains.join(', '));
+    setEditAliases(comp.aliases.map((a) => a.value).join(', '));
+    flow.setError(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingName(null);
+    flow.setError(null);
+  };
+
+  const saveEdit = () => {
+    const comp = parseCompetitor(
+      editName,
+      editDomains,
+      editAliases,
+      list.filter((c) => c.name !== editingName),
+    );
+    if (!comp) {
+      return;
+    }
+    setList((prev) => prev.map((c) => (c.name === editingName ? comp : c)));
+    cancelEdit();
+  };
+
+  const remove = (compName: string) => {
+    if (compName === editingName) {
+      cancelEdit();
+    }
     setList((prev) => prev.filter((c) => c.name !== compName));
+  };
 
   const next = () => {
     if (list.length === 0) {
@@ -229,43 +277,134 @@ export const CompetitorsStep = ({
             <SortableItem
               key={comp.name}
               id={comp.name}
-              className="group/competitor flex items-center justify-between gap-3 px-3 py-2"
+              className={cn(
+                'group/competitor px-3 py-2',
+                editingName === comp.name && 'bg-accent-soft',
+              )}
             >
               {(handleProps) => (
                 <>
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <button
-                      type="button"
-                      aria-label="Drag to reorder"
-                      className="shrink-0 cursor-grab touch-none font-mono text-[13px] text-muted transition-colors hover:text-primary active:cursor-grabbing"
-                      {...handleProps}
-                    >
-                      <DitherIcon name="grip" size={14} />
-                    </button>
-                    <Favicon domain={comp.domains[0] ?? ''} />
-                    <div className="flex min-w-0 flex-col">
-                      <span className="truncate text-[13px] text-primary">
-                        {comp.name}
-                        {comp.aliases.length > 0 ? (
-                          <span className="text-muted">
-                            {' '}
-                            aka {comp.aliases.map((a) => a.value).join(', ')}
-                          </span>
-                        ) : null}
-                      </span>
-                      <span className="truncate font-mono text-[11px] text-muted">
-                        {comp.domains.join(', ')}
-                      </span>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <button
+                        type="button"
+                        aria-label="Drag to reorder"
+                        className="shrink-0 cursor-grab touch-none font-mono text-[13px] text-muted transition-colors hover:text-primary active:cursor-grabbing"
+                        {...handleProps}
+                      >
+                        <DitherIcon name="grip" size={14} />
+                      </button>
+                      <Favicon domain={comp.domains[0] ?? ''} />
+                      <div className="flex min-w-0 flex-col">
+                        <span className="truncate text-[13px] text-primary">
+                          {comp.name}
+                          {comp.aliases.length > 0 ? (
+                            <span className="text-muted">
+                              {' '}
+                              aka {comp.aliases.map((a) => a.value).join(', ')}
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="truncate font-mono text-[11px] text-muted">
+                          {comp.domains.join(', ')}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center">
+                      <button
+                        type="button"
+                        aria-label={
+                          editingName === comp.name
+                            ? `Stop editing: ${comp.name}`
+                            : `Edit competitor: ${comp.name}`
+                        }
+                        className={cn(
+                          'btn-ghost h-7 shrink-0 px-2 text-muted transition-[opacity,color] duration-150 hover:text-primary focus-visible:opacity-100 group-hover/competitor:opacity-100',
+                          editingName === comp.name
+                            ? 'text-primary opacity-100'
+                            : 'opacity-0 pointer-coarse:opacity-100',
+                        )}
+                        onClick={() =>
+                          editingName === comp.name
+                            ? cancelEdit()
+                            : startEdit(comp)
+                        }
+                      >
+                        <DitherIcon name="pencil" size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Remove competitor: ${comp.name}`}
+                        className="btn-ghost h-7 shrink-0 px-2 text-muted opacity-0 pointer-coarse:opacity-100 transition-[opacity,color] duration-150 hover:text-error focus-visible:opacity-100 group-hover/competitor:opacity-100"
+                        onClick={() => remove(comp.name)}
+                      >
+                        <DitherIcon name="trash" size={14} />
+                      </button>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    aria-label={`Remove competitor: ${comp.name}`}
-                    className="btn-ghost h-7 shrink-0 px-2 text-muted opacity-0 pointer-coarse:opacity-100 transition-[opacity,color] duration-150 hover:text-error focus-visible:opacity-100 group-hover/competitor:opacity-100"
-                    onClick={() => remove(comp.name)}
-                  >
-                    <DitherIcon name="trash" size={14} />
-                  </button>
+                  {editingName === comp.name ? (
+                    <div className="mt-2.5 flex flex-col gap-2.5 border-border border-t pt-2.5">
+                      <div className="grid gap-2.5 sm:grid-cols-2">
+                        <label className="flex flex-col gap-1.5">
+                          <span className="field-label">Competitor name</span>
+                          <input
+                            className="input"
+                            placeholder="Acme"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            onKeyDown={onEnterKey(saveEdit)}
+                            maxLength={100}
+                            autoFocus
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className="field-label">Domains</span>
+                          <input
+                            className="input"
+                            placeholder="acme.com"
+                            value={editDomains}
+                            onChange={(e) => setEditDomains(e.target.value)}
+                            onKeyDown={onEnterKey(saveEdit)}
+                            onPaste={(e) =>
+                              handleDomainPaste(
+                                e,
+                                editDomains,
+                                setEditDomains,
+                                true,
+                              )
+                            }
+                          />
+                        </label>
+                      </div>
+                      <label className="flex flex-col gap-1.5">
+                        <span className="field-label">Aliases (optional)</span>
+                        <input
+                          className="input"
+                          placeholder="comma-separated alternate names"
+                          value={editAliases}
+                          onChange={(e) => setEditAliases(e.target.value)}
+                          onKeyDown={onEnterKey(saveEdit)}
+                          maxLength={400}
+                        />
+                      </label>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          className="btn-ghost h-8 px-3"
+                          onClick={cancelEdit}
+                        >
+                          cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-secondary h-8 px-3"
+                          onClick={saveEdit}
+                        >
+                          save changes
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </>
               )}
             </SortableItem>
