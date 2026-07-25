@@ -1,0 +1,95 @@
+# refd — open-source AI search monitoring
+
+> Know when AI answers mention your brand, and who they mention instead.
+
+refd (refd.ai) is an open-source platform for monitoring brand visibility in AI
+search. It tracks how often a brand is mentioned and cited in AI-generated
+answers across ChatGPT, Perplexity, Gemini, Google AI Mode, and Google AI
+Overviews, and how that compares to the competitors you choose to track. It is
+available as a hosted app at refd.ai or can be self-hosted on your own
+infrastructure. Bright Data is the only data provider.
+
+## Who it is for
+
+Marketing, SEO, and brand teams who need to understand how their brand shows up
+when buyers ask questions to AI assistants — and who is mentioned instead when it
+does not. If your customers increasingly start research inside an AI chat rather
+than a search box, refd is the instrument for measuring your presence there.
+
+## Answer surfaces
+
+refd monitors five AI answer surfaces:
+
+- ChatGPT
+- Perplexity
+- Gemini
+- Google AI Mode
+- Google AI Overviews
+
+Every active prompt is checked across every surface on each run.
+
+## What refd measures
+
+For each answer, refd records four independent signals:
+
+- **Mentions** — whether your brand (or a tracked competitor) is named in the
+  answer text.
+- **Citations** — whether your domain (or a competitor's) appears among the
+  answer's source links. "Mentioned" and "cited" are independent: an answer can
+  name a brand without citing it, and cite a domain without naming it.
+- **First-mention position** — the order in which tracked entities are first
+  mentioned in the answer, so you can see who leads the response.
+- **Share of voice** — your presence relative to the competitors you track,
+  across the prompt set.
+
+Every raw answer is stored, so any score can be opened and traced back to the
+exact answer it came from.
+
+## How monitoring works
+
+Each workspace tracks a single brand along with a set of competitors and a set of
+prompts — the buyer questions you care about. On a daily schedule, refd runs
+every active prompt across every surface, scores the answers, and updates the
+dashboard.
+
+Because AI answers are non-deterministic — the same question can produce
+different answers minute to minute — refd takes repeat samples of each prompt and
+encourages comparing trends across runs rather than reading any single answer as
+ground truth.
+
+A missing Google AI Overview is a valid result, not an error: AI Overviews appear
+on only a fraction of queries, so their absence is itself a data point.
+
+## Competitors and citation gaps
+
+You choose which competitors to track. refd then compares your brand to them
+across mentions, citations, first-mention position, and share of voice. It also
+surfaces citation gaps: the domains cited on prompts where your brand is absent,
+so you can see which sources may be shaping AI answers in your category.
+
+## Hosted or self-hosted
+
+- **Hosted** — sign up at refd.ai and start tracking a brand. The first workspace
+  is created for you.
+- **Self-hosted** — deploy the complete stack on your own Cloudflare and Bright
+  Data accounts. Nothing phones home, and you keep all of your data.
+
+## Architecture
+
+refd is a single Cloudflare Worker that does everything: the Hono API, a
+scheduled cron trigger, a queue consumer, and the React dashboard served as
+static assets. It uses Cloudflare D1 (SQLite) for structured data, R2 for the raw
+answer payloads, and Queues for orchestration. The dashboard is a React single
+page app with dithered, monochrome charts. The entire codebase is open source.
+
+## Privacy
+
+Bright Data is the only external data provider, used solely to run prompts
+against the answer surfaces. Data is isolated per workspace. When self-hosted,
+nothing is sent back to refd.
+
+## Getting started
+
+- Create an account: https://refd.ai/auth/create-account
+- Sign in: https://refd.ai/auth/sign-in
+- Source code: https://github.com/emaitchess/refd

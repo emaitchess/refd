@@ -1,0 +1,579 @@
+@import 'tailwindcss';
+
+@font-face {
+  font-family: 'Departure Mono';
+  src: url('../assets/fonts/DepartureMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+
+/*
+ * Theme tokens per DESIGN.md — dark is the default, light overrides below.
+ * Always reference roles (bg-bg, text-primary, …), never raw hex in markup.
+ */
+@theme {
+  --color-bg: #080809;
+  --color-bg-subtle: #0d0d0f;
+  --color-bg-elevated: #0a0a0c;
+  --color-bg-card: rgba(255, 255, 255, 0.025);
+  --color-bg-card-hover: rgba(255, 255, 255, 0.05);
+  --color-primary: #f5f3ef;
+  --color-secondary: #b7b3b0;
+  --color-muted: #82808a;
+  --color-border: rgba(255, 255, 255, 0.09);
+  --color-border-strong: rgba(255, 255, 255, 0.18);
+  --color-accent: #f5f3ef;
+  --color-accent-soft: rgba(255, 255, 255, 0.06);
+  --color-on-accent: #080809;
+  --color-scrim: rgba(0, 0, 0, 0.8);
+  --color-shadow: rgba(0, 0, 0, 0.35);
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-error: #f87171;
+  --color-info: #38bdf8;
+
+  /* shadcn-convention aliases consumed by vendored dither-kit (tooltip/legend). */
+  --color-popover: var(--color-bg-elevated);
+  --color-popover-foreground: var(--color-primary);
+  --color-foreground: var(--color-primary);
+  --color-muted-foreground: var(--color-muted);
+
+  --font-sans: 'Inter Variable', system-ui, sans-serif;
+  --font-mono: 'Departure Mono', ui-monospace, monospace;
+
+  /* No radii: every corner is square (see DESIGN.md — Corners). */
+
+  --ease-house: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Suppress root scroll boundary bounce on branded public surfaces. Keeping
+   the viewport matched to their palette also prevents a contrasting flash on
+   browsers that retain a small native stretch at the boundary. */
+html:has(.landing-shell),
+body:has(.landing-shell),
+html:has(.auth-shell),
+body:has(.auth-shell),
+html:has(.onboarding-shell),
+body:has(.onboarding-shell) {
+  background: #080809;
+  overscroll-behavior-y: none;
+}
+
+:root[data-theme='light']:has(.landing-shell),
+:root[data-theme='light'] body:has(.landing-shell),
+:root[data-theme='light']:has(.auth-shell),
+:root[data-theme='light'] body:has(.auth-shell),
+:root[data-theme='light']:has(.onboarding-shell),
+:root[data-theme='light'] body:has(.onboarding-shell) {
+  background: #f7f4f0;
+}
+
+html:has(.landing-shell) {
+  scroll-behavior: smooth;
+}
+
+/* One inset focus treatment avoids clipping inside rails, panes, and tables. */
+:where(
+  a[href],
+  button,
+  summary,
+  [tabindex]:not([tabindex='-1'])
+):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+:where(
+  input:not([type='hidden']),
+  select,
+  textarea,
+  [contenteditable='true']
+):focus {
+  outline: none;
+}
+
+.onboarding-step-scroll {
+  scrollbar-width: none;
+}
+
+.onboarding-step-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.favicon-contrast {
+  filter: drop-shadow(
+    0 0 1px color-mix(in srgb, var(--color-primary) 72%, transparent)
+  );
+}
+
+.prompt-category-scroll {
+  scrollbar-color: var(--color-border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.prompt-category-scroll::-webkit-scrollbar {
+  height: 3px;
+}
+
+.prompt-category-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.prompt-category-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:has(.landing-shell) {
+    scroll-behavior: auto;
+  }
+}
+
+:root[data-theme='light'] {
+  --color-bg: #f7f4f0;
+  --color-bg-subtle: #f0ebe6;
+  --color-bg-elevated: #fffdfa;
+  --color-bg-card: rgba(39, 28, 30, 0.025);
+  --color-bg-card-hover: rgba(39, 28, 30, 0.05);
+  --color-primary: #181416;
+  --color-secondary: #50494c;
+  --color-muted: #71676b;
+  --color-border: rgba(39, 28, 30, 0.14);
+  --color-border-strong: rgba(39, 28, 30, 0.24);
+  --color-accent: #181416;
+  --color-accent-soft: rgba(39, 28, 30, 0.06);
+  --color-on-accent: #f7f4f0;
+  --color-shadow: rgba(71, 45, 48, 0.16);
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-error: #dc2626;
+  --color-info: #0369a1;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
+  }
+  body {
+    @apply bg-bg text-secondary antialiased text-[14px] leading-normal;
+  }
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-bg);
+  }
+  /*
+   * Dither shimmer: on hover of the owning link/button, the icon's
+   * checkerboard phases flip in hard steps — the mid-tone "crawls" while
+   * solid pixels hold the shape. Same ordered-dither language as the charts.
+   */
+  .dither-icon .dp-b {
+    opacity: 0;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    :is(a, button):hover .dither-icon .dp-a {
+      animation: dither-flip 0.4s steps(1) infinite;
+    }
+    :is(a, button):hover .dither-icon .dp-b {
+      animation: dither-flip 0.4s steps(1) infinite reverse;
+    }
+    /* Ambient shimmer — always on, slower; login logo only. */
+    .dither-live.dither-icon .dp-a {
+      animation: dither-flip 1.4s steps(1) infinite;
+    }
+    .dither-live.dither-icon .dp-b {
+      animation: dither-flip 1.4s steps(1) infinite reverse;
+    }
+  }
+
+}
+
+@keyframes pane-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes pane-slide-out {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes overlay-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes drawer-slide-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes overlay-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dither-flip {
+  0%,
+  49.9% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes landing-hero-in {
+  from {
+    opacity: 0;
+    transform: translateY(9px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .landing-hero-reveal {
+    animation: landing-hero-in 700ms var(--ease-house) both;
+  }
+
+  .landing-hero-reveal-1 {
+    animation-delay: 80ms;
+  }
+
+  .landing-hero-reveal-2 {
+    animation-delay: 150ms;
+  }
+
+  .landing-hero-reveal-3 {
+    animation-delay: 230ms;
+  }
+
+  .landing-hero-reveal-4 {
+    animation-delay: 310ms;
+  }
+
+  .landing-hero-reveal-5 {
+    animation-delay: 440ms;
+  }
+}
+
+/* Landing micro-interactions. Hidden entrance states live inside
+   no-preference, so reduced motion renders everything settled and static. */
+@keyframes landing-live-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .landing-live-dot {
+    animation: landing-live-dot 2.4s ease-in-out infinite;
+  }
+
+  .landing-chart-reveal {
+    transition:
+      clip-path 900ms var(--ease-house),
+      opacity 700ms var(--ease-house),
+      transform 900ms var(--ease-house);
+  }
+  .landing-chart-sweep {
+    clip-path: inset(0 100% 0 0);
+  }
+  .landing-chart-rise {
+    clip-path: inset(100% 0 0 0);
+  }
+  .landing-chart-zoom {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  .landing-chart-in.landing-chart-sweep,
+  .landing-chart-in.landing-chart-rise {
+    clip-path: inset(0 0 0 0);
+  }
+  .landing-chart-in.landing-chart-zoom {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* Mobile-menu rows cascade in behind the container fade; the delay sits on
+     the open state only, so closing snaps back as one motion. */
+  .landing-stagger-item {
+    opacity: 0;
+    transform: translateY(-8px);
+    transition:
+      opacity 240ms ease,
+      transform 300ms var(--ease-house);
+  }
+  [data-stagger-in='true'] .landing-stagger-item {
+    opacity: 1;
+    transform: none;
+    transition-delay: calc(var(--stagger, 0) * 40ms);
+  }
+
+  .landing-cascade-item {
+    opacity: 0;
+    transform: translateY(10px);
+    transition:
+      opacity 500ms ease,
+      transform 560ms var(--ease-house);
+  }
+  [data-cascade-in='true'] .landing-cascade-item {
+    opacity: 1;
+    transform: none;
+    transition-delay: calc(var(--stagger, 0) * 110ms);
+  }
+
+  .landing-theme-icon {
+    transition:
+      opacity 200ms ease,
+      transform 300ms var(--ease-house);
+  }
+  .landing-theme-icon-out {
+    opacity: 0;
+    transform: rotate(-90deg) scale(0.5);
+  }
+}
+
+/* Animated "working" dots — three dots that pulse in a wave. All three are
+   always rendered, so the reserved width never changes and adjacent text can't
+   shift as they animate. */
+@keyframes loading-dot {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.loading-dots > span {
+  animation: loading-dot 1.2s infinite;
+}
+.loading-dots > span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.loading-dots > span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes route-fallback-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes route-fallback-scan {
+  to {
+    transform: translateX(10rem);
+  }
+}
+
+.route-fallback-scan {
+  left: -3rem;
+  color: var(--color-muted);
+  background-image:
+    radial-gradient(circle, currentColor 0 0.75px, transparent 0.9px),
+    radial-gradient(circle, currentColor 0 0.75px, transparent 0.9px);
+  background-position:
+    0 0,
+    2px 2px;
+  background-size: 4px 4px;
+  mask-image: linear-gradient(to right, transparent, black 75%);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .route-fallback-content {
+    animation: route-fallback-in 220ms var(--ease-house) 120ms both;
+  }
+
+  .route-fallback-scan {
+    animation: route-fallback-scan 1.15s steps(18, end) infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-dots > span {
+    animation: none;
+    opacity: 1;
+  }
+
+  .route-fallback-scan {
+    left: 50%;
+    transform: translateX(-50%);
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-bg-card border border-border p-5 backdrop-blur-md;
+  }
+  .section-label {
+    @apply font-mono text-[11px] tracking-[0.08em] uppercase text-secondary;
+  }
+  .field-label {
+    @apply font-mono text-[10px] tracking-[0.12em] uppercase text-secondary;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 h-8 px-3
+      bg-accent text-on-accent text-[13px] font-medium cursor-pointer
+      transition-transform duration-150 active:scale-98 disabled:opacity-50 disabled:cursor-default backdrop-blur-sm;
+  }
+  /* The landing accent doubles as small-text ink, so it is tuned bright enough
+     to pass on the page background; that same brightness fails under the white
+     text of a solid button face. --color-cta is the deeper face for that case
+     (dark landing theme sets it; everywhere else falls back to the accent). */
+  .landing-shell .btn-primary {
+    background-color: var(--color-cta, var(--color-accent));
+  }
+  .onboarding-shell .btn-primary {
+    background-color: var(--color-cta, var(--color-accent));
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 h-8 px-3
+      border border-border-strong bg-accent-soft text-primary text-[13px] font-medium cursor-pointer
+      transition-transform duration-150 active:scale-98 disabled:opacity-50 disabled:cursor-default backdrop-blur-sm;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 h-8 px-3
+      text-secondary hover:text-primary text-[13px] font-medium cursor-pointer transition-colors duration-150;
+  }
+  /* Pixel keycap: dithered face (2px checkerboard) + thicker bottom edge. */
+  .kbd {
+    @apply inline-flex h-5 min-w-5 items-center justify-center border border-border-strong
+      px-1 font-mono text-[11px] leading-none text-primary;
+    border-bottom-width: 2px;
+    background-color: var(--color-accent-soft);
+    background-image: conic-gradient(
+      color-mix(in srgb, var(--color-primary) 6%, transparent) 25%,
+      transparent 0 50%,
+      color-mix(in srgb, var(--color-primary) 6%, transparent) 0 75%,
+      transparent 0
+    );
+    background-size: 2px 2px;
+    transition: transform 0.1s var(--ease-house), border-bottom-width 0.1s var(--ease-house);
+  }
+  :is(a, button):hover .kbd {
+    transform: translateY(1px);
+    border-bottom-width: 1px;
+  }
+  /* Keycap on an inverted (filled) button: everything derives from on-accent. */
+  .kbd-invert {
+    border-color: color-mix(in srgb, var(--color-on-accent) 60%, transparent);
+    color: var(--color-on-accent);
+    background-color: color-mix(in srgb, var(--color-on-accent) 8%, transparent);
+    background-image: conic-gradient(
+      color-mix(in srgb, var(--color-on-accent) 20%, transparent) 25%,
+      transparent 0 50%,
+      color-mix(in srgb, var(--color-on-accent) 20%, transparent) 0 75%,
+      transparent 0
+    );
+  }
+
+  .pane-scrim {
+    @apply absolute inset-0 cursor-default bg-scrim backdrop-blur-sm
+      animate-[overlay-fade-in_0.2s_var(--ease-house)] motion-reduce:animate-none;
+  }
+  .pane-panel {
+    @apply animate-[pane-slide-in_0.25s_var(--ease-house)] motion-reduce:animate-none;
+  }
+  /* Exit pair — must stay defined after the entrance classes above: both set
+     `animation`, so source order is what lets the -out variant win when the
+     pane is closing. `forwards` holds the end frame until React unmounts. */
+  .pane-scrim-out {
+    @apply animate-[overlay-fade-out_0.2s_var(--ease-house)_forwards] motion-reduce:animate-none;
+  }
+  .pane-panel-out {
+    @apply animate-[pane-slide-out_0.2s_var(--ease-house)_forwards] motion-reduce:animate-none;
+  }
+  .drawer-panel {
+    @apply animate-[drawer-slide-in_0.25s_var(--ease-house)] motion-reduce:animate-none;
+  }
+  /* Compact typography for untrusted markdown (no raw HTML ever reaches this). */
+  .md-body {
+    @apply text-[13px] leading-[1.6] text-secondary;
+  }
+  .md-body :is(h1, h2, h3, h4) {
+    @apply mt-3 mb-1 text-[13px] font-[550] text-primary first:mt-0;
+  }
+  .md-body p {
+    @apply my-1.5;
+  }
+  .md-body :is(ul, ol) {
+    @apply my-1.5 pl-5;
+  }
+  .md-body ul {
+    @apply list-disc;
+  }
+  .md-body ol {
+    @apply list-decimal;
+  }
+  .md-body li {
+    @apply my-0.5;
+  }
+  .md-body code {
+    @apply bg-bg-elevated px-1 font-mono text-[12px] text-primary;
+  }
+  .md-body pre {
+    @apply my-2 overflow-x-auto border border-border bg-bg-elevated p-2;
+  }
+  .md-body blockquote {
+    @apply my-2 border-l-2 border-border-strong pl-3 text-muted;
+  }
+  .md-body table {
+    @apply my-2 w-full border-collapse text-[12px];
+  }
+  .md-body :is(th, td) {
+    @apply border border-border px-2 py-1 text-left;
+  }
+  .md-body th {
+    @apply bg-bg-elevated font-mono text-[11px] uppercase tracking-[0.08em] text-muted;
+  }
+  .md-body strong {
+    @apply font-[550] text-primary;
+  }
+  .input {
+    @apply h-9 w-full bg-bg border border-border px-3 text-[14px] text-primary
+      placeholder:text-muted transition-colors duration-150
+      focus:border-border-strong focus:outline-none;
+  }
+}

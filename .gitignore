@@ -1,0 +1,21 @@
+# deps / builds
+node_modules/
+dist/
+
+# local state & data
+.wrangler/
+out/
+*.log
+
+# secrets — never commit
+.env
+.env.*
+.dev.vars
+
+# generated
+worker-configuration.d.ts
+scripts/.*.tmp.sql
+vite.config.ts.timestamp-*
+
+# os / editor noise
+.DS_Store
