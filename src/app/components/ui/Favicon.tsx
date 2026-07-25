@@ -1,16 +1,13 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 
-// Higher-res favicon sources, best first: favicon.im returns the largest icon
-// (often a 180px apple-touch-icon), google s2 at 128 is the reliable fallback.
-// Downscaled via CSS to the display size, so it stays crisp on retina.
-const sources = (domain: string): string[] => [
-  `https://favicon.im/${domain}?larger=true`,
-  `https://www.google.com/s2/favicons?domain=${domain}&sz=128`,
-];
+// Brand favicon, proxied through the worker (GET /api/favicon?domain=…) so the
+// browser only ever loads a same-origin image — the strict img-src CSP forbids
+// third-party favicon hosts. The proxy tries Google (256px) then DuckDuckGo
+// server-side and downscales via CSS, so it stays crisp on retina.
 
 // Favicon for a domain (URL input, brand step marker, competitor rows). Square,
-// theme-aware placeholder when every source fails — no rounded corners (DESIGN.md).
+// theme-aware placeholder when the icon fails — no rounded corners (DESIGN.md).
 export const Favicon = ({
   domain,
   size = 16,
@@ -20,11 +17,15 @@ export const Favicon = ({
   size?: number;
   className?: string;
 }) => {
-  const [stage, setStage] = useState(0);
+  // Track which domain failed rather than a boolean, so the failure resets
+  // automatically when the same component instance renders a new domain.
+  const [failedDomain, setFailedDomain] = useState<string | null>(null);
   const box = { width: size, height: size };
-  const src = domain ? sources(domain)[stage] : undefined;
+  const src = domain
+    ? `/api/favicon?domain=${encodeURIComponent(domain)}`
+    : undefined;
 
-  if (!src) {
+  if (!src || failedDomain === domain) {
     return (
       <span
         className={cn(
@@ -42,7 +43,7 @@ export const Favicon = ({
       alt=""
       className={cn('favicon-contrast shrink-0 object-contain', className)}
       style={box}
-      onError={() => setStage((s) => s + 1)}
+      onError={() => setFailedDomain(domain)}
     />
   );
 };
