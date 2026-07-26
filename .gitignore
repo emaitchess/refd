@@ -13,7 +13,7 @@ out/
 .dev.vars
 
 # generated
-public/sitemap.xml
+.astro/
 worker-configuration.d.ts
 scripts/.*.tmp.sql
 vite.config.ts.timestamp-*

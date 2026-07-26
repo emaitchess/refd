@@ -51,7 +51,9 @@ const SmoothAnchors = () => {
 // change, so the dashboard keeps native scrolling. Reduced motion opts out
 // entirely and anchors fall back to the browser's instant jump.
 export const SmoothScroll = ({ children }: { children: ReactNode }) => {
-  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const still =
+    typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   if (still) {
     return children;

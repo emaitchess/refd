@@ -1,9 +1,9 @@
 import { Dithering } from '@paper-design/shaders-react';
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
 import { DitherButton } from '@/components/dither-kit/button';
 import { SurfaceLogo } from '@/components/svgs/SurfaceLogo';
 import { SURFACE_ORDER, surfaceLabel } from '@/lib/format';
+import { CREATE_ACCOUNT_URL } from '@/lib/routes';
 import { useTheme } from '@/lib/theme';
 import { LandingContainer, LandingInset, useAccountCta } from './chrome';
 import { Header } from './Header';
@@ -50,7 +50,6 @@ const HeroDither = ({ theme }: { theme: 'dark' | 'light' }) => {
 };
 
 export const Hero = () => {
-  const navigate = useNavigate();
   const { authed, to, openLabel } = useAccountCta();
   const [theme] = useTheme();
 
@@ -98,7 +97,9 @@ export const Hero = () => {
               variant="gradient"
               bloom="off"
               className="h-10 rounded-none px-5 font-medium font-sans text-(--color-dither-button-text) text-[13px] transition-transform duration-150 active:scale-98"
-              onClick={() => navigate(authed ? to : '/auth/create-account')}
+              onClick={() =>
+                window.location.assign(authed ? to : CREATE_ACCOUNT_URL)
+              }
             >
               {authed ? openLabel : 'start monitoring'}
             </DitherButton>

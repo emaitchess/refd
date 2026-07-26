@@ -1,0 +1,112 @@
+---
+import '@fontsource-variable/inter/index.css';
+import '../../app/styles/global.css';
+
+interface Props {
+  title: string;
+  description: string;
+  canonicalPath?: string;
+  imageAlt?: string;
+  indexable?: boolean;
+  type?: 'article' | 'website';
+}
+
+const {
+  title,
+  description,
+  canonicalPath,
+  imageAlt = 'refd: open-source AI search monitoring',
+  indexable = true,
+  type = 'website',
+} = Astro.props;
+const canonical = canonicalPath
+  ? new URL(canonicalPath, Astro.site)
+  : undefined;
+const socialImage = new URL('/og.png', Astro.site);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta
+      name="theme-color"
+      content="#080809"
+      media="(prefers-color-scheme: dark)"
+    />
+    <meta
+      name="theme-color"
+      content="#f7f4f0"
+      media="(prefers-color-scheme: light)"
+    />
+
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="application-name" content="refd" />
+    <meta name="author" content="refd" />
+    <meta
+      name="robots"
+      content={indexable ? 'index, follow' : 'noindex, nofollow'}
+    />
+    {canonical && <link rel="canonical" href={canonical} />}
+    <link rel="sitemap" href="/sitemap.xml" />
+
+    <meta property="og:type" content={type} />
+    <meta property="og:site_name" content="refd" />
+    {canonical && <meta property="og:url" content={canonical} />}
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={socialImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={imageAlt} />
+    <meta property="og:locale" content="en_US" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={socialImage} />
+    <meta name="twitter:image:alt" content={imageAlt} />
+
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="refd" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <meta name="format-detection" content="telephone=no" />
+
+    <link rel="icon" href="/favicon.ico" />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      id="app-favicon"
+      href="/logo-dark.svg"
+    />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <script is:inline>
+      (() => {
+        try {
+          const stored = localStorage.getItem('refd-theme');
+          const theme =
+            stored === 'light' || stored === 'dark'
+              ? stored
+              : matchMedia('(prefers-color-scheme: light)').matches
+                ? 'light'
+                : 'dark';
+          document.documentElement.dataset.theme = theme;
+          const icon = document.getElementById('app-favicon');
+          if (icon) {
+            icon.href =
+              theme === 'light' ? '/logo-light.svg' : '/logo-dark.svg';
+          }
+        } catch {}
+      })();
+    </script>
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>
