@@ -154,7 +154,12 @@ const accountProfileSchema = z.object({
 
 const deleteAccountSchema = z.object({
   currentPassword: z.string().min(1).max(200),
-  confirmation: z.literal('delete my account'),
+  confirmation: z
+    .string()
+    .max(100)
+    .trim()
+    .toLowerCase()
+    .pipe(z.literal('delete my account')),
 });
 
 const account = new Hono<AuthedBindings>();
