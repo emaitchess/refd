@@ -40,7 +40,11 @@ import { pct, SURFACE_ORDER, surfaceLabel } from '@/lib/format';
 import { useOnKeyPress } from '@/lib/keyboard';
 import { METRIC_INFO } from '@/lib/metric-copy';
 import { useParamFlag } from '@/lib/params';
-import { promptCategory } from '@/lib/prompt-categories';
+import {
+  PROMPT_CATEGORIES,
+  type PromptCategory,
+  promptCategory,
+} from '@/lib/prompt-categories';
 import type { PromptRow } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/providers/workspace';
@@ -51,6 +55,7 @@ const ALL_STATUSES = 'all statuses';
 const ACTIVE_STATUS = 'active';
 const RETIRED_STATUS = 'retired';
 const STATUS_OPTIONS = [ALL_STATUSES, ACTIVE_STATUS, RETIRED_STATUS];
+const PROMPT_PAGE_SIZE = 25;
 
 const promptRowCategory = (row: PromptRow) => promptCategory(row.tags);
 
@@ -188,13 +193,16 @@ export const Prompts = () => {
     key: 'relevance',
     dir: 'asc',
   });
-  const pageState = usePagination(sorted, 25);
+  const pageState = usePagination(sorted, PROMPT_PAGE_SIZE);
   const columnWidths = useColumnWidths('prompts', PROMPT_COLUMNS);
   const [selectedPrompt, setSelectedPrompt] = useState<PromptRow | null>(null);
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<PromptRow | null>(null);
   const [newPrompt, setNewPrompt] = useState('');
-  const [newCategory, setNewCategory] = useState('');
+  const [newCategory, setNewCategory] = useState<PromptCategory>(
+    PROMPT_CATEGORIES[0],
+  );
+  const [createdPromptId, setCreatedPromptId] = useState<number | null>(null);
   const {
     busy,
     error: formError,
@@ -212,6 +220,18 @@ export const Prompts = () => {
     pageState.setPage(0);
   }, [categoryFilter, pageState.setPage, searchQuery, statusFilter]);
 
+  useEffect(() => {
+    if (createdPromptId === null) {
+      return;
+    }
+    const createdIndex = sorted.findIndex((row) => row.id === createdPromptId);
+    if (createdIndex < 0) {
+      return;
+    }
+    pageState.setPage(Math.floor(createdIndex / PROMPT_PAGE_SIZE));
+    setCreatedPromptId(null);
+  }, [createdPromptId, pageState.setPage, sorted]);
+
   const openAdd = () => {
     if (atPromptLimit && promptLimit !== null) {
       toast(promptLimitMessage(promptLimit));
@@ -224,21 +244,22 @@ export const Prompts = () => {
   const closeAdd = () => {
     setAdding(false);
     setNewPrompt('');
-    setNewCategory('');
+    setNewCategory(PROMPT_CATEGORIES[0]);
     setFormError(null);
   };
 
   const addPrompt = (event: FormEvent) => {
     event.preventDefault();
     runAdd(async () => {
-      const category = newCategory.trim();
-      await api('/prompts', {
+      const created = await api<{ id: number }>('/prompts', {
         method: 'POST',
         body: JSON.stringify({
           text: newPrompt,
-          tags: category ? [category] : [],
+          tags: [newCategory],
         }),
       });
+      clearFilters();
+      setCreatedPromptId(created.id);
       closeAdd();
       refetch();
     });
@@ -337,22 +358,28 @@ export const Prompts = () => {
                 autoFocus
               />
             </label>
-            <label className="flex flex-col gap-1.5">
-              <span className="field-label">Category (optional)</span>
-              <input
-                className="input"
-                placeholder="e.g. comparison"
+            <div className="flex flex-col gap-1.5">
+              <span className="field-label">Buyer journey category</span>
+              <Select
                 value={newCategory}
-                onChange={(event) => setNewCategory(event.target.value)}
-                maxLength={40}
+                options={PROMPT_CATEGORIES}
+                onChange={(value) => {
+                  const category = PROMPT_CATEGORIES.find(
+                    (option) => option === value,
+                  );
+                  if (category) {
+                    setNewCategory(category);
+                  }
+                }}
+                ariaLabel="Prompt category"
+                renderOption={(option) => (
+                  <PromptCategoryTag
+                    category={option}
+                    active={option === newCategory}
+                  />
+                )}
               />
-              {newCategory.trim() ? (
-                <PromptCategoryTag
-                  category={newCategory}
-                  className="mt-1 self-start"
-                />
-              ) : null}
-            </label>
+            </div>
             <p className="text-[12px] text-muted">
               New prompts join the next run.{' '}
               {promptLimit === null
