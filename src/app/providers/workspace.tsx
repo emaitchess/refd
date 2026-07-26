@@ -8,10 +8,13 @@ import {
   useState,
 } from 'react';
 import {
-  resolveWorkspaceDeletion,
-  WORKSPACE_LIMIT_MESSAGE,
-  workspaceLimitReached,
-} from '../../shared/workspaces';
+  type ApplicationConfig,
+  applicationConfigFor,
+  applicationConfigSchema,
+  limitReached,
+  workspaceLimitMessage,
+} from '../../shared/config';
+import { resolveWorkspaceDeletion } from '../../shared/workspaces';
 import { api, setActiveWorkspaceId } from '../lib/api';
 import { useAuth } from './auth';
 
@@ -26,6 +29,7 @@ export interface Workspace {
 }
 
 interface WorkspaceState {
+  config: ApplicationConfig;
   workspaces: Workspace[];
   current: Workspace | null;
   lastOnboarded: Workspace | null;
@@ -45,17 +49,27 @@ const WorkspaceContext = createContext<WorkspaceState | null>(null);
 
 const STORAGE_KEY = 'refd-workspace';
 const LAST_ONBOARDED_KEY = 'refd-last-onboarded-workspace';
+const FAIL_CLOSED_CONFIG = applicationConfigFor(false);
 
 export const WorkspaceProvider = ({ children }: { children: ReactNode }) => {
   const { markOnboarded: markSessionOnboarded } = useAuth();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [config, setConfig] = useState<ApplicationConfig>(FAIL_CLOSED_CONFIG);
   const [currentId, setCurrentId] = useState<number | null>(null);
   const [lastOnboardedId, setLastOnboardedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api<{ workspaces: Workspace[] }>('/workspaces')
-      .then(({ workspaces: list }) => {
+    Promise.all([
+      api<{ workspaces: Workspace[] }>('/workspaces'),
+      api<unknown>('/config'),
+    ])
+      .then(([{ workspaces: list }, rawConfig]) => {
+        const parsedConfig = applicationConfigSchema.safeParse(rawConfig);
+        if (!parsedConfig.success) {
+          throw new Error('invalid application config');
+        }
+        setConfig(parsedConfig.data);
         setWorkspaces(list);
         const stored = Number.parseInt(
           localStorage.getItem(STORAGE_KEY) ?? '',
@@ -81,7 +95,10 @@ export const WorkspaceProvider = ({ children }: { children: ReactNode }) => {
           localStorage.setItem(LAST_ONBOARDED_KEY, String(lastOnboarded.id));
         }
       })
-      .catch(() => setWorkspaces([]))
+      .catch(() => {
+        setConfig(FAIL_CLOSED_CONFIG);
+        setWorkspaces([]);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -104,8 +121,9 @@ export const WorkspaceProvider = ({ children }: { children: ReactNode }) => {
 
   const create = useCallback(
     async (name: string) => {
-      if (workspaceLimitReached(workspaces.length)) {
-        throw new Error(WORKSPACE_LIMIT_MESSAGE);
+      const limit = config.limits.maxWorkspaces;
+      if (limit !== null && limitReached(workspaces.length, limit)) {
+        throw new Error(workspaceLimitMessage(limit));
       }
       const created = await api<{ id: number; name: string }>('/workspaces', {
         method: 'POST',
@@ -123,7 +141,7 @@ export const WorkspaceProvider = ({ children }: { children: ReactNode }) => {
       setCurrentId(workspace.id);
       return workspace;
     },
-    [workspaces.length],
+    [config.limits.maxWorkspaces, workspaces.length],
   );
 
   const rename = useCallback(async (id: number, name: string) => {
@@ -203,6 +221,7 @@ export const WorkspaceProvider = ({ children }: { children: ReactNode }) => {
 
   const value = useMemo(
     () => ({
+      config,
       workspaces,
       current: workspaces.find((w) => w.id === currentId) ?? null,
       lastOnboarded: workspaces.find((w) => w.id === lastOnboardedId) ?? null,
@@ -216,6 +235,7 @@ export const WorkspaceProvider = ({ children }: { children: ReactNode }) => {
     }),
     [
       workspaces,
+      config,
       currentId,
       lastOnboardedId,
       loading,

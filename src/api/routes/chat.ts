@@ -11,7 +11,6 @@ import {
   chatMessages,
   chats,
   entities,
-  prompts,
 } from '../db/schema';
 import type { AppEnv } from '../env';
 import type { WebResult } from '../lib/exa';
@@ -23,8 +22,10 @@ import {
   runChat,
   runChatStream,
 } from '../lib/llm';
+import { insertActivePrompt } from '../lib/prompt-limit';
 import { detectRange } from '../lib/range';
 import { domainField, multiLineText, singleLineText } from '../lib/sanitize';
+import { configForUser } from '../lib/user-config';
 import { executeTool, toolCatalog } from './agent-tools';
 import { buildChangeReport } from './changes';
 import { buildDigest, DIGEST_PANELS, type DigestPanel } from './digest';
@@ -809,6 +810,8 @@ chatRoutes.post('/:id/messages/:messageId/proposal', async (c) => {
 
   let summary: string;
   if (proposal.kind === 'prompts') {
+    const promptLimit = configForUser(c.get('user').email, c.env.ADMIN_EMAILS)
+      .limits.maxActivePromptsPerWorkspace;
     const chosen = [...new Set(data.selected)].filter(
       (i) => i >= 0 && i < proposal.items.length,
     );
@@ -825,16 +828,14 @@ chatRoutes.post('/:id/messages/:messageId/proposal', async (c) => {
         skipped += 1;
         continue;
       }
-      const inserted = await db
-        .insert(prompts)
-        .values({
-          workspaceId: ws,
-          text: parsedText.data,
-          tags: item.category ? [item.category] : [],
-        })
-        .onConflictDoNothing({ target: [prompts.workspaceId, prompts.text] })
-        .returning({ id: prompts.id });
-      if (inserted[0]) {
+      const insertedId = await insertActivePrompt(
+        c.env,
+        ws,
+        parsedText.data,
+        item.category ? [item.category] : [],
+        promptLimit,
+      );
+      if (insertedId !== null) {
         added += 1;
       } else {
         skipped += 1;

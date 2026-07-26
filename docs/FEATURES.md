@@ -20,7 +20,8 @@ is the only data provider. Available hosted (refd.ai) or fully self-hosted.
 
 ## Data collection — Shipped
 
-**AI answer surfaces (5).** Every run checks each active prompt across all of:
+**AI answer surfaces (5 available).** Every run checks each active prompt
+across the workspace's enabled subset:
 
 | Surface | Provider path |
 |---|---|
@@ -37,11 +38,21 @@ is the only data provider. Available hosted (refd.ai) or fully self-hosted.
   failure.
 - **Frozen prompt set per run** — each run carries the prompt set it started
   with, so mid-run prompt edits can't skew results.
+- **Hosted workload limits** — standard accounts can keep 25 active prompts per
+  workspace, enable 3 surfaces per workspace, and own 5 workspaces.
+  `ADMIN_EMAILS` members have unlimited active prompts/workspaces and may enable
+  all available surfaces. The authenticated `/api/config` response is the
+  client's source of truth, while prompt/workspace inserts, prompt activation,
+  surface updates, onboarding commit, and run creation enforce the same policy
+  server-side.
 
 **Scheduling & triggers.**
-- **Daily cron** (06:00 UTC) runs every workspace with active prompts.
-- **Manual runs** on demand from the UI — spends paid quota (~180 records), so
-  the UI confirms and the endpoint is rate-limited (5/hour per workspace).
+- **Daily cron** (06:00 UTC) runs every workspace eligible for scheduled
+  monitoring.
+- **Manual runs** are absent from the normal user interface. Operator tooling
+  can invoke them only when the authenticated email appears in the
+  comma-separated `ADMIN_EMAILS` allowlist; the endpoint is also rate-limited
+  (5/hour per workspace).
 - **Legacy back-import** — historical Oxylabs data can be imported as a run so
   trends start with existing data (`import` trigger).
 
@@ -76,10 +87,10 @@ runs with the v2 deploy.
   `POST /runs/:id/rescore` replays one run inline; `POST /runs/rescore`
   starts a queue-driven workspace backfill that drains every result whose
   scores predate `SCORING_VERSION` in cursor-chained batches (no provider
-  spend, idempotent, resumable). Both are operator levers, not user features —
-  the backfill is surfaced only in a dev-build Settings card until it grows an
-  admin surface. Runs without R2 raws (the legacy `import:2026-07-14`
-  back-import) keep their old scores.
+  spend, idempotent, resumable). Both are operator levers, not user features;
+  their mutations require `ADMIN_EMAILS`, and the backfill is surfaced only in
+  a dev-build Settings card until it grows an admin surface. Runs without R2
+  raws (the legacy `import:2026-07-14` back-import) keep their old scores.
 - **Frozen entity snapshot per run.** Entity list + aliases are snapshotted at
   run creation (mirrors the frozen prompt set), so mid-run entity edits can't
   skew results within a run — and SoV denominators are honest.
@@ -308,8 +319,9 @@ Help · Settings · Account**.
   delta vs previous period); trend charts across all runs in range; per-surface
   breakdown.
 - **Prompts** — table with per-surface mention/cite badges and history; add /
-  edit / enable-disable prompts (tags, active flag); prompt-run detail opens in
-  a shared side pane.
+  edit / enable-disable prompts (tags, active flag); standard accounts can keep
+  25 active per workspace, while retired prompts preserve history without using
+  an active slot; prompt-run detail opens in a shared side pane.
 - **Sources** — cited domains ranked by frequency, the brand's cited URLs, and
   the source-gap list.
 - **Competitors** — SoV comparison, per-entity trend lines, sentiment split,
@@ -325,23 +337,28 @@ Help · Settings · Account**.
   tracked AI-surface selection. **Account** — profile and password change.
 
 **Prompt & entity management.** CRUD for prompts and tracked entities (brand +
-competitor domains) from the dashboard UI. The onboarding wizard seeds both; the
-30-prompt cap applies only there, not to the dashboard.
+competitor domains) from the dashboard UI. The onboarding wizard seeds both.
+The standard 25-active-prompt cap applies consistently in onboarding and the
+dashboard; administrators are uncapped.
 
 ---
 
 ## Multi-workspace tenancy — Shipped
 
-- A **workspace** tracks one brand; users own up to five. The create endpoint
-  enforces the limit atomically, and every client creation surface disables at
-  the cap.
+- A **workspace** tracks one brand; standard users own up to five and
+  administrators are uncapped. The create endpoint enforces finite limits
+  atomically, and every client creation surface consumes `/api/config`.
 - `entities`, `prompts`, `runs` carry `workspace_id`; everything deeper inherits
   scope. Data routes live under `/api/w/:workspaceId/*` behind `requireWorkspace`
   (owner-only; foreign workspaces 404).
 - **Sidebar workspace switcher** sets the client URL prefix and remounts the
   dashboard on switch.
-- Cron loops every workspace independently (`cron:<wsId>:<date>` keys); a failing
-  workspace never blocks the others.
+- Hosted workspaces have a `monitoringTier`: `snapshot_only` receives no nightly
+  run, while active `pilot` and `subscribed` workspaces do. `monitoringEndsAt`
+  optionally expires either recurring entitlement.
+- Cron loops every eligible workspace independently (`cron:<wsId>:<date>` keys);
+  a failing workspace never blocks the others. Self-hosters set
+  `SCHEDULED_MONITORING_POLICY=all` to bypass hosted commercial entitlements.
 - First workspace is auto-created on registration.
 
 ---
@@ -442,13 +459,16 @@ soft-fails to manual entry — the wizard never dead-ends on a flaky site or mod
    user adds (multi-domain + aliases), removes, or drags to reorder (order
    sets chart colors). Hard cap of 10.
 4. **Prompts** — glm-5.2 generates 25 prompts, 5 per buyer-journey category
-   (Discovery, Evaluation, Comparison, Decision, Authority). Capped at 30 total
-   so there's room to hand-add a few; the AI-engine selector lives on this step.
+   (Discovery, Evaluation, Comparison, Decision, Authority). Standard accounts
+   are capped at 25 active prompts and 3 selected AI surfaces per workspace;
+   administrators have no active-prompt cap and can select all available
+   surfaces.
 5. **Review & report** — `commit` materialises the drafts and fires two runs: a
    preliminary `onboard:<wsId>` (1 prompt/category, sample=1) that the live
    report polls, plus `onboard-bg:<wsId>` for the rest. The report also previews
    the brand homepage metadata fetched through Browser Rendering and cached in
-   the workspace profile. The full set then joins the nightly cron.
+   the workspace profile. The full set joins the nightly cron when the workspace
+   has a recurring monitoring entitlement.
 
 - **The report is the last step, not a victory lap.** `commit` does *not*
   complete onboarding; `POST /onboarding/complete` does, fired by "enter

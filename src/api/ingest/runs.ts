@@ -5,9 +5,11 @@ import {
   prompts,
   runs,
   type SnapshotEntity,
+  users,
   workspaces,
 } from '../db/schema';
 import type { AppEnv } from '../env';
+import { configForUser } from '../lib/user-config';
 import { DATASET_SURFACES, enabledSurfaces } from '../providers/types';
 import type { ScorableEntity } from '../scoring';
 import type { IngestMessage, RunPrompt } from './messages';
@@ -94,29 +96,45 @@ export const createRun = async (
   opts: { promptIds?: number[]; samples?: number } = {},
 ): Promise<CreatedRun> => {
   const db = getDb(env);
+  const ws = (
+    await db
+      .select({
+        ownerEmail: users.email,
+        surfaces: workspaces.surfaces,
+      })
+      .from(workspaces)
+      .innerJoin(users, eq(workspaces.ownerUserId, users.id))
+      .where(eq(workspaces.id, workspaceId))
+  )[0];
+  if (!ws) {
+    throw new Error(`workspace ${workspaceId} not found`);
+  }
+  const config = configForUser(ws.ownerEmail, env.ADMIN_EMAILS);
   const promptSubset = opts.promptIds ? new Set(opts.promptIds) : null;
-  const activePrompts: RunPrompt[] = (
+  const eligiblePrompts: RunPrompt[] = (
     await db
       .select()
       .from(prompts)
       .where(
         and(eq(prompts.active, true), eq(prompts.workspaceId, workspaceId)),
       )
+      .orderBy(prompts.id)
   )
     .filter((p) => !promptSubset || promptSubset.has(p.id))
     .map((p) => ({ id: p.id, text: p.text }));
+  const promptLimit = config.limits.maxActivePromptsPerWorkspace;
+  const activePrompts =
+    promptLimit === null
+      ? eligiblePrompts
+      : eligiblePrompts.slice(0, promptLimit);
   if (activePrompts.length === 0) {
     throw new Error('no active prompts, nothing to run');
   }
 
-  // Only fan out to the workspace's enabled surfaces (null = all).
-  const ws = (
-    await db
-      .select({ surfaces: workspaces.surfaces })
-      .from(workspaces)
-      .where(eq(workspaces.id, workspaceId))
-  )[0];
-  const surfaces = enabledSurfaces(ws?.surfaces ?? null);
+  const surfaces = enabledSurfaces(
+    ws.surfaces,
+    config.limits.maxEnabledSurfacesPerWorkspace,
+  );
   const datasetSurfaces = DATASET_SURFACES.filter((s) => surfaces.includes(s));
   const aioEnabled = surfaces.includes('google_aio');
 
