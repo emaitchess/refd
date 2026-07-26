@@ -13,6 +13,7 @@ out/
 .dev.vars
 
 # generated
+public/sitemap.xml
 worker-configuration.d.ts
 scripts/.*.tmp.sql
 vite.config.ts.timestamp-*
