@@ -23,7 +23,7 @@ export const Modal = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-scrim px-3 pt-8 grayscale-100 backdrop-blur-sm sm:px-6 sm:pt-[12vh]"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-scrim px-3 pt-8 backdrop-blur-sm backdrop-grayscale-100 sm:px-6 sm:pt-[12vh]"
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
