@@ -34,6 +34,25 @@ const throwForStatus = async (
   throw new Error(message);
 };
 
+// A raw fetch/stream failure — most often Workers' `Error: Network connection
+// lost.` while reading a large snapshot body — is transient, not terminal.
+// Surfacing it as retryable lets the queue's backoff recover it; otherwise one
+// dropped connection fails a whole snapshot's prompts (consumer.ts retries only
+// ProviderRetryableError). An already-classified 429/5xx passes through.
+const netRetry = async <T>(
+  context: string,
+  op: () => Promise<T>,
+): Promise<T> => {
+  try {
+    return await op();
+  } catch (error) {
+    if (error instanceof ProviderRetryableError) {
+      throw error;
+    }
+    throw new ProviderRetryableError(`${context}: ${String(error)}`);
+  }
+};
+
 const datasetId = (env: AppEnv, surface: DatasetSurface): string => {
   const ids: Record<DatasetSurface, string> = {
     chatgpt: env.BRIGHTDATA_DATASET_CHATGPT,
@@ -106,17 +125,16 @@ export const checkProgress = async (
   env: AppEnv,
   snapshotId: string,
 ): Promise<SnapshotProgress> => {
-  const response = await fetch(
-    `${API_BASE}/progress/${encodeURIComponent(snapshotId)}`,
-    {
+  const response = await netRetry(`progress ${snapshotId} fetch`, () =>
+    fetch(`${API_BASE}/progress/${encodeURIComponent(snapshotId)}`, {
       headers: headers(env),
-    },
+    }),
   );
   if (!response.ok) {
     await throwForStatus(response, `progress ${snapshotId}`);
   }
   const data = validate(
-    await response.json(),
+    await netRetry(`progress ${snapshotId} body`, () => response.json()),
     z.object({ status: z.string().optional() }),
   );
   if (data?.status === 'ready') {
@@ -128,13 +146,90 @@ export const checkProgress = async (
   return 'running';
 };
 
+// Snapshots reach 40MB+. Streaming the body as NDJSON (one record per line)
+// keeps memory flat and avoids a single ~40MB `response.text()` + `JSON.parse`
+// spike near the isolate's memory ceiling — a plausible trigger for the dropped
+// connections that fail these downloads. A JSON array (BrightData's other
+// format) is still tolerated by buffering it whole, so a format change can't
+// silently empty a snapshot.
+export const readSnapshotRecords = async (
+  body: ReadableStream<Uint8Array>,
+): Promise<Record<string, unknown>[]> => {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  const records: Record<string, unknown>[] = [];
+  let buffer = '';
+  let mode: 'unknown' | 'ndjson' | 'array' = 'unknown';
+
+  const pushLine = (line: string): void => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return;
+    }
+    const value = JSON.parse(trimmed);
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      records.push(value as Record<string, unknown>);
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    // { stream: true } holds back a trailing partial multi-byte char; the
+    // argless flush at end-of-stream emits it.
+    buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+    // The first non-whitespace byte disambiguates: '[' is a JSON array (buffer
+    // it whole), anything else is NDJSON (drain complete lines as they arrive).
+    if (mode === 'unknown' && buffer.trimStart()) {
+      mode = buffer.trimStart().startsWith('[') ? 'array' : 'ndjson';
+    }
+    if (mode === 'ndjson') {
+      let nl = buffer.indexOf('\n');
+      while (nl !== -1) {
+        pushLine(buffer.slice(0, nl));
+        buffer = buffer.slice(nl + 1);
+        nl = buffer.indexOf('\n');
+      }
+    }
+    if (done) {
+      break;
+    }
+  }
+
+  if (mode === 'array') {
+    const parsed = JSON.parse(buffer);
+    if (!Array.isArray(parsed)) {
+      // A non-array body is a status envelope, not records. Degrading it to []
+      // once burned a whole surface as "no record for prompt" while the records
+      // sat ready for download — so retry instead.
+      throw new ProviderRetryableError(
+        `snapshot body: non-array JSON (${buffer.length} chars)`,
+      );
+    }
+    return parsed as Record<string, unknown>[];
+  }
+  // Flush the trailing line (NDJSON often omits a final newline).
+  pushLine(buffer);
+  // A lone object with no prompt echo is a status/error envelope, not data —
+  // the same case json mode's "non-array body" guard caught. Retry it rather
+  // than burning every prompt as "no record for prompt in snapshot".
+  const [only] = records;
+  if (records.length === 1 && only && recordPrompt(only) === null) {
+    throw new ProviderRetryableError(
+      'snapshot body: single record without a prompt (status envelope?)',
+    );
+  }
+  return records;
+};
+
 export const fetchSnapshot = async (
   env: AppEnv,
   snapshotId: string,
 ): Promise<Record<string, unknown>[]> => {
-  const response = await fetch(
-    `${API_BASE}/snapshot/${encodeURIComponent(snapshotId)}?format=json`,
-    { headers: headers(env) },
+  const response = await netRetry(`snapshot ${snapshotId} fetch`, () =>
+    fetch(
+      `${API_BASE}/snapshot/${encodeURIComponent(snapshotId)}?format=ndjson`,
+      { headers: headers(env) },
+    ),
   );
   // 202: the snapshot is still materializing even though /progress already
   // reports ready — observed on large (40MB+) snapshots. Retry, never parse.
@@ -144,24 +239,17 @@ export const fetchSnapshot = async (
   if (!response.ok) {
     await throwForStatus(response, `snapshot ${snapshotId}`);
   }
-  const bodyText = await response.text();
-  let data: unknown;
-  try {
-    data = JSON.parse(bodyText);
-  } catch {
+  const body = response.body;
+  if (!body) {
     throw new ProviderRetryableError(
-      `snapshot ${snapshotId}: unparseable body (${bodyText.length} bytes)`,
+      `snapshot ${snapshotId}: no response body`,
     );
   }
-  if (!Array.isArray(data)) {
-    // A 200 with a non-array body is a status envelope, not records.
-    // Degrading it to [] once burned a whole 20-prompt surface as "no record
-    // for prompt in snapshot" while the records sat ready for download.
-    throw new ProviderRetryableError(
-      `snapshot ${snapshotId}: non-array body: ${bodyText.slice(0, 200)}`,
-    );
-  }
-  return data as Record<string, unknown>[];
+  // Reading the large body is where a dropped connection surfaces as
+  // `Network connection lost.` — stream it, and make the read retryable.
+  return await netRetry(`snapshot ${snapshotId} download`, () =>
+    readSnapshotRecords(body),
+  );
 };
 
 // Records echo their input; match them back to prompts tolerantly.
