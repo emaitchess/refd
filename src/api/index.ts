@@ -19,6 +19,7 @@ import { chatRoutes } from './routes/chat';
 import { competitorRoutes } from './routes/competitors';
 import { entityRoutes } from './routes/entities';
 import { faviconRoutes } from './routes/favicon';
+import { imageRoutes } from './routes/image';
 import { onboardingRoutes } from './routes/onboarding';
 import { overviewRoutes } from './routes/overview';
 import { promptRoutes } from './routes/prompts';
@@ -48,6 +49,9 @@ authed.route('/workspaces', workspaceRoutes);
 // Favicon proxy: session-gated, workspace-agnostic (used across onboarding and
 // the dashboard), so it hangs off /api/favicon rather than a workspace scope.
 authed.route('/favicon', faviconRoutes);
+// Image proxy (brand OG/preview images): same reason as favicon — the strict
+// img-src CSP forbids third-party image hosts, so route them same-origin.
+authed.route('/image', imageRoutes);
 
 const scoped = new Hono<WorkspaceBindings>();
 scoped.use(requireWorkspace);
