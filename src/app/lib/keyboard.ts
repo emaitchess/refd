@@ -114,15 +114,19 @@ export const useEnterAdvance = (
 
 // Escape steps the wizard back. Unlike Enter it fires from inside fields too —
 // Escape types nothing, so "get me out of here" should work without tabbing out.
-// An open popover owns Escape first: menus and Select mark their trigger
-// aria-expanded, and that attribute still reads true while their own Escape
-// handler runs, so the popover closes and the wizard stays put. A second Escape
-// then goes back.
+// An open popover or dialog owns Escape first: menus and Select mark their
+// trigger aria-expanded, while dialogs identify themselves by role. Those
+// markers still exist while their own Escape handler runs, so the overlay closes
+// and the wizard stays put. A second Escape then goes back.
 export const useEscapeBack = (handler: () => void, enabled = true) =>
   useOnKeyPress(
     'Escape',
     () => {
-      if (document.querySelector('[aria-expanded="true"]')) {
+      if (
+        document.querySelector(
+          '[aria-expanded="true"], [role="dialog"][aria-modal="true"]',
+        )
+      ) {
         return;
       }
       handler();

@@ -1,10 +1,9 @@
 import { type FormEvent, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { DeleteAccountDialog } from '@/components/account/DeleteAccountDialog';
 import { useToast } from '@/components/feedback/Toast';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { Card, Modal, PasswordInput } from '@/components/ui';
+import { Card, PasswordInput } from '@/components/ui';
 import { api, useAsyncAction } from '@/lib/api';
-import { SIGN_IN_PATH } from '@/lib/routes';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/providers/auth';
 
@@ -209,30 +208,8 @@ const PasswordCard = () => {
 };
 
 const DeleteAccount = () => {
-  const { email, deleteAccount } = useAuth();
-  const navigate = useNavigate();
+  const { email } = useAuth();
   const [open, setOpen] = useState(false);
-  const [password, setPassword] = useState('');
-  const [confirmation, setConfirmation] = useState('');
-  const { busy, error, setError, run } = useAsyncAction();
-
-  const close = () => {
-    if (busy) {
-      return;
-    }
-    setOpen(false);
-    setPassword('');
-    setConfirmation('');
-    setError(null);
-  };
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    void run(async () => {
-      await deleteAccount(password, confirmation);
-      navigate(SIGN_IN_PATH, { replace: true });
-    });
-  };
 
   return (
     <>
@@ -255,67 +232,7 @@ const DeleteAccount = () => {
         </div>
       </Card>
 
-      {open ? (
-        <Modal title="Delete your account?" onClose={close}>
-          <form onSubmit={submit}>
-            <p className="text-[13px] text-secondary leading-relaxed">
-              This permanently removes every workspace and all monitoring data
-              owned by this account.
-            </p>
-            <label
-              htmlFor="delete-account-password"
-              className="mt-4 flex flex-col gap-1.5"
-            >
-              <span className="field-label">current password</span>
-              <PasswordInput
-                id="delete-account-password"
-                className="input h-9"
-                autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                required
-                autoFocus
-              />
-            </label>
-            <label className="mt-3 flex flex-col gap-1.5">
-              <span className="field-label">
-                type “delete my account” to confirm
-              </span>
-              <input
-                className="input h-9"
-                value={confirmation}
-                onChange={(event) => setConfirmation(event.target.value)}
-                required
-                autoComplete="off"
-              />
-            </label>
-            {error ? (
-              <p className="mt-3 text-[13px] text-error" aria-live="polite">
-                {error}
-              </p>
-            ) : null}
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={close}
-                disabled={busy}
-              >
-                cancel
-              </button>
-              <button
-                type="submit"
-                className="btn-secondary text-error"
-                disabled={
-                  busy || !password || confirmation !== 'delete my account'
-                }
-              >
-                {busy ? 'deleting…' : 'delete permanently'}
-              </button>
-            </div>
-          </form>
-        </Modal>
-      ) : null}
+      {open ? <DeleteAccountDialog onClose={() => setOpen(false)} /> : null}
     </>
   );
 };
