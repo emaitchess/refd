@@ -1,26 +1,8 @@
-# Local HTTPS front for the combined Astro + Worker development servers.
+# Local HTTPS front for the dev server: https://refdlocal.io → vite on :5173.
 # 127.0.0.1 refdlocal.io lives in /etc/hosts; `tls internal` uses Caddy's local
 # CA (run `caddy trust` once to add it to the keychain).
-# `bun run dev` starts both upstreams and Caddy.
+# Usage: caddy run   (alongside `bun run dev`)
 refdlocal.io {
 	tls internal
-
-	@api path /api/*
-	handle @api {
-		reverse_proxy localhost:5173
-	}
-
-	@app path /app /app/*
-	handle @app {
-		reverse_proxy localhost:5173
-	}
-
-	@app_assets path /app-dev/*
-	handle @app_assets {
-		reverse_proxy localhost:5173
-	}
-
-	handle {
-		reverse_proxy localhost:4321
-	}
+	reverse_proxy localhost:5173
 }

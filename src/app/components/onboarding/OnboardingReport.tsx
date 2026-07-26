@@ -40,7 +40,6 @@ import { pct, position, SURFACE_ORDER, surfaceLabel } from '@/lib/format';
 import { METRIC_INFO } from '@/lib/metric-copy';
 import type { OnboardingFlow } from '@/lib/onboarding';
 import { promptCategory as categoryFromTags } from '@/lib/prompt-categories';
-import { SIGN_IN_PATH } from '@/lib/routes';
 import { useTheme } from '@/lib/theme';
 import type {
   CompetitorsResponse,
@@ -370,7 +369,7 @@ export const OnboardingReport = ({
   const [theme, toggleTheme] = useTheme();
   const signOut = async () => {
     await logout();
-    navigate(SIGN_IN_PATH, { replace: true });
+    navigate('/auth/sign-in', { replace: true });
   };
 
   const tiles = overviewQ.data?.tiles.current ?? null;
