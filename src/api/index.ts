@@ -28,6 +28,7 @@ import { promptRoutes } from './routes/prompts';
 import { runRoutes } from './routes/runs';
 import { settingsRoutes } from './routes/settings';
 import { sourceRoutes } from './routes/sources';
+import { webhookRoutes } from './routes/webhooks';
 import { workspaceRoutes } from './routes/workspaces';
 
 const app = new Hono<AppBindings>();
@@ -38,6 +39,9 @@ app.use('/api/*', async (c, next) => {
   c.header('Referrer-Policy', 'no-referrer');
   // Same-origin only: no CORS headers are ever emitted.
 });
+// BrightData's callback is public but shared-secret verified. Mount it before
+// the JSON mutation guard so the secret is always the cheapest check.
+app.route('/api/webhooks', webhookRoutes);
 app.use('/api/*', requireJsonForMutations);
 
 app.get('/api/health', (c) => c.json({ ok: true }));

@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import { DATASET_SURFACES } from '../providers/types';
 
-const runPromptSchema = z.object({ id: z.number(), text: z.string() });
+export const runPromptSchema = z.object({
+  id: z.number(),
+  text: z.string(),
+});
 
 // Messages carry the run's frozen prompt set: prompt CRUD mid-run must not
 // change what an in-flight run measures. The schema is the source of truth so
@@ -28,6 +31,16 @@ export const ingestMessageSchema = z.discriminatedUnion('kind', [
     snapshotId: z.string(),
     prompts: z.array(runPromptSchema),
     polls: z.number(),
+  }),
+  z.object({
+    kind: z.literal('brightdata_fetch'),
+    runId: z.number(),
+    workspaceId: z.number(),
+    surface: z.enum(DATASET_SURFACES),
+    sample: z.number(),
+    chunk: z.number().default(0),
+    snapshotId: z.string(),
+    prompts: z.array(runPromptSchema),
   }),
   z.object({
     kind: z.literal('serp_aio_fetch'),
