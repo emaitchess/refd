@@ -140,6 +140,11 @@ export interface SnapshotEntity {
   isBrand: boolean;
 }
 
+export interface SnapshotPrompt {
+  id: number;
+  text: string;
+}
+
 export const runs = sqliteTable(
   'runs',
   {
@@ -192,6 +197,11 @@ export const snapshots = sqliteTable(
     chunk: integer('chunk').notNull().default(0),
     // Prompt ids this snapshot covers, so a retry re-triggers the same batch.
     promptIds: text('prompt_ids', { mode: 'json' }).$type<number[]>(),
+    // Frozen texts for webhook-driven fetches. Looking up live prompts here
+    // would let a mid-run edit break record-to-prompt matching.
+    promptSnapshot: text('prompt_snapshot', { mode: 'json' }).$type<
+      SnapshotPrompt[]
+    >(),
     externalId: text('external_id'),
     status: text('status', { enum: ['triggered', 'ready', 'failed'] })
       .notNull()
@@ -211,6 +221,7 @@ export const snapshots = sqliteTable(
       t.sample,
       t.chunk,
     ),
+    index('snapshots_external_id_idx').on(t.externalId),
   ],
 );
 

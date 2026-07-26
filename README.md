@@ -8,7 +8,7 @@ One Cloudflare Worker runs everything: Hono API, daily cron, queue consumer, and
 
 ## How it works
 
-Accounts hold **workspaces**; each workspace tracks one brand — its competitors, its prompt set, its runs. A daily cron creates an idempotent run for every workspace eligible for scheduled monitoring, then fans out queue messages: one batch-snapshot trigger per dataset surface × sample (trigger → poll → fetch), plus one sync SERP call per prompt × sample for AI Overviews. Every answer is scored for every tracked entity (mentioned / cited / first-mention position), and the raw payload is archived gzipped in R2. A missing AI Overview is recorded as a valid "no AIO shown", not a failure. Retries honor `Retry-After`, back off with jitter, and are idempotent at every layer — a redelivered message never re-spends provider quota.
+Accounts hold **workspaces**; each workspace tracks one brand — its competitors, its prompt set, its runs. A daily cron creates an idempotent run for every workspace eligible for scheduled monitoring, then fans out queue messages: one batch-snapshot trigger per dataset surface × sample (trigger → notify → fetch, with a backstop poll), plus one sync SERP call per prompt × sample for AI Overviews. Every answer is scored for every tracked entity (mentioned / cited / first-mention position), and the raw payload is archived gzipped in R2. A missing AI Overview is recorded as a valid "no AIO shown", not a failure. Retries honor `Retry-After`, back off with jitter, and are idempotent at every layer — a redelivered message never re-spends provider quota.
 
 ## Develop
 
@@ -21,7 +21,7 @@ Register on the login screen (business email + password ≥ 8 chars) — your fi
 
 `bun run dev` also starts Caddy (`Caddyfile`) fronting vite at **https://refdlocal.io** (needs `127.0.0.1 refdlocal.io` in `/etc/hosts` and a one-time `caddy trust`); Caddy stops when dev exits. Plain http://localhost:5173 works too.
 
-Local secrets go in `.dev.vars` (gitignored): `JWT_SECRET`, `BRIGHTDATA_API_TOKEN`, `ADMIN_EMAILS` (comma-separated administrator and operator allowlist), and `EXA_API_KEY` (onboarding's competitor search, optional). Onboarding also uses two **bindings, not secrets** — Workers AI (`AI`) and Browser Rendering (`BROWSER`) — both `remote: true` in `wrangler.jsonc`, so local dev proxies to the real services and the account needs both enabled.
+Local secrets go in `.dev.vars` (gitignored): `JWT_SECRET`, `BRIGHTDATA_API_TOKEN`, `BRIGHTDATA_WEBHOOK_SECRET` (optional locally; requires a publicly reachable `PUBLIC_BASE_URL`), `ADMIN_EMAILS` (comma-separated administrator and operator allowlist), and `EXA_API_KEY` (onboarding's competitor search, optional). Onboarding also uses two **bindings, not secrets** — Workers AI (`AI`) and Browser Rendering (`BROWSER`) — both `remote: true` in `wrangler.jsonc`, so local dev proxies to the real services and the account needs both enabled.
 
 - `bun run check` — typecheck · `bun run lint` / `lint:fix` — Biome · `bun test` — unit tests
 - `bun run build` — production build · `bun run deploy` — build + `wrangler deploy`

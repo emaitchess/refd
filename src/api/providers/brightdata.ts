@@ -7,6 +7,7 @@ import { collectStringsAndUrls } from '../scoring';
 import type { DatasetSurface, NormalizedAnswer } from './types';
 
 const API_BASE = 'https://api.brightdata.com/datasets/v3';
+const WEBHOOK_PATH = '/api/webhooks/brightdata';
 
 // A 429/5xx from BrightData: retry with the server's Retry-After when given.
 export class ProviderRetryableError extends Error {
@@ -93,12 +94,41 @@ const headers = (env: AppEnv) => ({
   'Content-Type': 'application/json',
 });
 
+const notifyEndpoint = (env: AppEnv): string | null => {
+  const base = env.PUBLIC_BASE_URL?.trim();
+  if (!base || !env.BRIGHTDATA_WEBHOOK_SECRET) {
+    return null;
+  }
+  try {
+    const url = new URL(WEBHOOK_PATH, base);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+};
+
+export const notifyEnabled = (env: AppEnv): boolean =>
+  notifyEndpoint(env) !== null;
+
 export const triggerBatch = async (
   env: AppEnv,
   surface: DatasetSurface,
   promptTexts: string[],
 ): Promise<string> => {
-  const url = `${API_BASE}/trigger?dataset_id=${encodeURIComponent(datasetId(env, surface))}&include_errors=true`;
+  const params = new URLSearchParams({
+    dataset_id: datasetId(env, surface),
+    include_errors: 'true',
+  });
+  const endpoint = notifyEndpoint(env);
+  if (endpoint) {
+    params.set('notify', 'true');
+    params.set('endpoint', endpoint);
+    params.set('auth_header', env.BRIGHTDATA_WEBHOOK_SECRET ?? '');
+  }
+  const url = `${API_BASE}/trigger?${params.toString()}`;
   const response = await fetch(url, {
     method: 'POST',
     headers: headers(env),
