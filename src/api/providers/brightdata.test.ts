@@ -1,5 +1,21 @@
 import { describe, expect, spyOn, test } from 'bun:test';
-import { normalizeDatasetRecord } from './brightdata';
+import {
+  normalizeDatasetRecord,
+  ProviderRetryableError,
+  readSnapshotRecords,
+} from './brightdata';
+
+const streamOf = (chunks: string[]): ReadableStream<Uint8Array> => {
+  const encoder = new TextEncoder();
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(encoder.encode(chunk));
+      }
+      controller.close();
+    },
+  });
+};
 
 describe('normalizeDatasetRecord', () => {
   test('strips the trailing ChatGPT sponsored unit from the scored text', () => {
@@ -112,5 +128,65 @@ describe('normalizeDatasetRecord', () => {
       'https://eplt.medium.com/how-i-automate',
       'https://medium.com/',
     ]);
+  });
+});
+
+describe('readSnapshotRecords', () => {
+  test('parses NDJSON into one record per line', async () => {
+    const records = await readSnapshotRecords(
+      streamOf([
+        '{"prompt":"a","answer_text":"A"}\n{"prompt":"b","answer_text":"B"}\n',
+      ]),
+    );
+    expect(records).toEqual([
+      { prompt: 'a', answer_text: 'A' },
+      { prompt: 'b', answer_text: 'B' },
+    ]);
+  });
+
+  test('buffers a record split across chunk boundaries', async () => {
+    const records = await readSnapshotRecords(
+      streamOf([
+        '{"prompt":"a","ans',
+        'wer_text":"A"}\n{"prompt":"b"',
+        ',"answer_text":"B"}',
+      ]),
+    );
+    expect(records).toEqual([
+      { prompt: 'a', answer_text: 'A' },
+      { prompt: 'b', answer_text: 'B' },
+    ]);
+  });
+
+  test('skips blank lines and tolerates a missing trailing newline', async () => {
+    const records = await readSnapshotRecords(
+      streamOf(['\n{"prompt":"a"}\n\n{"prompt":"b"}']),
+    );
+    expect(records).toEqual([{ prompt: 'a' }, { prompt: 'b' }]);
+  });
+
+  test('falls back to a JSON array body', async () => {
+    const records = await readSnapshotRecords(
+      streamOf(['[{"prompt":"a"},', '{"prompt":"b"}]']),
+    );
+    expect(records).toEqual([{ prompt: 'a' }, { prompt: 'b' }]);
+  });
+
+  test('an empty (or whitespace-only) body yields no records', async () => {
+    expect(await readSnapshotRecords(streamOf([]))).toEqual([]);
+    expect(await readSnapshotRecords(streamOf(['\n\n']))).toEqual([]);
+  });
+
+  test('a lone status envelope without a prompt is retryable, not a record', async () => {
+    await expect(
+      readSnapshotRecords(streamOf(['{"status":"building"}'])),
+    ).rejects.toBeInstanceOf(ProviderRetryableError);
+  });
+
+  test('a single real record (one-prompt snapshot) is kept', async () => {
+    const records = await readSnapshotRecords(
+      streamOf(['{"prompt":"solo","answer_text":"X"}']),
+    );
+    expect(records).toEqual([{ prompt: 'solo', answer_text: 'X' }]);
   });
 });

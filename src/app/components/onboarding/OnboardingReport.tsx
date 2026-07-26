@@ -134,7 +134,7 @@ const BrandSitePreview = ({
         <div className="mt-6 overflow-hidden border border-border bg-bg-card">
           {metadata.imageUrl && !imageFailed ? (
             <img
-              src={metadata.imageUrl}
+              src={`/api/image?url=${encodeURIComponent(metadata.imageUrl)}`}
               alt={`${name || 'Brand'} homepage preview`}
               className="aspect-[1.91/1] w-full border-border border-b object-cover"
               decoding="async"
