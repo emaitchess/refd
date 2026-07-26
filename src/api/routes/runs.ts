@@ -144,14 +144,12 @@ runRoutes.post('/:id/recover', requireOperator, async (c) => {
     if (!failedCells.has(`${snap.surface}:${snap.sample}`)) {
       continue;
     }
-    const promptIds = [
-      ...new Set(
-        rows
-          .filter((r) => r.surface === snap.surface && r.sample === snap.sample)
-          .map((r) => r.promptId),
-      ),
-    ];
-    const runPrompts = promptIds.flatMap((pid) => {
+    const batchIds =
+      snap.promptIds ??
+      rows
+        .filter((r) => r.surface === snap.surface && r.sample === snap.sample)
+        .map((r) => r.promptId);
+    const runPrompts = [...new Set(batchIds)].flatMap((pid) => {
       const text = texts.get(pid);
       return text ? [{ id: pid, text }] : [];
     });
@@ -164,6 +162,7 @@ runRoutes.post('/:id/recover', requireOperator, async (c) => {
       workspaceId: ws,
       surface: snap.surface as (typeof DATASET_SURFACES)[number],
       sample: snap.sample,
+      chunk: snap.chunk,
       prompts: runPrompts,
     });
   }
