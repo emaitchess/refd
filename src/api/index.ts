@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import { scheduledMonitoringEligible } from '../shared/workspaces';
 import {
   type AuthedBindings,
   requireAuth,
@@ -17,6 +18,7 @@ import { createRun } from './ingest/runs';
 import { changesRoutes } from './routes/changes';
 import { chatRoutes } from './routes/chat';
 import { competitorRoutes } from './routes/competitors';
+import { configRoutes } from './routes/config';
 import { entityRoutes } from './routes/entities';
 import { faviconRoutes } from './routes/favicon';
 import { imageRoutes } from './routes/image';
@@ -45,6 +47,7 @@ app.route('/api/auth', authRoutes);
 // owned workspace (/api/w/:workspaceId/...).
 const authed = new Hono<AuthedBindings>();
 authed.use(requireAuth);
+authed.route('/config', configRoutes);
 authed.route('/workspaces', workspaceRoutes);
 // Favicon proxy: session-gated, workspace-agnostic (used across onboarding and
 // the dashboard), so it hangs off /api/favicon rather than a workspace scope.
@@ -86,8 +89,22 @@ export default {
     env: AppEnv,
   ): Promise<void> {
     const date = new Date().toISOString().slice(0, 10);
-    const allWorkspaces = await getDb(env).select().from(workspaces);
-    for (const ws of allWorkspaces) {
+    const now = Date.now();
+    const candidates = await getDb(env)
+      .select({
+        id: workspaces.id,
+        monitoringTier: workspaces.monitoringTier,
+        monitoringEndsAt: workspaces.monitoringEndsAt,
+      })
+      .from(workspaces);
+    const eligibleWorkspaces = candidates.filter((workspace) =>
+      scheduledMonitoringEligible(
+        workspace,
+        env.SCHEDULED_MONITORING_POLICY,
+        now,
+      ),
+    );
+    for (const ws of eligibleWorkspaces) {
       try {
         const { runId, created } = await createRun(
           env,

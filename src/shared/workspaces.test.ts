@@ -1,9 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  MAX_WORKSPACES,
   resolveWorkspaceDeletion,
+  scheduledMonitoringEligible,
   workspaceDeletionIssue,
-  workspaceLimitReached,
 } from './workspaces';
 
 const ready = (id: number, name: string) => ({
@@ -17,14 +16,71 @@ const incomplete = (id: number, name: string) => ({
   onboardingCompleted: false,
 });
 
-describe('workspaceLimitReached', () => {
-  test('allows creation below the limit', () => {
-    expect(workspaceLimitReached(MAX_WORKSPACES - 1)).toBe(false);
+describe('scheduledMonitoringEligible', () => {
+  const now = Date.UTC(2026, 6, 26);
+
+  test('excludes snapshot-only workspaces from entitlement-based cron', () => {
+    expect(
+      scheduledMonitoringEligible(
+        { monitoringTier: 'snapshot_only', monitoringEndsAt: null },
+        'entitled',
+        now,
+      ),
+    ).toBe(false);
   });
 
-  test('blocks creation at and above the limit', () => {
-    expect(workspaceLimitReached(MAX_WORKSPACES)).toBe(true);
-    expect(workspaceLimitReached(MAX_WORKSPACES + 1)).toBe(true);
+  test('fails closed for an invalid stored tier', () => {
+    expect(
+      scheduledMonitoringEligible(
+        { monitoringTier: 'unknown', monitoringEndsAt: null },
+        'entitled',
+        now,
+      ),
+    ).toBe(false);
+  });
+
+  test('includes active pilot and subscribed workspaces', () => {
+    expect(
+      scheduledMonitoringEligible(
+        { monitoringTier: 'pilot', monitoringEndsAt: now + 1 },
+        'entitled',
+        now,
+      ),
+    ).toBe(true);
+    expect(
+      scheduledMonitoringEligible(
+        { monitoringTier: 'subscribed', monitoringEndsAt: null },
+        'entitled',
+        now,
+      ),
+    ).toBe(true);
+  });
+
+  test('excludes an entitlement at and after its end time', () => {
+    expect(
+      scheduledMonitoringEligible(
+        { monitoringTier: 'pilot', monitoringEndsAt: now },
+        'entitled',
+        now,
+      ),
+    ).toBe(false);
+    expect(
+      scheduledMonitoringEligible(
+        { monitoringTier: 'subscribed', monitoringEndsAt: now - 1 },
+        'entitled',
+        now,
+      ),
+    ).toBe(false);
+  });
+
+  test('allows every workspace under the self-hosted policy', () => {
+    expect(
+      scheduledMonitoringEligible(
+        { monitoringTier: 'snapshot_only', monitoringEndsAt: now - 1 },
+        'all',
+        now,
+      ),
+    ).toBe(true);
   });
 });
 

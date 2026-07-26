@@ -8,11 +8,35 @@ interface WorkspaceStatus {
   onboardingCompleted: boolean;
 }
 
-export const MAX_WORKSPACES = 5;
-export const WORKSPACE_LIMIT_MESSAGE = `You can have up to ${MAX_WORKSPACES} workspaces. Delete one to create another.`;
+export const MONITORING_TIERS = [
+  'snapshot_only',
+  'pilot',
+  'subscribed',
+] as const;
+export type MonitoringTier = (typeof MONITORING_TIERS)[number];
+export type ScheduledMonitoringPolicy = 'entitled' | 'all';
 
-export const workspaceLimitReached = (workspaceCount: number): boolean =>
-  workspaceCount >= MAX_WORKSPACES;
+interface MonitoringAccess {
+  monitoringTier: string;
+  monitoringEndsAt: number | null;
+}
+
+export const scheduledMonitoringEligible = (
+  workspace: MonitoringAccess,
+  policy: ScheduledMonitoringPolicy,
+  at: number,
+): boolean => {
+  if (policy === 'all') {
+    return true;
+  }
+  if (
+    workspace.monitoringTier !== 'pilot' &&
+    workspace.monitoringTier !== 'subscribed'
+  ) {
+    return false;
+  }
+  return workspace.monitoringEndsAt === null || workspace.monitoringEndsAt > at;
+};
 
 export type WorkspaceDeletionIssue =
   | 'not_found'

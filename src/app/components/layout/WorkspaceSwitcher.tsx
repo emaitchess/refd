@@ -7,11 +7,7 @@ import { useAsyncAction } from '@/lib/api';
 import { useOnKeyPress } from '@/lib/keyboard';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/providers/workspace';
-import {
-  MAX_WORKSPACES,
-  WORKSPACE_LIMIT_MESSAGE,
-  workspaceLimitReached,
-} from '../../../shared/workspaces';
+import { limitReached, workspaceLimitMessage } from '../../../shared/config';
 import { Fade } from './Fade';
 import { WorkspaceIcon } from './WorkspaceIcon';
 
@@ -19,8 +15,11 @@ import { WorkspaceIcon } from './WorkspaceIcon';
 // The menu is a fixed-position flyout (beside the collapsed rail, below the
 // expanded button) so the rail's width never squeezes it.
 export const WorkspaceSwitcher = ({ expanded }: { expanded: boolean }) => {
-  const { workspaces, current, switchTo, create } = useWorkspace();
-  const atWorkspaceLimit = workspaceLimitReached(workspaces.length);
+  const { config, workspaces, current, switchTo, create } = useWorkspace();
+  const workspaceLimit = config.limits.maxWorkspaces;
+  const atWorkspaceLimit = limitReached(workspaces.length, workspaceLimit);
+  const limitCopy =
+    workspaceLimit === null ? null : workspaceLimitMessage(workspaceLimit);
   const navigate = useNavigate();
   const [menuPos, setMenuPos] = useState<{
     top: number;
@@ -178,7 +177,7 @@ export const WorkspaceSwitcher = ({ expanded }: { expanded: boolean }) => {
             className="block w-full cursor-pointer whitespace-nowrap border-border border-t px-3 py-1.5 text-left font-mono text-[11px] text-secondary transition-colors hover:bg-bg-card-hover hover:text-primary disabled:cursor-not-allowed disabled:text-muted disabled:hover:bg-transparent"
           >
             {atWorkspaceLimit
-              ? `workspace limit ${MAX_WORKSPACES}/${MAX_WORKSPACES}`
+              ? `workspace limit ${workspaceLimit}/${workspaceLimit}`
               : '+ new workspace'}
           </button>
         </div>
@@ -201,7 +200,7 @@ export const WorkspaceSwitcher = ({ expanded }: { expanded: boolean }) => {
             </label>
             <p className="text-[12px] text-muted">
               {atWorkspaceLimit
-                ? WORKSPACE_LIMIT_MESSAGE
+                ? limitCopy
                 : 'A workspace tracks one brand: its own competitors, prompts, and runs. Creating it opens the guided brand setup.'}
             </p>
             {error ? <p className="text-[13px] text-error">{error}</p> : null}

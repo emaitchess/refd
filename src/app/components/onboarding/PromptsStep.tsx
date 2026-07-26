@@ -21,6 +21,12 @@ import {
 import type { PromptCategory } from '@/lib/prompt-categories';
 import type { OnboardingPrompt, OnboardingState } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { useWorkspace } from '@/providers/workspace';
+import {
+  limitReached,
+  promptLimitMessage,
+  surfaceLimitMessage,
+} from '../../../shared/config';
 import { OnboardingScrollArea } from './OnboardingScrollArea';
 import { RegenerateAction, StepCard } from './StepCard';
 import { StepNav } from './StepNav';
@@ -30,12 +36,8 @@ import {
   useStepNavigation,
 } from './step-navigation';
 
-// Generation yields 25 (5 per category), leaving room to hand-add a few. The
-// server caps the draft at the same number.
-const MAX_PROMPTS = 30;
-
 // Step 4: the buyer questions + the AI surfaces to check them on. Prompts are
-// auto-generated on entry (glm-5.2), degrading to manual; surfaces default all-on.
+// auto-generated on entry (glm-5.2), degrading to manual.
 export const PromptsStep = ({
   flow,
   state,
@@ -60,6 +62,9 @@ export const PromptsStep = ({
   const started = useRef(false);
   const hasBrand = Boolean(state.brand);
   const toast = useToast();
+  const { config } = useWorkspace();
+  const promptLimit = config.limits.maxActivePromptsPerWorkspace;
+  const surfaceLimit = config.limits.maxEnabledSurfacesPerWorkspace;
 
   const [filter, setFilter] = useState<PromptCategory>(
     () =>
@@ -150,11 +155,12 @@ export const PromptsStep = ({
     }
   }, [list.length, hasBrand]);
 
-  const atCap = list.length >= MAX_PROMPTS;
-  const capToast = () =>
-    toast(
-      `You can have up to ${MAX_PROMPTS} prompts during onboarding. Add more from the dashboard once you're set up.`,
-    );
+  const atCap = limitReached(list.length, promptLimit);
+  const capToast = () => {
+    if (promptLimit !== null) {
+      toast(promptLimitMessage(promptLimit));
+    }
+  };
 
   // The draft form stays collapsed until asked for: generation covers the common
   // case, so a permanent textarea would spend the card's height on the exception.
@@ -252,11 +258,16 @@ export const PromptsStep = ({
       }
     >
       <div className="flex flex-col gap-2">
-        <span className="field-label">AI surfaces to track</span>
+        <span className="field-label">
+          AI surfaces to track (up to {surfaceLimit})
+        </span>
         <SurfaceChips
           selected={state.surfaces}
           onChange={flow.setSurfaces}
           disabled={generating}
+          maxSelected={surfaceLimit}
+          onLimitReached={() => toast(surfaceLimitMessage(surfaceLimit))}
+          surfaces={config.availableSurfaces}
         />
       </div>
 

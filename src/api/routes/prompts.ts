@@ -1,12 +1,15 @@
 import { and, desc, eq } from 'drizzle-orm';
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import { z } from 'zod';
+import { promptLimitMessage } from '../../shared/config';
 import type { WorkspaceBindings } from '../auth/middleware';
 import { getDb } from '../db/client';
 import { prompts, results, runs } from '../db/schema';
 import { parseBody, parseId } from '../lib/http';
+import { insertActivePrompt } from '../lib/prompt-limit';
 import { parseRange } from '../lib/range';
 import { multiLineText, singleLineText } from '../lib/sanitize';
+import { configForUser } from '../lib/user-config';
 import {
   answerCount,
   cellRate,
@@ -80,23 +83,46 @@ const createSchema = z.object({
   text: multiLineText(8, 500),
   tags: z.array(singleLineText(1, 40)).max(10).default([]),
 });
+const insertedPromptSchema = z.object({ id: z.number().int().positive() });
 
 promptRoutes.post('/', async (c) => {
   const data = await parseBody(c, createSchema);
   const db = getDb(c.env);
-  const inserted = await db
-    .insert(prompts)
-    .values({
-      workspaceId: c.get('workspace').id,
-      text: data.text,
-      tags: data.tags,
-    })
-    .onConflictDoNothing({ target: [prompts.workspaceId, prompts.text] })
-    .returning();
-  if (!inserted[0]) {
-    return c.json({ error: 'prompt already exists' }, 409);
+  const workspaceId = c.get('workspace').id;
+  const limit = configForUser(c.get('user').email, c.env.ADMIN_EMAILS).limits
+    .maxActivePromptsPerWorkspace;
+  const insertedId = await insertActivePrompt(
+    c.env,
+    workspaceId,
+    data.text,
+    data.tags,
+    limit,
+  );
+  if (insertedId === null) {
+    const duplicate = await db
+      .select({ id: prompts.id })
+      .from(prompts)
+      .where(
+        and(eq(prompts.workspaceId, workspaceId), eq(prompts.text, data.text)),
+      )
+      .limit(1);
+    if (duplicate[0]) {
+      return c.json({ error: 'prompt already exists' }, 409);
+    }
+    if (limit === null) {
+      throw new Error('unlimited prompt insert returned no row');
+    }
+    return c.json({ error: promptLimitMessage(limit) }, 409);
   }
-  return c.json(inserted[0], 201);
+  const created = await db
+    .select()
+    .from(prompts)
+    .where(eq(prompts.id, insertedId))
+    .limit(1);
+  if (!created[0]) {
+    throw new Error('inserted prompt not found');
+  }
+  return c.json(created[0], 201);
 });
 
 const updateSchema = z.object({
@@ -105,12 +131,77 @@ const updateSchema = z.object({
   active: z.boolean().optional(),
 });
 
+const reactivatePrompt = async (
+  c: Context<WorkspaceBindings>,
+  id: number,
+  data: z.infer<typeof updateSchema>,
+) => {
+  const workspaceId = c.get('workspace').id;
+  const limit = configForUser(c.get('user').email, c.env.ADMIN_EMAILS).limits
+    .maxActivePromptsPerWorkspace;
+  const assignments: string[] = [];
+  const values: unknown[] = [];
+  if (data.text !== undefined) {
+    assignments.push('text = ?');
+    values.push(data.text);
+  }
+  if (data.tags !== undefined) {
+    assignments.push('tags = ?');
+    values.push(JSON.stringify(data.tags));
+  }
+  assignments.push('active = 1');
+  const row = await c.env.DB.prepare(
+    `update prompts
+     set ${assignments.join(', ')}
+     where id = ? and workspace_id = ?
+       and (
+         active = 1 or ? is null or (
+           select count(*) from prompts
+           where workspace_id = ? and active = 1
+         ) < ?
+       )
+     returning id`,
+  )
+    .bind(...values, id, workspaceId, limit, workspaceId, limit)
+    .first();
+  if (row === null) {
+    const owned = await getDb(c.env)
+      .select({ id: prompts.id })
+      .from(prompts)
+      .where(and(eq(prompts.id, id), eq(prompts.workspaceId, workspaceId)))
+      .limit(1);
+    if (!owned[0]) {
+      return c.json({ error: 'not found' }, 404);
+    }
+    if (limit === null) {
+      throw new Error('unlimited prompt activation returned no row');
+    }
+    return c.json({ error: promptLimitMessage(limit) }, 409);
+  }
+  const updatedId = insertedPromptSchema.safeParse(row);
+  if (!updatedId.success) {
+    throw new Error('prompt activation returned an invalid row');
+  }
+  const updated = await getDb(c.env)
+    .select()
+    .from(prompts)
+    .where(eq(prompts.id, updatedId.data.id))
+    .limit(1);
+  if (!updated[0]) {
+    throw new Error('activated prompt not found');
+  }
+  return c.json(updated[0]);
+};
+
 promptRoutes.patch('/:id', async (c) => {
   const id = parseId(c.req.param('id'));
   if (id === null) {
     return c.json({ error: 'invalid id' }, 400);
   }
   const data = await parseBody(c, updateSchema);
+  if (data.active === true) {
+    return reactivatePrompt(c, id, data);
+  }
   const db = getDb(c.env);
   const updated = await db
     .update(prompts)

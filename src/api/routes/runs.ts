@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gte, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { WorkspaceBindings } from '../auth/middleware';
+import { requireOperator } from '../auth/operator';
 import { type Db, getDb } from '../db/client';
 import {
   citations,
@@ -49,10 +50,8 @@ runRoutes.get('/', async (c) => {
   return c.json({ runs: rows });
 });
 
-// Manual trigger — spends provider quota, so confirmed in the UI and
-// rate-limited per plan (5/hour). Optional body narrows the run the same way
-// onboarding's preliminary run does (createRun already supports both knobs);
-// nullable because the confirm dialog posts without a body.
+// Manual trigger spends provider quota. ADMIN_EMAILS is the server-side
+// boundary; the rate limit is a second cost guard, not authorization.
 const runOptionsSchema = z
   .object({
     promptIds: z.array(z.number().int().positive()).min(1).optional(),
@@ -60,7 +59,7 @@ const runOptionsSchema = z
   })
   .nullable();
 
-runRoutes.post('/', async (c) => {
+runRoutes.post('/', requireOperator, async (c) => {
   const opts = (await parseBody(c, runOptionsSchema)) ?? {};
   const db = getDb(c.env);
   const ws = c.get('workspace').id;
@@ -98,7 +97,7 @@ runRoutes.post('/', async (c) => {
 // and failed rows are overwritten by the real records. Internal operator
 // lever, like rescore. Caveat: records echo the prompt text at trigger time,
 // so a prompt edited since the run ran will not match and fails again.
-runRoutes.post('/:id/recover', async (c) => {
+runRoutes.post('/:id/recover', requireOperator, async (c) => {
   const id = parseId(c.req.param('id'));
   if (id === null) {
     return c.json({ error: 'invalid id' }, 400);
@@ -187,7 +186,7 @@ runRoutes.get('/rescore', async (c) => {
   return c.json({ scoringVersion: SCORING_VERSION, ...progress });
 });
 
-runRoutes.post('/rescore', async (c) => {
+runRoutes.post('/rescore', requireOperator, async (c) => {
   const db = getDb(c.env);
   const ws = c.get('workspace').id;
   const progress = await rescoreProgress(db, ws);
@@ -206,7 +205,7 @@ runRoutes.post('/rescore', async (c) => {
 // idempotent — this is the recovery lever after a parser or scoring fix.
 // Sequential R2 gets: fine at current run sizes; the Layer 5 queue job takes
 // over if runs outgrow the worker's subrequest budget.
-runRoutes.post('/:id/rescore', async (c) => {
+runRoutes.post('/:id/rescore', requireOperator, async (c) => {
   const id = parseId(c.req.param('id'));
   if (id === null) {
     return c.json({ error: 'invalid id' }, 400);

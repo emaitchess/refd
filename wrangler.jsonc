@@ -20,6 +20,9 @@
       "/api/*"
     ]
   },
+  "cache": {
+    "enabled": true,
+  },
   "placement": {
     "mode": "smart"
   },
@@ -29,12 +32,14 @@
       "invocation_logs": true
     },
     "traces": {
-      "enabled": false
+      "enabled": true
     }
   },
   "vars": {
     "GEO_COUNTRY": "US",
     "SAMPLES": "2",
+    // refd.ai checks workspace entitlements. Self-hosters should use "all".
+    "SCHEDULED_MONITORING_POLICY": "entitled",
     // Dataset IDs from the BrightData dashboard (Web Scrapers → scraper → API).
     "BRIGHTDATA_DATASET_CHATGPT": "gd_m7aof0k82r803d5bjm",
     "BRIGHTDATA_DATASET_PERPLEXITY": "gd_m7dhdot1vw9a7gc1n",
