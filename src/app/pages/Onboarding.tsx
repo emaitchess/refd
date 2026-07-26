@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useRef, useState } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router';
+import { Navigate, useNavigate } from 'react-router';
 import { DitherIcon } from '@/components/dither/DitherIcon';
 import { DitherGradient } from '@/components/dither-kit/gradient';
 import { AccountMenu } from '@/components/onboarding/AccountMenu';
@@ -31,6 +31,7 @@ import {
   stepIndex,
   useOnboardingFlow,
 } from '@/lib/onboarding';
+import { SIGN_IN_PATH } from '@/lib/routes';
 import { useTheme } from '@/lib/theme';
 import type { OnboardingState, OnboardingStep } from '@/lib/types';
 import { useAuth } from '@/providers/auth';
@@ -163,7 +164,7 @@ export const Onboarding = () => {
 
   const signOut = async () => {
     await logout();
-    navigate('/auth/sign-in', { replace: true });
+    navigate(SIGN_IN_PATH, { replace: true });
   };
 
   if (flow.committed && flow.state) {
@@ -227,8 +228,8 @@ export const Onboarding = () => {
       <header className="shrink-0 border-border border-b">
         <OnboardingRail>
           <div className="grid h-14 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 sm:px-8 md:h-17 md:grid-cols-[1fr_auto_1fr]">
-            <Link
-              to="/"
+            <a
+              href="/"
               className="flex items-center gap-2.5"
               aria-label="refd home"
             >
@@ -236,7 +237,7 @@ export const Onboarding = () => {
               <span className="hidden font-mono text-[15px] text-primary sm:inline">
                 refd
               </span>
-            </Link>
+            </a>
             <div className="flex min-w-0 justify-center">
               <OnboardingWorkspaceMenu disabled={flow.loading || flow.busy} />
             </div>

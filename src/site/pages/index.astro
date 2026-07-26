@@ -1,0 +1,16 @@
+---
+import LandingApp from '../components/LandingApp';
+import PublicLayout from '../layouts/PublicLayout.astro';
+
+const title = 'refd | open-source AI search monitoring';
+const description =
+  "Open-source AI search monitoring. Track your brand's mentions, citations, position, and share of voice across ChatGPT, Perplexity, Gemini, Google AI Mode, and Overview.";
+---
+
+<PublicLayout
+  title={title}
+  description={description}
+  canonicalPath="/"
+>
+  <LandingApp client:load />
+</PublicLayout>

@@ -1,5 +1,5 @@
-import { Link, useNavigate } from 'react-router';
 import { DitherButton } from '@/components/dither-kit/button';
+import { CREATE_ACCOUNT_URL, SIGN_IN_URL } from '@/lib/routes';
 import {
   LandingContainer,
   LandingInset,
@@ -8,7 +8,6 @@ import {
 } from './chrome';
 
 export const ClosingSection = () => {
-  const navigate = useNavigate();
   const { authed, to, openLabel } = useAccountCta();
 
   return (
@@ -29,14 +28,16 @@ export const ClosingSection = () => {
               variant="gradient"
               bloom="off"
               className="h-10 rounded-none px-5 font-medium font-sans text-(--color-dither-button-text) text-[13px] transition-transform duration-150 active:scale-98"
-              onClick={() => navigate(authed ? to : '/auth/create-account')}
+              onClick={() =>
+                window.location.assign(authed ? to : CREATE_ACCOUNT_URL)
+              }
             >
               {authed ? openLabel : 'start monitoring'}
             </DitherButton>
             {!authed && (
-              <Link to="/auth/sign-in" className="btn-secondary h-10 px-5">
+              <a href={SIGN_IN_URL} className="btn-secondary h-10 px-5">
                 sign in
-              </Link>
+              </a>
             )}
           </div>
         </LandingInset>

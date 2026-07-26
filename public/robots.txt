@@ -30,4 +30,5 @@
 User-Agent: *
 Content-Signal: ai-train=yes, search=yes, ai-input=yes
 Allow: /
+Disallow: /app
 Sitemap: https://refd.ai/sitemap.xml
