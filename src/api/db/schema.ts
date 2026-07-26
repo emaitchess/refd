@@ -184,9 +184,14 @@ export const snapshots = sqliteTable(
       .references(() => runs.id),
     provider: text('provider').notNull(),
     surface: text('surface').notNull(),
-    // One snapshot per (surface, sample): identical prompts in one BrightData
-    // batch risk being collapsed, which would silently break sampling.
+    // One snapshot per (surface, sample, chunk): identical prompts in one
+    // BrightData batch risk being collapsed, which silently breaks sampling.
     sample: integer('sample').notNull().default(1),
+    // Batch index within a (surface, sample): each batch is its own snapshot,
+    // so a failed download loses one batch, not the whole surface.
+    chunk: integer('chunk').notNull().default(0),
+    // Prompt ids this snapshot covers, so a retry re-triggers the same batch.
+    promptIds: text('prompt_ids', { mode: 'json' }).$type<number[]>(),
     externalId: text('external_id'),
     status: text('status', { enum: ['triggered', 'ready', 'failed'] })
       .notNull()
@@ -204,6 +209,7 @@ export const snapshots = sqliteTable(
       t.provider,
       t.surface,
       t.sample,
+      t.chunk,
     ),
   ],
 );
