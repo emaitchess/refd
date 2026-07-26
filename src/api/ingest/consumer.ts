@@ -7,11 +7,13 @@ import {
   checkProgress,
   fetchSnapshot,
   normalizeDatasetRecord,
+  notifyEnabled,
   ProviderRetryableError,
   recordPrompt,
   triggerBatch,
 } from '../providers/brightdata';
 import { fetchAioAnswer } from '../providers/brightdata-serp';
+import type { DatasetSurface } from '../providers/types';
 import type { ScorableEntity } from '../scoring';
 import {
   type IngestMessage,
@@ -33,6 +35,7 @@ import {
 } from './storage';
 
 const POLL_DELAY_SECONDS = 60;
+const BACKSTOP_DELAY_SECONDS = 1500;
 const MAX_POLLS = 60; // give a snapshot up to ~1h before declaring it lost
 
 const backoffSeconds = (
@@ -47,10 +50,10 @@ const backoffSeconds = (
   return Math.min(base + jitter, 3600);
 };
 
-const failWholeSnapshot = async (
+export const failWholeSnapshot = async (
   env: AppEnv,
   runId: number,
-  surface: string,
+  surface: DatasetSurface,
   sample: number,
   chunk: number,
   promptsInRun: RunPrompt[],
@@ -74,7 +77,7 @@ const failWholeSnapshot = async (
       {
         runId,
         promptId: prompt.id,
-        surface: surface as never,
+        surface,
         sample,
         provider: 'brightdata',
       },
@@ -109,7 +112,8 @@ const handleTrigger = async (
 
   // Idempotency: a redelivered trigger never re-spends a batch — it resumes
   // polling the snapshot that already exists.
-  let snapshotId = existing[0]?.externalId ?? null;
+  const existingSnapshot = existing[0];
+  let snapshotId = existingSnapshot?.externalId ?? null;
   if (!snapshotId) {
     snapshotId = await triggerBatch(
       env,
@@ -125,6 +129,7 @@ const handleTrigger = async (
         sample: msg.sample,
         chunk: msg.chunk,
         promptIds: msg.prompts.map((p) => p.id),
+        promptSnapshot: msg.prompts,
         externalId: snapshotId,
       })
       .onConflictDoUpdate({
@@ -135,8 +140,20 @@ const handleTrigger = async (
           snapshots.sample,
           snapshots.chunk,
         ],
-        set: { externalId: snapshotId },
+        set: {
+          promptIds: msg.prompts.map((p) => p.id),
+          promptSnapshot: msg.prompts,
+          externalId: snapshotId,
+        },
       });
+  } else if (existingSnapshot && !existingSnapshot.promptSnapshot) {
+    await db
+      .update(snapshots)
+      .set({
+        promptIds: msg.prompts.map((p) => p.id),
+        promptSnapshot: msg.prompts,
+      })
+      .where(eq(snapshots.id, existingSnapshot.id));
   }
 
   await env.INGEST.send(
@@ -151,63 +168,57 @@ const handleTrigger = async (
       prompts: msg.prompts,
       polls: 0,
     } satisfies IngestMessage,
-    { delaySeconds: POLL_DELAY_SECONDS },
+    {
+      delaySeconds: notifyEnabled(env)
+        ? BACKSTOP_DELAY_SECONDS
+        : POLL_DELAY_SECONDS,
+    },
   );
 };
 
-const handlePoll = async (
-  env: AppEnv,
-  msg: Extract<IngestMessage, { kind: 'brightdata_poll' }>,
-): Promise<void> => {
-  const progress = await checkProgress(env, msg.snapshotId);
+type DatasetFetchMessage = Extract<
+  IngestMessage,
+  { kind: 'brightdata_poll' | 'brightdata_fetch' }
+>;
 
-  if (progress === 'running') {
-    if (msg.polls >= MAX_POLLS) {
-      await failWholeSnapshot(
-        env,
-        msg.runId,
-        msg.surface,
-        msg.sample,
-        msg.chunk,
-        msg.prompts,
-        `snapshot ${msg.snapshotId} still running after ${MAX_POLLS} polls`,
-        msg.polls,
-      );
-      return;
-    }
-    await env.INGEST.send(
-      { ...msg, polls: msg.polls + 1 } satisfies IngestMessage,
-      {
-        delaySeconds: POLL_DELAY_SECONDS,
-      },
-    );
-    return;
-  }
+type SnapshotRow = typeof snapshots.$inferSelect;
 
-  if (progress === 'failed') {
-    await failWholeSnapshot(
-      env,
-      msg.runId,
-      msg.surface,
-      msg.sample,
-      msg.chunk,
-      msg.prompts,
-      `snapshot ${msg.snapshotId} failed at provider`,
-      msg.polls,
-    );
-    return;
-  }
-
-  const db = getDb(env);
-  const snapshotKey = and(
+const snapshotKeyFor = (msg: DatasetFetchMessage) =>
+  and(
     eq(snapshots.runId, msg.runId),
     eq(snapshots.provider, 'brightdata'),
     eq(snapshots.surface, msg.surface),
     eq(snapshots.sample, msg.sample),
     eq(snapshots.chunk, msg.chunk),
   );
-  const snap = (await db.select().from(snapshots).where(snapshotKey))[0];
+
+const loadTriggeredSnapshot = async (
+  env: AppEnv,
+  msg: DatasetFetchMessage,
+): Promise<SnapshotRow | null> => {
+  const snap = (
+    await getDb(env).select().from(snapshots).where(snapshotKeyFor(msg))
+  )[0];
+  if (snap?.status !== 'triggered' || snap.externalId !== msg.snapshotId) {
+    return null;
+  }
+  return snap;
+};
+
+const fetchAndStore = async (
+  env: AppEnv,
+  msg: DatasetFetchMessage,
+  snap: SnapshotRow,
+): Promise<void> => {
+  const db = getDb(env);
+  const snapshotKey = and(
+    snapshotKeyFor(msg),
+    eq(snapshots.externalId, msg.snapshotId),
+  );
   const entitiesToScore = await entitiesForRun(env, msg.runId, msg.workspaceId);
+  console.log(
+    `brightdata fetch: ${msg.kind === 'brightdata_fetch' ? 'webhook' : 'poll'} snapshot ${msg.snapshotId}`,
+  );
   const records = await fetchSnapshot(env, msg.snapshotId);
   // Ready-but-empty is transport weirdness, not data — prompts were
   // submitted, so records must exist. Retry; a snapshot that stays empty
@@ -257,7 +268,7 @@ const handlePoll = async (
     // Per-prompt isolation: one bad record must not fail the whole snapshot.
     // Duration = snapshot trigger → this result stored (batch answers share
     // one provider round-trip).
-    const durationMs = snap ? Date.now() - snap.createdAt : null;
+    const durationMs = Date.now() - snap.createdAt;
     try {
       const stored = await storeScoredResult(
         env,
@@ -291,9 +302,74 @@ const handlePoll = async (
 
   await db
     .update(snapshots)
-    .set({ status: 'ready', finishedAt: Date.now(), polls: msg.polls })
+    .set({
+      status: 'ready',
+      finishedAt: Date.now(),
+      polls: msg.kind === 'brightdata_poll' ? msg.polls : snap.polls,
+    })
     .where(snapshotKey);
   await refreshRunStatus(db, msg.runId);
+};
+
+const handlePoll = async (
+  env: AppEnv,
+  msg: Extract<IngestMessage, { kind: 'brightdata_poll' }>,
+): Promise<void> => {
+  const snap = await loadTriggeredSnapshot(env, msg);
+  if (!snap) {
+    return;
+  }
+  const progress = await checkProgress(env, msg.snapshotId);
+
+  if (progress === 'running') {
+    if (msg.polls >= MAX_POLLS) {
+      await failWholeSnapshot(
+        env,
+        msg.runId,
+        msg.surface,
+        msg.sample,
+        msg.chunk,
+        msg.prompts,
+        `snapshot ${msg.snapshotId} still running after ${MAX_POLLS} polls`,
+        msg.polls,
+      );
+      return;
+    }
+    await env.INGEST.send(
+      { ...msg, polls: msg.polls + 1 } satisfies IngestMessage,
+      {
+        delaySeconds: POLL_DELAY_SECONDS,
+      },
+    );
+    return;
+  }
+
+  if (progress === 'failed') {
+    await failWholeSnapshot(
+      env,
+      msg.runId,
+      msg.surface,
+      msg.sample,
+      msg.chunk,
+      msg.prompts,
+      `snapshot ${msg.snapshotId} failed at provider`,
+      msg.polls,
+    );
+    return;
+  }
+
+  await fetchAndStore(env, msg, snap);
+};
+
+const handleFetch = async (
+  env: AppEnv,
+  msg: Extract<IngestMessage, { kind: 'brightdata_fetch' }>,
+): Promise<void> => {
+  const snap = await loadTriggeredSnapshot(env, msg);
+  if (!snap) {
+    return;
+  }
+  await fetchAndStore(env, msg, snap);
 };
 
 const handleSerpFetch = async (
@@ -531,6 +607,8 @@ export const handleIngestBatch = async (
         await handleTrigger(env, body);
       } else if (body.kind === 'brightdata_poll') {
         await handlePoll(env, body);
+      } else if (body.kind === 'brightdata_fetch') {
+        await handleFetch(env, body);
       } else if (body.kind === 'serp_aio_fetch') {
         await handleSerpFetch(env, body);
       } else if (body.kind === 'sentiment_score') {
