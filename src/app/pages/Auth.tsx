@@ -105,21 +105,21 @@ export const Auth = () => {
       <header className="shrink-0 border-border border-b">
         <AuthRail>
           <div className="flex h-14 items-center justify-between px-5 sm:px-8 md:h-17">
-            <a
-              href="/"
+            <Link
+              to="/"
               className="flex items-center gap-2.5"
               aria-label="refd home"
             >
               <DitherIcon name="logo" size={20} className="text-primary" />
               <span className="font-mono text-[15px] text-primary">refd</span>
-            </a>
-            <a
-              href="/"
+            </Link>
+            <Link
+              to="/"
               className="hidden items-center gap-2 text-[12px] text-secondary transition-colors duration-150 hover:text-primary sm:flex"
             >
               <DitherIcon name="arrow-left" size={12} />
               home
-            </a>
+            </Link>
           </div>
         </AuthRail>
       </header>

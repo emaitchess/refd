@@ -1,7 +1,8 @@
 import { type ComponentType, lazy, type ReactNode, Suspense } from 'react';
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router';
+import { PUBLIC_PAGE_PATHS } from '../shared/public-pages';
 import { ToastProvider } from './components/feedback/Toast';
-import { APP_BASE_PATH, CREATE_ACCOUNT_PATH, SIGN_IN_PATH } from './lib/routes';
+import { CREATE_ACCOUNT_PATH, SIGN_IN_PATH } from './lib/routes';
 import { AuthProvider, useAuth } from './providers/auth';
 import { useWorkspace, WorkspaceProvider } from './providers/workspace';
 
@@ -22,6 +23,7 @@ const Competitors = lazyRoute(
 const Help = lazyRoute(() => import('./pages/Help'), 'Help');
 const Home = lazyRoute(() => import('./pages/Home'), 'Home');
 const Glossary = lazyRoute(() => import('./pages/Help'), 'Glossary');
+const Landing = lazyRoute(() => import('./pages/Landing'), 'Landing');
 const Onboarding = lazyRoute(() => import('./pages/Onboarding'), 'Onboarding');
 const Overview = lazyRoute(() => import('./pages/Overview'), 'Overview');
 const Prompts = lazyRoute(() => import('./pages/Prompts'), 'Prompts');
@@ -103,11 +105,24 @@ const RequireOnboarded = ({ children }: { children: ReactNode }) => {
 export const App = () => (
   <ToastProvider>
     <AuthProvider>
-      <BrowserRouter basename={APP_BASE_PATH}>
+      <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Navigate to="/home" replace />} />
+          {/* Public for everyone: signed-in visitors get dashboard entry
+              points in the landing nav instead of a redirect. */}
+          <Route
+            path={PUBLIC_PAGE_PATHS.landing}
+            element={suspended(<Landing />)}
+          />
           <Route path={SIGN_IN_PATH} element={suspended(<Auth />)} />
           <Route path={CREATE_ACCOUNT_PATH} element={suspended(<Auth />)} />
+          <Route
+            path="/auth"
+            element={<Navigate to={SIGN_IN_PATH} replace />}
+          />
+          <Route
+            path="/login"
+            element={<Navigate to={SIGN_IN_PATH} replace />}
+          />
           <Route element={<AuthedShell />}>
             <Route path="/onboarding" element={suspended(<Onboarding />)} />
             <Route

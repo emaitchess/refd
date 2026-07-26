@@ -1,5 +1,7 @@
-const PUBLIC_SITE_ORIGIN = 'https://refd.ai';
-const NON_INDEXABLE_PREFIXES = ['/app'] as const;
+import {
+  INDEXABLE_PUBLIC_PATHS,
+  PUBLIC_SITE_ORIGIN,
+} from '../src/shared/public-pages';
 
 const XML_ENTITIES: Readonly<Record<string, string>> = {
   '&': '&amp;',
@@ -33,20 +35,12 @@ const absolutePublicUrl = (path: string, origin: string) => {
   return url.href;
 };
 
-const isIndexablePublicPath = (path: string) =>
-  !NON_INDEXABLE_PREFIXES.some(
-    (prefix) => path === prefix || path.startsWith(`${prefix}/`),
-  );
-
 export const generateSitemap = (
-  paths: readonly string[],
+  paths: readonly string[] = INDEXABLE_PUBLIC_PATHS,
   origin = PUBLIC_SITE_ORIGIN,
 ) => {
   if (new Set(paths).size !== paths.length) {
     throw new Error('Sitemap paths must be unique');
-  }
-  if (paths.some((path) => !isIndexablePublicPath(path))) {
-    throw new Error('Sitemap paths must not include application routes');
   }
 
   const entries = paths
@@ -65,20 +59,4 @@ export const generateSitemap = (
     '</urlset>',
     '',
   ].join('\n');
-};
-
-export const publicPathFromHtml = (filePath: string): string | null => {
-  const normalized = filePath.replaceAll('\\', '/');
-  if (!normalized.endsWith('.html') || normalized === '404.html') {
-    return null;
-  }
-
-  const withoutExtension = normalized.slice(0, -'.html'.length);
-  const publicPath =
-    withoutExtension === 'index'
-      ? '/'
-      : withoutExtension.endsWith('/index')
-        ? `/${withoutExtension.slice(0, -'/index'.length)}`
-        : `/${withoutExtension}`;
-  return isIndexablePublicPath(publicPath) ? publicPath : null;
 };
