@@ -1,5 +1,7 @@
 # refd
 
+[![CI](https://github.com/emaitchess/refd/actions/workflows/ci.yml/badge.svg)](https://github.com/emaitchess/refd/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/github/license/emaitchess/refd)](LICENSE) [![Try refd.ai](https://img.shields.io/badge/try-refd.ai-111111)](https://refd.ai) [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
+
 Open-source AI search monitoring — track how AI answers talk about any brand: visibility, mentions, citations, and rank across ChatGPT, Perplexity, Gemini, Google AI Mode, and Google AI Overviews. Use the hosted app at [refd.ai](https://refd.ai) or self-host the whole stack.
 
 One Cloudflare Worker runs everything: Hono API, daily cron, queue consumer, and the React dashboard (Workers Static Assets). Data via BrightData (dataset scrapers + SERP API), stored in D1 (Drizzle) with gzipped raw payloads in R2.
