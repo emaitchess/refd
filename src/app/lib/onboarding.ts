@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { SURFACES } from '../../shared/surfaces';
 import { useWorkspace } from '../providers/workspace';
 import { api } from './api';
 import {
@@ -10,14 +11,7 @@ import type { OnboardingState, OnboardingStep } from './types';
 
 export { PROMPT_CATEGORIES, PROMPT_CATEGORY_EXPLAINERS };
 
-// The AI surfaces a run can cover (canonical order; matches the server SURFACES).
-export const ALL_SURFACES = [
-  'chatgpt',
-  'perplexity',
-  'gemini',
-  'google_ai_mode',
-  'google_aio',
-] as const;
+export const ALL_SURFACES = SURFACES;
 
 const ORDER: OnboardingStep[] = [
   'brand',

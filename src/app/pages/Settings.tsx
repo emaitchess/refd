@@ -8,23 +8,32 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { WorkspaceIcon } from '@/components/layout/WorkspaceIcon';
 import { Badge, Card, EmptyState, Modal, Skeleton } from '@/components/ui';
 import { api, useAsyncAction, useQuery } from '@/lib/api';
-import { ALL_SURFACES } from '@/lib/onboarding';
 import { useParamFlag } from '@/lib/params';
 import { cn } from '@/lib/utils';
 import { useWorkspace, type Workspace } from '@/providers/workspace';
 import {
-  MAX_WORKSPACES,
-  WORKSPACE_LIMIT_MESSAGE,
-  workspaceLimitReached,
-} from '../../shared/workspaces';
+  limitReached,
+  surfaceLimitMessage,
+  workspaceLimitMessage,
+} from '../../shared/config';
 
 const WORKSPACE_GRID =
   'grid md:grid-cols-[minmax(220px,1.2fr)_minmax(180px,1fr)_minmax(120px,0.55fr)_minmax(190px,0.8fr)]';
 
 const WorkspacesCard = () => {
-  const { workspaces, current, switchTo, create, rename, deleteWorkspace } =
-    useWorkspace();
-  const atWorkspaceLimit = workspaceLimitReached(workspaces.length);
+  const {
+    config,
+    workspaces,
+    current,
+    switchTo,
+    create,
+    rename,
+    deleteWorkspace,
+  } = useWorkspace();
+  const workspaceLimit = config.limits.maxWorkspaces;
+  const atWorkspaceLimit = limitReached(workspaces.length, workspaceLimit);
+  const workspaceLimitCopy =
+    workspaceLimit === null ? null : workspaceLimitMessage(workspaceLimit);
   const navigate = useNavigate();
   const toast = useToast();
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -62,7 +71,7 @@ const WorkspacesCard = () => {
   const createWorkspace = (event: FormEvent) => {
     event.preventDefault();
     if (atWorkspaceLimit) {
-      setError(WORKSPACE_LIMIT_MESSAGE);
+      setError(workspaceLimitCopy);
       return;
     }
     run(async () => {
@@ -107,8 +116,10 @@ const WorkspacesCard = () => {
           <h2 className="section-label text-primary">workspaces</h2>
           <p className="mt-1 max-w-3xl text-[12px] text-muted leading-relaxed">
             Each workspace monitors one brand with isolated competitors,
-            prompts, runs, and reporting history. Each account can have up to{' '}
-            {MAX_WORKSPACES} workspaces.
+            prompts, runs, and reporting history.{' '}
+            {workspaceLimit === null
+              ? 'Administrator accounts have no workspace limit.'
+              : `Each account can have up to ${workspaceLimit} workspaces.`}
           </p>
         </header>
 
@@ -281,7 +292,7 @@ const WorkspacesCard = () => {
             </label>
             <p className="mt-1 text-[12px] text-muted">
               {atWorkspaceLimit
-                ? WORKSPACE_LIMIT_MESSAGE
+                ? workspaceLimitCopy
                 : 'Creating one switches to its onboarding flow immediately.'}
             </p>
           </div>
@@ -370,6 +381,8 @@ const SurfacesCard = () => {
   const [override, setOverride] = useState<string[] | null>(null);
   const selected = override ?? query.data?.surfaces ?? [];
   const toast = useToast();
+  const { config } = useWorkspace();
+  const surfaceLimit = config.limits.maxEnabledSurfacesPerWorkspace;
   const { busy, error, run } = useAsyncAction();
 
   const change = (next: string[]) => {
@@ -421,15 +434,23 @@ const SurfacesCard = () => {
             className="border-0"
           />
         ) : (
-          <SurfaceChips selected={selected} onChange={change} disabled={busy} />
+          <SurfaceChips
+            selected={selected}
+            onChange={change}
+            disabled={busy}
+            maxSelected={surfaceLimit}
+            onLimitReached={() => toast(surfaceLimitMessage(surfaceLimit))}
+            surfaces={config.availableSurfaces}
+          />
         )}
         <p className="font-mono text-[10px] text-muted uppercase tracking-[0.08em]">
-          At least one surface must remain enabled.
+          Keep at least one surface enabled. You can select up to {surfaceLimit}
+          .
         </p>
       </div>
       <div className="flex min-h-10 items-center justify-between gap-3 border-border border-t px-5 py-2">
         <span className="font-mono text-[10px] text-muted uppercase tracking-[0.08em]">
-          {selected.length} of {ALL_SURFACES.length} enabled
+          {selected.length} of {surfaceLimit} allowed
         </span>
         {busy ? (
           <span className="font-mono text-[10px] text-muted uppercase tracking-[0.08em]">

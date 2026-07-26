@@ -15,7 +15,7 @@ export const setActiveWorkspaceId = (id: number | null) => {
   activeWorkspaceId = id;
 };
 
-const UNSCOPED = ['/auth', '/workspaces', '/health'];
+const UNSCOPED = ['/auth', '/config', '/workspaces', '/health'];
 
 export const apiPath = (path: string): string => {
   if (UNSCOPED.some((prefix) => path.startsWith(prefix))) {

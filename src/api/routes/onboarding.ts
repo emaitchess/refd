@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import { z } from 'zod';
+import { promptLimitMessage } from '../../shared/config';
 import { siteMetadataSchema } from '../../shared/site-metadata';
 import type { WorkspaceBindings } from '../auth/middleware';
 import type { Db } from '../db/client';
@@ -15,8 +16,10 @@ import { createRun } from '../ingest/runs';
 import { discoverCompetitors } from '../lib/exa';
 import { parseBody } from '../lib/http';
 import { describeBrand, generatePrompts, PROMPT_CATEGORIES } from '../lib/llm';
+import { insertActivePrompt } from '../lib/prompt-limit';
 import { domainField, multiLineText, singleLineText } from '../lib/sanitize';
 import { fetchSiteMetadata, fetchSiteText } from '../lib/site-fetch';
+import { configForUser } from '../lib/user-config';
 import { enabledSurfaces } from '../providers/types';
 
 // favicon.im/google favicons — deterministic, no auth. Used as the brand logo.
@@ -108,7 +111,12 @@ const storedSiteMetadata = (value: unknown) => {
 // The resumable wizard state: the committed brand entity + the profile draft
 // (description/competitors/prompts) + the completion flag. Competitors and
 // prompts stay as drafts here until `commit` materialises them as real rows.
-const loadState = async (db: Db, wsId: number) => {
+const loadState = async (
+  c: Context<WorkspaceBindings>,
+  db: Db,
+  wsId: number,
+) => {
+  const config = configForUser(c.get('user').email, c.env.ADMIN_EMAILS);
   const ws = (
     await db.select().from(workspaces).where(eq(workspaces.id, wsId))
   )[0];
@@ -123,7 +131,10 @@ const loadState = async (db: Db, wsId: number) => {
     onboardingCompleted: ws?.onboardingCompleted ?? false,
     committed: profile.committed ?? false,
     step: profile.step ?? (brand ? 'describe' : 'brand'),
-    surfaces: enabledSurfaces(ws?.surfaces ?? null),
+    surfaces: enabledSurfaces(
+      ws?.surfaces ?? null,
+      config.limits.maxEnabledSurfacesPerWorkspace,
+    ),
     brand: brand
       ? {
           id: brand.id,
@@ -152,7 +163,7 @@ const loadState = async (db: Db, wsId: number) => {
 
 onboardingRoutes.get('/', async (c) => {
   const db = getDb(c.env);
-  return c.json(await loadState(db, c.get('workspace').id));
+  return c.json(await loadState(c, db, c.get('workspace').id));
 });
 
 onboardingRoutes.get('/site-metadata', async (c) => {
@@ -238,7 +249,7 @@ onboardingRoutes.post('/brand', async (c) => {
     step: 'describe',
     siteMetadata: undefined,
   });
-  return c.json(await loadState(db, ws.id));
+  return c.json(await loadState(c, db, ws.id));
 });
 
 // Step 2 (AI): fetch the brand's site and draft an editable description via
@@ -263,7 +274,7 @@ onboardingRoutes.post('/extract', async (c) => {
     return c.json({
       ok: false,
       reason: 'fetch',
-      state: await loadState(db, wsId),
+      state: await loadState(c, db, wsId),
     });
   }
   // The logo is deterministic from the domain — set it even when text extraction fails.
@@ -274,7 +285,7 @@ onboardingRoutes.post('/extract', async (c) => {
     return c.json({
       ok: false,
       reason: 'fetch',
-      state: await loadState(db, wsId),
+      state: await loadState(c, db, wsId),
     });
   }
   const drafted = await describeBrand(c.env, {
@@ -286,7 +297,7 @@ onboardingRoutes.post('/extract', async (c) => {
     return c.json({
       ok: false,
       reason: 'llm',
-      state: await loadState(db, wsId),
+      state: await loadState(c, db, wsId),
     });
   }
   await mergeProfile(db, wsId, {
@@ -298,7 +309,7 @@ onboardingRoutes.post('/extract', async (c) => {
   return c.json({
     ok: true,
     source: site.source,
-    state: await loadState(db, wsId),
+    state: await loadState(c, db, wsId),
   });
 });
 
@@ -333,7 +344,7 @@ onboardingRoutes.post('/competitors', async (c) => {
     return c.json({
       ok: false,
       reason: 'search',
-      state: await loadState(db, wsId),
+      state: await loadState(c, db, wsId),
     });
   }
   // Sanitise + dedupe: valid apex domains only, never the brand itself or
@@ -403,14 +414,14 @@ onboardingRoutes.post('/competitors', async (c) => {
     return c.json({
       ok: false,
       reason: 'llm',
-      state: await loadState(db, wsId),
+      state: await loadState(c, db, wsId),
     });
   }
   await mergeProfile(db, wsId, {
     competitors,
     ...bumpRegen(profile, 'competitors', regenerate),
   });
-  return c.json({ ok: true, state: await loadState(db, wsId) });
+  return c.json({ ok: true, state: await loadState(c, db, wsId) });
 });
 
 // Step 4 (AI): generate the buyer-question set via glm-5.2. Soft-fails to manual.
@@ -444,6 +455,8 @@ onboardingRoutes.post('/prompts', async (c) => {
   const perCat = new Map<string, number>();
   const seen = new Set<string>();
   const out: { text: string; category: string }[] = [];
+  const promptLimit = configForUser(c.get('user').email, c.env.ADMIN_EMAILS)
+    .limits.maxActivePromptsPerWorkspace;
   for (const p of generated) {
     const category = p.category.trim();
     const parsedText = textCheck.safeParse(p.text);
@@ -458,19 +471,22 @@ onboardingRoutes.post('/prompts', async (c) => {
     seen.add(dupeKey);
     perCat.set(category, (perCat.get(category) ?? 0) + 1);
     out.push({ text: t, category });
+    if (promptLimit !== null && out.length >= promptLimit) {
+      break;
+    }
   }
   if (out.length === 0) {
     return c.json({
       ok: false,
       reason: 'llm',
-      state: await loadState(db, wsId),
+      state: await loadState(c, db, wsId),
     });
   }
   await mergeProfile(db, wsId, {
     prompts: out,
     ...bumpRegen(profile, 'prompts', regenerate),
   });
-  return c.json({ ok: true, state: await loadState(db, wsId) });
+  return c.json({ ok: true, state: await loadState(c, db, wsId) });
 });
 
 const competitorDraft = z.object({
@@ -483,9 +499,9 @@ const promptDraft = z.object({
   category: singleLineText(1, 40),
 });
 
-// Generation yields 25 (5 per category); the rest is headroom for hand-added
-// ones. Past onboarding, prompts are managed in the dashboard with no such cap.
-const MAX_PROMPTS = 30;
+// A high request-shape ceiling protects parsing even when an administrator has
+// no product-level prompt limit.
+const MAX_PROMPTS_PER_REQUEST = 1000;
 
 const patchSchema = z.object({
   step: z.enum(STEPS).optional(),
@@ -494,7 +510,7 @@ const patchSchema = z.object({
   targetMarket: singleLineText(0, 200).optional(),
   logoUrl: z.string().trim().max(400).optional(),
   competitors: z.array(competitorDraft).max(10).optional(),
-  prompts: z.array(promptDraft).max(MAX_PROMPTS).optional(),
+  prompts: z.array(promptDraft).max(MAX_PROMPTS_PER_REQUEST).optional(),
 });
 
 // Save any subset of the draft (description/competitors/prompts/step). Editable
@@ -503,8 +519,17 @@ onboardingRoutes.patch('/', async (c) => {
   const data = await parseBody(c, patchSchema);
   const db = getDb(c.env);
   const wsId = c.get('workspace').id;
+  const promptLimit = configForUser(c.get('user').email, c.env.ADMIN_EMAILS)
+    .limits.maxActivePromptsPerWorkspace;
+  if (
+    data.prompts !== undefined &&
+    promptLimit !== null &&
+    data.prompts.length > promptLimit
+  ) {
+    return c.json({ error: promptLimitMessage(promptLimit) }, 409);
+  }
   await mergeProfile(db, wsId, data);
-  return c.json(await loadState(db, wsId));
+  return c.json(await loadState(c, db, wsId));
 });
 
 // Materialise the drafted competitors + prompts and fire the onboard runs. This
@@ -514,6 +539,8 @@ onboardingRoutes.post('/commit', async (c) => {
   const db = getDb(c.env);
   const wsId = c.get('workspace').id;
   const profile = await getProfile(db, wsId);
+  const promptLimit = configForUser(c.get('user').email, c.env.ADMIN_EMAILS)
+    .limits.maxActivePromptsPerWorkspace;
   const brand = (
     await db
       .select()
@@ -529,6 +556,28 @@ onboardingRoutes.post('/commit', async (c) => {
     .filter((comp) => comp.name.trim() && comp.domains.length > 0);
   if (competitorDrafts.length === 0) {
     return c.json({ error: 'add at least one competitor first' }, 400);
+  }
+
+  const existingPrompts = await db
+    .select({
+      active: prompts.active,
+      text: prompts.text,
+    })
+    .from(prompts)
+    .where(eq(prompts.workspaceId, wsId));
+  const existingPromptTexts = new Set(existingPrompts.map((p) => p.text));
+  const newPromptTexts = new Set(
+    (profile.prompts ?? [])
+      .map((prompt) => prompt.text)
+      .filter((text) => !existingPromptTexts.has(text)),
+  );
+  if (
+    promptLimit !== null &&
+    existingPrompts.filter((prompt) => prompt.active).length +
+      newPromptTexts.size >
+      promptLimit
+  ) {
+    return c.json({ error: promptLimitMessage(promptLimit) }, 409);
   }
 
   const existing = await db
@@ -557,14 +606,20 @@ onboardingRoutes.post('/commit', async (c) => {
   }
 
   for (const p of profile.prompts ?? []) {
-    await db
-      .insert(prompts)
-      .values({
-        workspaceId: wsId,
-        text: p.text,
-        tags: p.category ? [p.category] : [],
-      })
-      .onConflictDoNothing({ target: [prompts.workspaceId, prompts.text] });
+    const insertedId = await insertActivePrompt(
+      c.env,
+      wsId,
+      p.text,
+      p.category ? [p.category] : [],
+      promptLimit,
+    );
+    if (insertedId === null && !existingPromptTexts.has(p.text)) {
+      if (promptLimit === null) {
+        throw new Error('unlimited onboarding prompt insert returned no row');
+      }
+      return c.json({ error: promptLimitMessage(promptLimit) }, 409);
+    }
+    existingPromptTexts.add(p.text);
   }
 
   // Fire the preliminary run (1 prompt/category) + a background run for the rest,
