@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 import { DitherIcon } from '@/components/dither/DitherIcon';
-import { appUrl } from '@/lib/routes';
 import { useAuth } from '@/providers/auth';
 
 export const GITHUB_URL = 'https://github.com/emaitchess/refd';
@@ -15,7 +14,7 @@ export const useAccountCta = () => {
   const { email, onboarded } = useAuth();
   return {
     authed: Boolean(email),
-    to: appUrl(onboarded ? '/overview' : '/onboarding'),
+    to: onboarded ? '/overview' : '/onboarding',
     label: onboarded ? 'dashboard' : 'continue onboarding',
     // Hero and closing CTAs use the longer verb form.
     openLabel: onboarded ? 'open dashboard' : 'continue onboarding',
