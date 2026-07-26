@@ -1,6 +1,8 @@
 // `Env` comes from worker-configuration.d.ts (bunx wrangler types).
 // Secrets aren't inferable from config — declared here on top.
 export type AppEnv = Env & {
+  // Comma-separated operator allowlist. Authorization fails closed when absent.
+  ADMIN_EMAILS?: string;
   BRIGHTDATA_API_TOKEN: string;
   JWT_SECRET: string;
   // Exa company search — competitor discovery (onboarding). Optional: without

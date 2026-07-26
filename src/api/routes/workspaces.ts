@@ -1,16 +1,14 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import {
-  MAX_WORKSPACES,
-  WORKSPACE_LIMIT_MESSAGE,
-  workspaceDeletionIssue,
-} from '../../shared/workspaces';
+import { workspaceLimitMessage } from '../../shared/config';
+import { workspaceDeletionIssue } from '../../shared/workspaces';
 import type { AuthedBindings } from '../auth/middleware';
 import { getDb } from '../db/client';
 import { entities, results, runs, workspaces } from '../db/schema';
 import { parseBody, parseId } from '../lib/http';
 import { singleLineText } from '../lib/sanitize';
+import { configForUser } from '../lib/user-config';
 
 const nameSchema = z.object({ name: singleLineText(1, 60) });
 const deleteSchema = z.object({ confirmation: singleLineText(1, 60) });
@@ -65,20 +63,25 @@ workspaceRoutes.get('/', async (c) => {
 workspaceRoutes.post('/', async (c) => {
   const data = await parseBody(c, nameSchema);
   const ownerId = c.get('user').id;
+  const limit = configForUser(c.get('user').email, c.env.ADMIN_EMAILS).limits
+    .maxWorkspaces;
   // Keep the count guard and insert in one statement so concurrent requests
   // cannot both pass a stale preflight count.
   const row = await c.env.DB.prepare(
     `insert into workspaces (name, owner_user_id)
      select ?, ?
-     where (
+     where ? is null or (
        select count(*) from workspaces where owner_user_id = ?
      ) < ?
      returning id, name`,
   )
-    .bind(data.name, ownerId, ownerId, MAX_WORKSPACES)
+    .bind(data.name, ownerId, limit, ownerId, limit)
     .first();
   if (row === null) {
-    return c.json({ error: WORKSPACE_LIMIT_MESSAGE }, 409);
+    if (limit === null) {
+      throw new Error('unlimited workspace insert returned no row');
+    }
+    return c.json({ error: workspaceLimitMessage(limit) }, 409);
   }
   const inserted = createdWorkspaceSchema.safeParse(row);
   if (!inserted.success) {

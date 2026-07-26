@@ -22,7 +22,7 @@ import { useTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/providers/auth';
 import { useWorkspace } from '@/providers/workspace';
-import { workspaceLimitReached } from '../../../shared/workspaces';
+import { limitReached } from '../../../shared/config';
 
 interface Command {
   id: string;
@@ -80,7 +80,7 @@ export const CommandPalette = ({
   onShowHelp: () => void;
 }) => {
   const navigate = useNavigate();
-  const { workspaces, current, switchTo } = useWorkspace();
+  const { config, workspaces, current, switchTo } = useWorkspace();
   const { logout } = useAuth();
   const [theme, toggleTheme] = useTheme();
   const [query, setQuery] = useState('');
@@ -136,7 +136,7 @@ export const CommandPalette = ({
         icon: 'competitors',
         run: act(() => navigate('/competitors?new=1')),
       },
-      ...(workspaceLimitReached(workspaces.length)
+      ...(limitReached(workspaces.length, config.limits.maxWorkspaces)
         ? []
         : [
             {
@@ -207,6 +207,7 @@ export const CommandPalette = ({
     ];
   }, [
     navigate,
+    config.limits.maxWorkspaces,
     workspaces,
     current,
     switchTo,

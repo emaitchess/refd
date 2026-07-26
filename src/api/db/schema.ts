@@ -8,6 +8,7 @@ import {
 } from 'drizzle-orm/sqlite-core';
 import type { Alias } from '../../shared/mentions';
 import type { SiteMetadata } from '../../shared/site-metadata';
+import type { MonitoringTier } from '../../shared/workspaces';
 
 const createdAt = () =>
   integer('created_at', { mode: 'number' })
@@ -54,8 +55,8 @@ export interface WorkspaceProfile {
   committed?: boolean;
 }
 
-// A brand's tracking space. Users own up to five; every entity/prompt/run
-// hangs off exactly one workspace.
+// A brand's tracking space. Standard users own up to five; administrators have
+// no account-level cap. Every entity/prompt/run hangs off exactly one workspace.
 export const workspaces = sqliteTable('workspaces', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
@@ -66,8 +67,16 @@ export const workspaces = sqliteTable('workspaces', {
   onboardingCompleted: integer('onboarding_completed', { mode: 'boolean' })
     .notNull()
     .default(false),
+  monitoringTier: text('monitoring_tier')
+    .$type<MonitoringTier>()
+    .notNull()
+    .default('snapshot_only'),
+  // Null is indefinite. A Unix timestamp in milliseconds makes pilots and
+  // cancelled subscriptions expire without another cron-side state transition.
+  monitoringEndsAt: integer('monitoring_ends_at', { mode: 'number' }),
   profile: text('profile', { mode: 'json' }).$type<WorkspaceProfile>(),
-  // Enabled AI surfaces for runs; null = all (SURFACES). Set in onboarding/Settings.
+  // Enabled AI surfaces for runs; null = the user's entitlement default. Set in
+  // onboarding/Settings and bounded again when a run is created.
   surfaces: text('surfaces', { mode: 'json' }).$type<string[]>(),
   createdAt: createdAt(),
 });

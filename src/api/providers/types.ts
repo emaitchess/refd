@@ -1,12 +1,7 @@
-export const SURFACES = [
-  'chatgpt',
-  'perplexity',
-  'gemini',
-  'google_ai_mode',
-  'google_aio',
-] as const;
+import { SURFACES, type Surface } from '../../shared/surfaces';
 
-export type Surface = (typeof SURFACES)[number];
+export type { Surface };
+export { SURFACES };
 
 export const DATASET_SURFACES = [
   'chatgpt',
@@ -20,13 +15,15 @@ export type DatasetSurface = (typeof DATASET_SURFACES)[number];
 // SURFACES. Null/empty/all-invalid falls back to every surface (the default).
 export const enabledSurfaces = (
   stored: string[] | null | undefined,
+  max: number = SURFACES.length,
 ): Surface[] => {
+  const boundedMax = Math.max(1, Math.min(max, SURFACES.length));
   if (!stored || stored.length === 0) {
-    return [...SURFACES];
+    return SURFACES.slice(0, boundedMax);
   }
   const set = new Set(stored);
   const filtered = SURFACES.filter((s) => set.has(s));
-  return filtered.length > 0 ? filtered : [...SURFACES];
+  return (filtered.length > 0 ? filtered : [...SURFACES]).slice(0, boundedMax);
 };
 
 export interface NormalizedAnswer {

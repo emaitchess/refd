@@ -10,13 +10,23 @@ export const SurfaceChips = ({
   selected,
   onChange,
   disabled = false,
+  maxSelected = null,
+  onLimitReached,
+  surfaces = ALL_SURFACES,
 }: {
   selected: string[];
   onChange: (surfaces: string[]) => void;
   disabled?: boolean;
+  maxSelected?: number | null;
+  onLimitReached?: () => void;
+  surfaces?: readonly string[];
 }) => {
   const set = new Set(selected);
   const toggle = (s: string) => {
+    if (!set.has(s) && maxSelected !== null && selected.length >= maxSelected) {
+      onLimitReached?.();
+      return;
+    }
     const next = set.has(s)
       ? selected.filter((x) => x !== s)
       : [...selected, s];
@@ -27,7 +37,7 @@ export const SurfaceChips = ({
   };
   return (
     <div className="flex flex-wrap gap-1.5">
-      {ALL_SURFACES.map((s) => {
+      {surfaces.map((s) => {
         const on = set.has(s);
         return (
           <button

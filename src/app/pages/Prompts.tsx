@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { Select } from '@/components/controls/Select';
 import { DitherIcon } from '@/components/dither/DitherIcon';
 import { Sparkline } from '@/components/dither-kit/sparkline';
+import { useToast } from '@/components/feedback/Toast';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { PromptPane } from '@/components/panes/PromptPane';
 import {
@@ -42,6 +43,8 @@ import { useParamFlag } from '@/lib/params';
 import { promptCategory } from '@/lib/prompt-categories';
 import type { PromptRow } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { useWorkspace } from '@/providers/workspace';
+import { limitReached, promptLimitMessage } from '../../shared/config';
 
 const ALL_CATEGORIES = 'all categories';
 const ALL_STATUSES = 'all statuses';
@@ -129,6 +132,11 @@ export const Prompts = () => {
     '/prompts?range=all',
   );
   const prompts = data?.prompts ?? EMPTY_PROMPTS;
+  const { config } = useWorkspace();
+  const toast = useToast();
+  const promptLimit = config.limits.maxActivePromptsPerWorkspace;
+  const activePromptCount = prompts.filter((prompt) => prompt.active).length;
+  const atPromptLimit = limitReached(activePromptCount, promptLimit);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState(ALL_CATEGORIES);
   const [statusFilter, setStatusFilter] = useState(ALL_STATUSES);
@@ -205,6 +213,10 @@ export const Prompts = () => {
   }, [categoryFilter, pageState.setPage, searchQuery, statusFilter]);
 
   const openAdd = () => {
+    if (atPromptLimit && promptLimit !== null) {
+      toast(promptLimitMessage(promptLimit));
+      return;
+    }
     setFormError(null);
     setAdding(true);
   };
@@ -238,12 +250,19 @@ export const Prompts = () => {
   });
   useParamFlag('new', openAdd);
 
-  const toggleActive = async (row: PromptRow) => {
-    await api(`/prompts/${row.id}`, {
+  const toggleActive = (row: PromptRow) => {
+    if (!row.active && atPromptLimit && promptLimit !== null) {
+      toast(promptLimitMessage(promptLimit));
+      return;
+    }
+    void api(`/prompts/${row.id}`, {
       method: 'PATCH',
       body: JSON.stringify({ active: !row.active }),
-    });
-    refetch();
+    })
+      .then(() => refetch())
+      .catch((cause: unknown) =>
+        toast(cause instanceof Error ? cause.message : 'prompt update failed'),
+      );
   };
 
   const deletePrompt = () => {
@@ -335,7 +354,10 @@ export const Prompts = () => {
               ) : null}
             </label>
             <p className="text-[12px] text-muted">
-              New prompts join the next run.
+              New prompts join the next run.{' '}
+              {promptLimit === null
+                ? 'Your administrator account has no active prompt limit.'
+                : `${activePromptCount} of ${promptLimit} active prompts are in use.`}
             </p>
             {formError ? (
               <p className="text-[13px] text-error">{formError}</p>
