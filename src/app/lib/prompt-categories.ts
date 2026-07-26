@@ -76,7 +76,7 @@ export const PROMPT_CATEGORY_GLOSSARY: PromptCategoryDefinition[] = [
     category: 'Prompt categories',
     definition: 'Prompts that do not have a category tag.',
     details:
-      'Custom categories are supported. A prompt appears as Uncategorized only when its first category tag is empty or missing.',
+      'New prompts use a predefined buyer journey category. Existing prompts keep any custom first tag, while an empty or missing first tag appears as Uncategorized.',
   },
 ];
 
