@@ -4,7 +4,7 @@
 
 Open-source AI search monitoring — track how AI answers talk about any brand: visibility, mentions, citations, and rank across ChatGPT, Perplexity, Gemini, Google AI Mode, and Google AI Overviews. Use the hosted app at [refd.ai](https://refd.ai) or self-host the whole stack.
 
-One Cloudflare Worker runs everything: Hono API, daily cron, queue consumer, the React dashboard, and the Astro public site (Workers Static Assets). Public routes such as `/`, future docs, and the blog are prerendered by Astro. The authenticated React application lives under `/app/*` and is excluded from crawling and the generated sitemap. Data comes from BrightData (dataset scrapers + SERP API), is stored in D1 (Drizzle), and has gzipped raw payloads archived in R2.
+One Cloudflare Worker runs everything: Hono API, daily cron, queue consumer, and the React dashboard (Workers Static Assets). Data via BrightData (dataset scrapers + SERP API), stored in D1 (Drizzle) with gzipped raw payloads in R2.
 
 ## How it works
 
@@ -14,13 +14,12 @@ Accounts hold **workspaces**; each workspace tracks one brand — its competitor
 
 ```bash
 bun install
-bun run dev      # complete local site → https://refdlocal.io
-bun run site:dev # public Astro site only → http://localhost:4321
+bun run dev    # applies local migrations, starts vite + Caddy → https://refdlocal.io
 ```
 
 Register on the login screen (business email + password ≥ 8 chars) — your first workspace is created automatically and drops you into a resumable setup wizard: name your brand, let it draft your description from your site, pick competitors and prompts, choose engines, then watch the first report fill in live. Every AI step falls back to typing it yourself. Standard accounts can create up to five workspaces, keep up to 25 active prompts in each, and enable up to three AI surfaces. Emails in `ADMIN_EMAILS` have no workspace or active-prompt cap and can enable all available surfaces.
 
-`bun run dev` applies local migrations, starts the Astro public site and the Worker/Vite application, then puts Caddy in front of both at **https://refdlocal.io** (needs `127.0.0.1 refdlocal.io` in `/etc/hosts` and a one-time `caddy trust`). Public routes go to Astro; `/app/*` and `/api/*` go to the Worker/Vite server. Everything stops together when dev exits. Use `bun run site:dev` only when you want the standalone public site without the application or API. A production build combines both outputs into the single Workers Static Assets deployment.
+`bun run dev` also starts Caddy (`Caddyfile`) fronting vite at **https://refdlocal.io** (needs `127.0.0.1 refdlocal.io` in `/etc/hosts` and a one-time `caddy trust`); Caddy stops when dev exits. Plain http://localhost:5173 works too.
 
 Local secrets go in `.dev.vars` (gitignored): `JWT_SECRET`, `BRIGHTDATA_API_TOKEN`, `BRIGHTDATA_WEBHOOK_SECRET` (optional locally; requires a publicly reachable `PUBLIC_BASE_URL`), `ADMIN_EMAILS` (comma-separated administrator and operator allowlist), and `EXA_API_KEY` (onboarding's competitor search, optional). Onboarding also uses two **bindings, not secrets** — Workers AI (`AI`) and Browser Rendering (`BROWSER`) — both `remote: true` in `wrangler.jsonc`, so local dev proxies to the real services and the account needs both enabled.
 

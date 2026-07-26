@@ -16,8 +16,7 @@ checks your change must pass, and how to open a pull request.
 ```bash
 bun install
 cp .dev.vars.example .dev.vars   # then fill in JWT_SECRET, BRIGHTDATA_API_TOKEN, EXA_API_KEY (optional)
-bun run dev                      # complete local site at https://refdlocal.io
-bun run site:dev                 # public Astro site only at http://localhost:4321
+bun run dev                      # applies local migrations, starts vite + Caddy at https://refdlocal.io
 ```
 
 Local dev needs `127.0.0.1 refdlocal.io` in `/etc/hosts` and a one-time
@@ -29,7 +28,7 @@ Local dev needs `127.0.0.1 refdlocal.io` in `/etc/hosts` and a one-time
 Run the full gate locally — CI runs the same four commands and must be green:
 
 ```bash
-bun run check    # Worker types + tsc
+bun run check    # wrangler types + tsc --noEmit
 bun run lint     # Biome (run `bun run lint:fix` to auto-fix)
 bun test         # unit tests
 bun run build    # production build

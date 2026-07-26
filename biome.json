@@ -64,19 +64,6 @@
       }
     }
   },
-  "overrides": [
-    {
-      "includes": ["src/site/**/*.astro"],
-      "linter": {
-        "rules": {
-          "correctness": {
-            "noUnusedImports": "off",
-            "noUnusedVariables": "off"
-          }
-        }
-      }
-    }
-  ],
   "css": {
     "parser": {
       "tailwindDirectives": true
