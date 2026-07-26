@@ -14,6 +14,8 @@ export const ingestMessageSchema = z.discriminatedUnion('kind', [
     workspaceId: z.number(),
     surface: z.enum(DATASET_SURFACES),
     sample: z.number(),
+    // Defaults to 0 so a message in flight from before this field existed still parses.
+    chunk: z.number().default(0),
     prompts: z.array(runPromptSchema),
   }),
   z.object({
@@ -22,6 +24,7 @@ export const ingestMessageSchema = z.discriminatedUnion('kind', [
     workspaceId: z.number(),
     surface: z.enum(DATASET_SURFACES),
     sample: z.number(),
+    chunk: z.number().default(0),
     snapshotId: z.string(),
     prompts: z.array(runPromptSchema),
     polls: z.number(),

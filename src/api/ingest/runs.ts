@@ -19,6 +19,20 @@ export const samplesFor = (env: AppEnv): number => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 2;
 };
 
+export const promptBatchSize = (env: AppEnv): number => {
+  const parsed = Number.parseInt(env.PROMPT_BATCH_SIZE, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
+};
+
+export const chunk = <T>(items: T[], size: number): T[][] => {
+  const step = Math.max(1, size);
+  const batches: T[][] = [];
+  for (let i = 0; i < items.length; i += step) {
+    batches.push(items.slice(i, i + step));
+  }
+  return batches;
+};
+
 export const loadEntities = async (
   env: AppEnv,
   workspaceId: number,
@@ -169,16 +183,20 @@ export const createRun = async (
     return { runId: run.id, created: false, totalCount: run.totalCount };
   }
 
+  const promptBatches = chunk(activePrompts, promptBatchSize(env));
   const messages: IngestMessage[] = [];
   for (let sample = 1; sample <= samples; sample += 1) {
     for (const surface of datasetSurfaces) {
-      messages.push({
-        kind: 'brightdata_trigger',
-        runId: insertedId,
-        workspaceId,
-        surface,
-        sample,
-        prompts: activePrompts,
+      promptBatches.forEach((batch, chunkIndex) => {
+        messages.push({
+          kind: 'brightdata_trigger',
+          runId: insertedId,
+          workspaceId,
+          surface,
+          sample,
+          chunk: chunkIndex,
+          prompts: batch,
+        });
       });
     }
     if (aioEnabled) {

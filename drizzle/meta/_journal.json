@@ -15,6 +15,13 @@
       "when": 1785068920704,
       "tag": "0001_outgoing_sally_floyd",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785084427318,
+      "tag": "0002_luxuriant_lilandra",
+      "breakpoints": true
     }
   ]
 }

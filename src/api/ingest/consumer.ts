@@ -52,6 +52,7 @@ const failWholeSnapshot = async (
   runId: number,
   surface: string,
   sample: number,
+  chunk: number,
   promptsInRun: RunPrompt[],
   error: string,
   polls: number | null = null,
@@ -62,6 +63,7 @@ const failWholeSnapshot = async (
     eq(snapshots.provider, 'brightdata'),
     eq(snapshots.surface, surface),
     eq(snapshots.sample, sample),
+    eq(snapshots.chunk, chunk),
   );
   const snap = (await db.select().from(snapshots).where(snapshotKey))[0];
   const now = Date.now();
@@ -101,6 +103,7 @@ const handleTrigger = async (
         eq(snapshots.provider, 'brightdata'),
         eq(snapshots.surface, msg.surface),
         eq(snapshots.sample, msg.sample),
+        eq(snapshots.chunk, msg.chunk),
       ),
     );
 
@@ -120,6 +123,8 @@ const handleTrigger = async (
         provider: 'brightdata',
         surface: msg.surface,
         sample: msg.sample,
+        chunk: msg.chunk,
+        promptIds: msg.prompts.map((p) => p.id),
         externalId: snapshotId,
       })
       .onConflictDoUpdate({
@@ -128,6 +133,7 @@ const handleTrigger = async (
           snapshots.provider,
           snapshots.surface,
           snapshots.sample,
+          snapshots.chunk,
         ],
         set: { externalId: snapshotId },
       });
@@ -140,6 +146,7 @@ const handleTrigger = async (
       workspaceId: msg.workspaceId,
       surface: msg.surface,
       sample: msg.sample,
+      chunk: msg.chunk,
       snapshotId,
       prompts: msg.prompts,
       polls: 0,
@@ -161,6 +168,7 @@ const handlePoll = async (
         msg.runId,
         msg.surface,
         msg.sample,
+        msg.chunk,
         msg.prompts,
         `snapshot ${msg.snapshotId} still running after ${MAX_POLLS} polls`,
         msg.polls,
@@ -182,6 +190,7 @@ const handlePoll = async (
       msg.runId,
       msg.surface,
       msg.sample,
+      msg.chunk,
       msg.prompts,
       `snapshot ${msg.snapshotId} failed at provider`,
       msg.polls,
@@ -195,6 +204,7 @@ const handlePoll = async (
     eq(snapshots.provider, 'brightdata'),
     eq(snapshots.surface, msg.surface),
     eq(snapshots.sample, msg.sample),
+    eq(snapshots.chunk, msg.chunk),
   );
   const snap = (await db.select().from(snapshots).where(snapshotKey))[0];
   const entitiesToScore = await entitiesForRun(env, msg.runId, msg.workspaceId);
@@ -478,6 +488,7 @@ const markMessageFailed = async (
     msg.runId,
     msg.surface,
     msg.sample,
+    msg.chunk,
     msg.prompts,
     error,
     'polls' in msg ? msg.polls : null,
