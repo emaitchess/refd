@@ -1,7 +1,7 @@
 import { useLenis } from 'lenis/react';
 import { type CSSProperties, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router';
 import { DitherIcon } from '@/components/dither/DitherIcon';
+import { CREATE_ACCOUNT_URL, SIGN_IN_URL } from '@/lib/routes';
 import { useTheme } from '@/lib/theme';
 import {
   LandingContainer,
@@ -182,17 +182,17 @@ export const Header = () => {
             </button>
             <nav className="hidden items-center justify-end gap-2 md:flex">
               {authed ? (
-                <Link to={to} className="btn-primary">
+                <a href={to} className="btn-primary">
                   {label}
-                </Link>
+                </a>
               ) : (
                 <>
-                  <Link to="/auth/sign-in" className="btn-ghost px-3">
+                  <a href={SIGN_IN_URL} className="btn-ghost px-3">
                     sign in
-                  </Link>
-                  <Link to="/auth/create-account" className="btn-primary">
+                  </a>
+                  <a href={CREATE_ACCOUNT_URL} className="btn-primary">
                     start monitoring
-                  </Link>
+                  </a>
                 </>
               )}
             </nav>
@@ -269,33 +269,33 @@ export const Header = () => {
                 className="landing-stagger-item px-5 pt-4 pb-5 sm:px-8"
                 style={{ '--stagger': 4 } as CSSProperties}
               >
-                <Link
-                  to={to}
+                <a
+                  href={to}
                   onClick={() => setMobileMenuOpen(false)}
                   className="btn-primary h-10 w-full"
                 >
                   {label}
-                </Link>
+                </a>
               </div>
             ) : (
               <div
                 className="landing-stagger-item grid grid-cols-2 gap-2 px-5 pt-4 pb-5 sm:px-8"
                 style={{ '--stagger': 4 } as CSSProperties}
               >
-                <Link
-                  to="/auth/sign-in"
+                <a
+                  href={SIGN_IN_URL}
                   onClick={() => setMobileMenuOpen(false)}
                   className="btn-secondary h-10"
                 >
                   sign in
-                </Link>
-                <Link
-                  to="/auth/create-account"
+                </a>
+                <a
+                  href={CREATE_ACCOUNT_URL}
                   onClick={() => setMobileMenuOpen(false)}
                   className="btn-primary h-10"
                 >
                   start monitoring
-                </Link>
+                </a>
               </div>
             )}
           </nav>

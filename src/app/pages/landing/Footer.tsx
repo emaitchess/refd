@@ -1,7 +1,7 @@
-import { Link } from 'react-router';
 import { DitherIcon } from '@/components/dither/DitherIcon';
 import { DitherGradient } from '@/components/dither-kit/gradient';
 import { Tooltip } from '@/components/dither-kit/tooltip';
+import { SIGN_IN_URL } from '@/lib/routes';
 import { useTheme } from '@/lib/theme';
 import {
   GITHUB_URL,
@@ -50,13 +50,13 @@ export const Footer = () => {
               </span>
             </a>
             {authed ? (
-              <Link to={to} className="hover:text-primary">
+              <a href={to} className="hover:text-primary">
                 {label}
-              </Link>
+              </a>
             ) : (
-              <Link to="/auth/sign-in" className="hover:text-primary">
+              <a href={SIGN_IN_URL} className="hover:text-primary">
                 sign in
-              </Link>
+              </a>
             )}
             <Tooltip
               asChild
