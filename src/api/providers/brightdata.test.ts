@@ -1,8 +1,11 @@
 import { describe, expect, spyOn, test } from 'bun:test';
+import type { AppEnv } from '../env';
 import {
   normalizeDatasetRecord,
+  notifyEnabled,
   ProviderRetryableError,
   readSnapshotRecords,
+  triggerBatch,
 } from './brightdata';
 
 const streamOf = (chunks: string[]): ReadableStream<Uint8Array> => {
@@ -16,6 +19,79 @@ const streamOf = (chunks: string[]): ReadableStream<Uint8Array> => {
     },
   });
 };
+
+const providerEnv = (overrides: Partial<AppEnv> = {}): AppEnv =>
+  ({
+    BRIGHTDATA_API_TOKEN: 'provider-token',
+    BRIGHTDATA_DATASET_CHATGPT: 'chatgpt-dataset',
+    BRIGHTDATA_DATASET_PERPLEXITY: 'perplexity-dataset',
+    BRIGHTDATA_DATASET_GEMINI: 'gemini-dataset',
+    BRIGHTDATA_DATASET_GOOGLE_AI_MODE: 'ai-mode-dataset',
+    GEO_COUNTRY: 'US',
+    ...overrides,
+  }) as AppEnv;
+
+describe('BrightData notify configuration', () => {
+  test('adds notify, endpoint, and auth_header to configured triggers', async () => {
+    const fetchMock = spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ snapshot_id: 'snap_1' }), {
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    const env = providerEnv({
+      PUBLIC_BASE_URL: 'https://refd.ai/',
+      BRIGHTDATA_WEBHOOK_SECRET: 'callback-secret',
+    });
+
+    try {
+      expect(notifyEnabled(env)).toBe(true);
+      await expect(triggerBatch(env, 'chatgpt', ['best tools'])).resolves.toBe(
+        'snap_1',
+      );
+      const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
+      expect(url.searchParams.get('dataset_id')).toBe('chatgpt-dataset');
+      expect(url.searchParams.get('include_errors')).toBe('true');
+      expect(url.searchParams.get('notify')).toBe('true');
+      expect(url.searchParams.get('endpoint')).toBe(
+        'https://refd.ai/api/webhooks/brightdata',
+      );
+      expect(url.searchParams.get('auth_header')).toBe('callback-secret');
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  test('keeps polling-only trigger parameters when notify is incomplete', async () => {
+    const fetchMock = spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ snapshot_id: 'snap_2' }), {
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    const env = providerEnv({ PUBLIC_BASE_URL: 'https://refd.ai' });
+
+    try {
+      expect(notifyEnabled(env)).toBe(false);
+      await triggerBatch(env, 'chatgpt', ['best tools']);
+      const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
+      expect(url.searchParams.has('notify')).toBe(false);
+      expect(url.searchParams.has('endpoint')).toBe(false);
+      expect(url.searchParams.has('auth_header')).toBe(false);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  test('rejects an invalid public base URL', () => {
+    expect(
+      notifyEnabled(
+        providerEnv({
+          PUBLIC_BASE_URL: 'not a URL',
+          BRIGHTDATA_WEBHOOK_SECRET: 'callback-secret',
+        }),
+      ),
+    ).toBe(false);
+  });
+});
 
 describe('normalizeDatasetRecord', () => {
   test('strips the trailing ChatGPT sponsored unit from the scored text', () => {
