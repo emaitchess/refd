@@ -21,6 +21,12 @@ interface MonitoringAccess {
   monitoringEndsAt: number | null;
 }
 
+// New workspaces owned by an operator default to indefinite recurring
+// monitoring (eligible under the 'entitled' cron policy); everyone else starts
+// on snapshot_only and opts in later.
+export const defaultMonitoringTier = (isAdmin: boolean): MonitoringTier =>
+  isAdmin ? 'subscribed' : 'snapshot_only';
+
 export const scheduledMonitoringEligible = (
   workspace: MonitoringAccess,
   policy: ScheduledMonitoringPolicy,
