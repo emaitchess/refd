@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  defaultMonitoringTier,
   resolveWorkspaceDeletion,
   scheduledMonitoringEligible,
   workspaceDeletionIssue,
@@ -79,6 +80,24 @@ describe('scheduledMonitoringEligible', () => {
         { monitoringTier: 'snapshot_only', monitoringEndsAt: now - 1 },
         'all',
         now,
+      ),
+    ).toBe(true);
+  });
+});
+
+describe('defaultMonitoringTier', () => {
+  test('non-admins start on snapshot_only', () => {
+    expect(defaultMonitoringTier(false)).toBe('snapshot_only');
+  });
+
+  test('admin default is eligible under the entitled cron policy', () => {
+    const tier = defaultMonitoringTier(true);
+    expect(tier).toBe('subscribed');
+    expect(
+      scheduledMonitoringEligible(
+        { monitoringTier: tier, monitoringEndsAt: null },
+        'entitled',
+        Date.UTC(2026, 6, 26),
       ),
     ).toBe(true);
   });
