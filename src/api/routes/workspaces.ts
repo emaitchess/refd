@@ -2,7 +2,10 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { workspaceLimitMessage } from '../../shared/config';
-import { workspaceDeletionIssue } from '../../shared/workspaces';
+import {
+  defaultMonitoringTier,
+  workspaceDeletionIssue,
+} from '../../shared/workspaces';
 import type { AuthedBindings } from '../auth/middleware';
 import { getDb } from '../db/client';
 import { entities, results, runs, workspaces } from '../db/schema';
@@ -63,19 +66,20 @@ workspaceRoutes.get('/', async (c) => {
 workspaceRoutes.post('/', async (c) => {
   const data = await parseBody(c, nameSchema);
   const ownerId = c.get('user').id;
-  const limit = configForUser(c.get('user').email, c.env.ADMIN_EMAILS).limits
-    .maxWorkspaces;
+  const config = configForUser(c.get('user').email, c.env.ADMIN_EMAILS);
+  const limit = config.limits.maxWorkspaces;
+  const tier = defaultMonitoringTier(config.isAdmin);
   // Keep the count guard and insert in one statement so concurrent requests
   // cannot both pass a stale preflight count.
   const row = await c.env.DB.prepare(
-    `insert into workspaces (name, owner_user_id)
-     select ?, ?
+    `insert into workspaces (name, owner_user_id, monitoring_tier)
+     select ?, ?, ?
      where ? is null or (
        select count(*) from workspaces where owner_user_id = ?
      ) < ?
      returning id, name`,
   )
-    .bind(data.name, ownerId, limit, ownerId, limit)
+    .bind(data.name, ownerId, tier, limit, ownerId, limit)
     .first();
   if (row === null) {
     if (limit === null) {
