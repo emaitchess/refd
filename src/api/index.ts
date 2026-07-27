@@ -15,6 +15,7 @@ import type { AppBindings, AppEnv } from './env';
 import { handleIngestBatch } from './ingest/consumer';
 import type { IngestMessage } from './ingest/messages';
 import { createRun } from './ingest/runs';
+import { applyApiResponseHeaders } from './lib/response-headers';
 import { changesRoutes } from './routes/changes';
 import { chatRoutes } from './routes/chat';
 import { competitorRoutes } from './routes/competitors';
@@ -35,9 +36,7 @@ const app = new Hono<AppBindings>();
 
 app.use('/api/*', async (c, next) => {
   await next();
-  c.header('X-Content-Type-Options', 'nosniff');
-  c.header('Referrer-Policy', 'no-referrer');
-  // Same-origin only: no CORS headers are ever emitted.
+  applyApiResponseHeaders(c.res.headers);
 });
 // BrightData's callback is public but shared-secret verified. Mount it before
 // the JSON mutation guard so the secret is always the cheapest check.

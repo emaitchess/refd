@@ -20,9 +20,6 @@
       "/api/*"
     ]
   },
-  "cache": {
-    "enabled": true,
-  },
   "placement": {
     "mode": "smart"
   },
