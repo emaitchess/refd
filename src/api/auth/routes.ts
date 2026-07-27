@@ -1,12 +1,14 @@
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { defaultMonitoringTier } from '../../shared/workspaces';
 import { getDb } from '../db/client';
 import { results, runs, users, workspaces } from '../db/schema';
 import type { AppBindings } from '../env';
 import { businessEmailError } from '../lib/email-policy';
 import { parseBody } from '../lib/http';
 import { emailField, singleLineText } from '../lib/sanitize';
+import { configForUser } from '../lib/user-config';
 import { type AuthedBindings, requireAuth } from './middleware';
 import { hashPassword, verifyPassword } from './password';
 import {
@@ -112,9 +114,13 @@ authRoutes.post('/register', async (c) => {
     return c.json({ error: 'an account with this email already exists' }, 409);
   }
   // First workspace, named after the address's local part; rename in the UI.
-  await db
-    .insert(workspaces)
-    .values({ name: email.split('@')[0] ?? 'my brand', ownerUserId: user.id });
+  await db.insert(workspaces).values({
+    name: email.split('@')[0] ?? 'my brand',
+    ownerUserId: user.id,
+    monitoringTier: defaultMonitoringTier(
+      configForUser(email, c.env.ADMIN_EMAILS).isAdmin,
+    ),
+  });
   await issueSession(c, user);
   return c.json(
     {

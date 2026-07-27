@@ -41,7 +41,7 @@
     "db:migrate:local": "wrangler d1 migrations apply refd --local",
     "db:migrate:remote": "wrangler d1 migrations apply refd --remote",
     "db:reset": "bash scripts/reset-local-db.sh",
-    "deploy": "bun run build && wrangler deploy",
+    "deploy": "bun run build && bun run db:migrate:remote && wrangler deploy",
     "dev": "bun run sitemap && wrangler d1 migrations apply refd --local && caddy start --config Caddyfile 2>/dev/null; trap 'caddy stop 2>/dev/null' EXIT; vite dev",
     "lint:fix": "biome check --write .",
     "lint": "biome check .",
