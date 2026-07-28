@@ -12,6 +12,7 @@ import { entities, results, runs, workspaces } from '../db/schema';
 import { parseBody, parseId } from '../lib/http';
 import { singleLineText } from '../lib/sanitize';
 import { configForUser } from '../lib/user-config';
+import { revokeOwnedConnections } from '../oauth/revoke';
 
 const nameSchema = z.object({ name: singleLineText(1, 60) });
 const deleteSchema = z.object({ confirmation: singleLineText(1, 60) });
@@ -135,6 +136,7 @@ workspaceRoutes.delete('/:id', async (c) => {
   if (issue === 'confirmation_mismatch') {
     return c.json({ error: 'workspace name does not match' }, 400);
   }
+  await revokeOwnedConnections(c.env, c.get('user').id, id);
 
   const rawKeys = await db
     .select({ key: results.r2Key })
@@ -170,6 +172,7 @@ workspaceRoutes.delete('/:id', async (c) => {
       select id from chats where workspace_id = ?
     )`,
     'delete from chats where workspace_id = ?',
+    'delete from mcp_connections where workspace_id = ?',
   ].map((statement) => c.env.DB.prepare(statement).bind(id));
   statements.push(
     c.env.DB.prepare(
