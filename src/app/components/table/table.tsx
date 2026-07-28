@@ -153,7 +153,7 @@ export const rowActivation = (onActivate: () => void) => ({
 
 export interface ColumnSpec {
   key: string;
-  min?: number; // px floor; a column can never be dragged narrower than this
+  min?: number; // px floor for cell content; the rendered header adds its own
   // Share of the table width, 0-1. Give every column one for a designed default
   // layout; omit them all to fall back to the browser's content measurement.
   fraction?: number;
@@ -164,6 +164,99 @@ const KEY_STEP = 16; // px per arrow-key press
 
 const clamp = (v: number, lo: number, hi: number) =>
   Math.min(Math.max(v, lo), hi);
+
+export const fitColumnWidths = (
+  total: number,
+  columns: ColumnSpec[],
+  preferred: Record<string, number>,
+  measuredMinimums: Record<string, number> = {},
+) => {
+  const minimums = Object.fromEntries(
+    columns.map((column) => [
+      column.key,
+      Math.max(column.min ?? DEFAULT_MIN, measuredMinimums[column.key] ?? 0),
+    ]),
+  );
+  const minimumTotal = Object.values(minimums).reduce(
+    (sum, width) => sum + width,
+    0,
+  );
+  if (total <= minimumTotal) {
+    return minimums;
+  }
+
+  const weights = Object.fromEntries(
+    columns.map((column) => [
+      column.key,
+      Math.max(0, preferred[column.key] ?? 0),
+    ]),
+  );
+  if (Object.values(weights).every((weight) => weight === 0)) {
+    for (const column of columns) {
+      weights[column.key] = 1;
+    }
+  }
+
+  const fitted: Record<string, number> = {};
+  const remaining = new Set(columns.map((column) => column.key));
+  let available = total;
+  while (remaining.size > 0) {
+    const weightTotal = [...remaining].reduce(
+      (sum, key) => sum + (weights[key] ?? 0),
+      0,
+    );
+    const equalShare = available / remaining.size;
+    const constrained = [...remaining].filter((key) => {
+      const share =
+        weightTotal > 0
+          ? (available * (weights[key] ?? 0)) / weightTotal
+          : equalShare;
+      return share < (minimums[key] ?? DEFAULT_MIN);
+    });
+    if (constrained.length === 0) {
+      for (const key of remaining) {
+        fitted[key] =
+          weightTotal > 0
+            ? (available * (weights[key] ?? 0)) / weightTotal
+            : equalShare;
+      }
+      break;
+    }
+    for (const key of constrained) {
+      const minimum = minimums[key] ?? DEFAULT_MIN;
+      fitted[key] = minimum;
+      available -= minimum;
+      remaining.delete(key);
+    }
+  }
+  return fitted;
+};
+
+const measureHeaderMinimums = (
+  table: HTMLTableElement,
+  columns: ColumnSpec[],
+) => {
+  const cells = [...(table.tHead?.rows[0]?.cells ?? [])];
+  return Object.fromEntries(
+    columns.map((column, index) => {
+      const cell = cells[index];
+      const content = cell?.querySelector<HTMLElement>(
+        '[data-table-header-content]',
+      );
+      if (!cell || !content) {
+        return [column.key, column.min ?? DEFAULT_MIN];
+      }
+      const style = getComputedStyle(cell);
+      const horizontalPadding =
+        (Number.parseFloat(style.paddingLeft) || 0) +
+        (Number.parseFloat(style.paddingRight) || 0);
+      return [
+        column.key,
+        Math.ceil(content.getBoundingClientRect().width + horizontalPadding),
+      ];
+    }),
+  );
+};
 
 // Stored as fractions of the table width, not px, so a layout saved on a wide
 // window restores sensibly on a narrow one.
@@ -196,13 +289,11 @@ const loadFractions = (
 //
 // The intelligence is in three rules:
 //  1. Seed from the column's `fraction` when given, else from the browser's own
-//     auto-layout pass. Either way the widths sum to the table width, which is
-//     what makes a drag track the cursor 1:1 instead of drifting by a scale
-//     factor. Fractions are worth setting: a measured default silently shifts
-//     with the content it happened to measure.
+//     auto-layout pass, then rebalance around each full rendered header width.
+//     If those minimums cannot fit, the table widens inside its scroll wrapper.
 //  2. A drag moves one divider: the column grows by exactly what its neighbour
-//     gives up, both clamped to their minimums. The total never changes, so the
-//     table can't spawn a horizontal scrollbar and untouched columns stay put.
+//     gives up, both clamped to their data and header minimums. The total never
+//     changes and untouched columns stay put.
 //  3. Widths persist as fractions and re-scale with the container, so the
 //     proportions a user picks survive a reload or a window resize.
 export const useColumnWidths = (storageKey: string, columns: ColumnSpec[]) => {
@@ -213,6 +304,8 @@ export const useColumnWidths = (storageKey: string, columns: ColumnSpec[]) => {
   const totalRef = useRef(0);
   const specRef = useRef(columns);
   specRef.current = columns;
+  const minimumsRef = useRef<Record<string, number>>({});
+  const configuredMinimumRef = useRef(0);
   const keys = useMemo(() => columns.map((c) => c.key), [columns]);
 
   const persist = useCallback(
@@ -242,29 +335,63 @@ export const useColumnWidths = (storageKey: string, columns: ColumnSpec[]) => {
     if (!table || widthsRef.current) {
       return;
     }
+    const specs = specRef.current;
+    const minimums = measureHeaderMinimums(table, specs);
+    minimumsRef.current = minimums;
+    const configuredMinimum =
+      Number.parseFloat(getComputedStyle(table).minWidth) || 0;
+    configuredMinimumRef.current = configuredMinimum;
+    const requiredMinimum = specs.reduce(
+      (sum, column) =>
+        sum +
+        Math.max(
+          column.min ?? DEFAULT_MIN,
+          minimums[column.key] ?? DEFAULT_MIN,
+        ),
+      0,
+    );
+    table.style.minWidth = `${Math.max(configuredMinimum, requiredMinimum)}px`;
     const total = table.clientWidth;
     if (!total) {
       return;
     }
-    totalRef.current = total;
     const stored = loadFractions(storageKey, keys);
     if (stored) {
-      setWidths(
-        Object.fromEntries(keys.map((k) => [k, (stored[k] ?? 0) * total])),
+      const next = fitColumnWidths(
+        total,
+        specs,
+        Object.fromEntries(
+          keys.map((key) => [key, (stored[key] ?? 0) * total]),
+        ),
+        minimums,
       );
+      totalRef.current = Object.values(next).reduce(
+        (sum, width) => sum + width,
+        0,
+      );
+      setWidths(next);
       return;
     }
-    const specs = specRef.current;
     if (specs.every((c) => typeof c.fraction === 'number')) {
-      setWidths(
+      const next = fitColumnWidths(
+        total,
+        specs,
         Object.fromEntries(
           specs.map((c) => [c.key, (c.fraction ?? 0) * total]),
         ),
+        minimums,
       );
+      totalRef.current = Object.values(next).reduce(
+        (sum, width) => sum + width,
+        0,
+      );
+      setWidths(next);
       return;
     }
     const cells = [...table.querySelectorAll('thead th')];
-    setWidths(
+    const next = fitColumnWidths(
+      total,
+      specs,
       Object.fromEntries(
         keys.map((k, i) => {
           const cell = cells[i];
@@ -276,8 +403,54 @@ export const useColumnWidths = (storageKey: string, columns: ColumnSpec[]) => {
           ];
         }),
       ),
+      minimums,
     );
+    totalRef.current = Object.values(next).reduce(
+      (sum, width) => sum + width,
+      0,
+    );
+    setWidths(next);
   }, [keys, storageKey]);
+
+  useEffect(() => {
+    const table = tableRef.current;
+    if (!table) {
+      return;
+    }
+    let active = true;
+    void document.fonts.ready.then(() => {
+      const current = widthsRef.current;
+      if (!active || !current || table !== tableRef.current) {
+        return;
+      }
+      const specs = specRef.current;
+      const minimums = measureHeaderMinimums(table, specs);
+      minimumsRef.current = minimums;
+      const requiredMinimum = specs.reduce(
+        (sum, column) =>
+          sum +
+          Math.max(
+            column.min ?? DEFAULT_MIN,
+            minimums[column.key] ?? DEFAULT_MIN,
+          ),
+        0,
+      );
+      table.style.minWidth = `${Math.max(configuredMinimumRef.current, requiredMinimum)}px`;
+      const total = table.clientWidth;
+      if (!total) {
+        return;
+      }
+      const next = fitColumnWidths(total, specs, current, minimums);
+      totalRef.current = Object.values(next).reduce(
+        (sum, width) => sum + width,
+        0,
+      );
+      setWidths(next);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Keep the user's proportions when the container changes width.
   useEffect(() => {
@@ -292,13 +465,17 @@ export const useColumnWidths = (storageKey: string, columns: ColumnSpec[]) => {
       if (!total || !current || !previous || Math.abs(total - previous) < 1) {
         return;
       }
-      totalRef.current = total;
-      const factor = total / previous;
-      setWidths(
-        Object.fromEntries(
-          Object.entries(current).map(([k, w]) => [k, w * factor]),
-        ),
+      const next = fitColumnWidths(
+        total,
+        specRef.current,
+        current,
+        minimumsRef.current,
       );
+      totalRef.current = Object.values(next).reduce(
+        (sum, width) => sum + width,
+        0,
+      );
+      setWidths(next);
     });
     observer.observe(table);
     return () => observer.disconnect();
@@ -319,8 +496,14 @@ export const useColumnWidths = (storageKey: string, columns: ColumnSpec[]) => {
       }
       const a0 = base[key] ?? 0;
       const b0 = base[neighbour.key] ?? 0;
-      const minA = specRef.current[index]?.min ?? DEFAULT_MIN;
-      const minB = neighbour.min ?? DEFAULT_MIN;
+      const minA = Math.max(
+        specRef.current[index]?.min ?? DEFAULT_MIN,
+        minimumsRef.current[key] ?? 0,
+      );
+      const minB = Math.max(
+        neighbour.min ?? DEFAULT_MIN,
+        minimumsRef.current[neighbour.key] ?? 0,
+      );
       const a = clamp(a0 + dx, minA, Math.max(minA, a0 + b0 - minB));
       const next = { ...base, [key]: a, [neighbour.key]: a0 + b0 - a };
       setWidths(next);
@@ -378,12 +561,19 @@ export const useColumnWidths = (storageKey: string, columns: ColumnSpec[]) => {
       total > 0 &&
       specs.every((column) => typeof column.fraction === 'number')
     ) {
-      totalRef.current = total;
-      setWidths(
+      const next = fitColumnWidths(
+        total,
+        specs,
         Object.fromEntries(
           specs.map((column) => [column.key, (column.fraction ?? 0) * total]),
         ),
+        minimumsRef.current,
       );
+      totalRef.current = Object.values(next).reduce(
+        (sum, width) => sum + width,
+        0,
+      );
+      setWidths(next);
       return;
     }
     setWidths(null);
@@ -480,7 +670,7 @@ export const Th = ({
       className,
     )}
   >
-    <span className="inline-flex items-center gap-1">
+    <span className="inline-flex items-center gap-1" data-table-header-content>
       {sortKey && onToggle ? (
         <button
           type="button"
