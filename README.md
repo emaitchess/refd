@@ -6,6 +6,11 @@ Open-source AI search monitoring — track how AI answers talk about any brand: 
 
 One Cloudflare Worker runs everything: Hono API, daily cron, queue consumer, and the React dashboard (Workers Static Assets). Data via BrightData (dataset scrapers + SERP API), stored in D1 (Drizzle) with gzipped raw payloads in R2.
 
+refd also exposes the same workspace intelligence to AI agents through a
+read-only, OAuth-protected remote MCP connector. See the
+[MCP connector guide](docs/mcp.md) for Claude, Claude Code, ChatGPT, and
+self-hosting setup.
+
 ## How it works
 
 Accounts hold **workspaces**; each workspace tracks one brand — its competitors, its prompt set, its runs. A daily cron creates an idempotent run for every workspace eligible for scheduled monitoring, then fans out queue messages: one batch-snapshot trigger per dataset surface × sample (trigger → notify → fetch, with a backstop poll), plus one sync SERP call per prompt × sample for AI Overviews. Every answer is scored for every tracked entity (mentioned / cited / first-mention position), and the raw payload is archived gzipped in R2. A missing AI Overview is recorded as a valid "no AIO shown", not a failure. Retries honor `Retry-After`, back off with jitter, and are idempotent at every layer — a redelivered message never re-spends provider quota.

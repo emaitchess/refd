@@ -81,6 +81,35 @@ export const workspaces = sqliteTable('workspaces', {
   createdAt: createdAt(),
 });
 
+export const mcpConnections = sqliteTable(
+  'mcp_connections',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    grantId: text('grant_id').notNull(),
+    connectionKey: text('connection_key').notNull(),
+    workspaceId: integer('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    clientId: text('client_id').notNull(),
+    clientName: text('client_name').notNull(),
+    scopes: text('scopes', { mode: 'json' })
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'`),
+    createdAt: createdAt(),
+    lastUsedAt: integer('last_used_at', { mode: 'number' }),
+    revokedAt: integer('revoked_at', { mode: 'number' }),
+  },
+  (t) => [
+    uniqueIndex('mcp_connections_grant_unique').on(t.grantId),
+    uniqueIndex('mcp_connections_key_unique').on(t.connectionKey),
+    index('mcp_connections_ws_idx').on(t.workspaceId),
+  ],
+);
+
 export const entities = sqliteTable(
   'entities',
   {

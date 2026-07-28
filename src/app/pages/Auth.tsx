@@ -1,5 +1,5 @@
 import { Dithering } from '@paper-design/shaders-react';
-import { type FormEvent, type ReactNode, useState } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
 import { Link, Navigate, useLocation } from 'react-router';
 import { DitherIcon } from '@/components/dither/DitherIcon';
 import { DitherButton } from '@/components/dither-kit/button';
@@ -9,6 +9,7 @@ import { SurfaceLogo } from '@/components/svgs/SurfaceLogo';
 import { PasswordInput } from '@/components/ui';
 import { BRANDED_THEME_TOKENS } from '@/lib/branded-theme';
 import { SURFACE_ORDER, surfaceLabel } from '@/lib/format';
+import { oauthReturnPath } from '@/lib/oauth-next';
 import { CREATE_ACCOUNT_PATH, SIGN_IN_PATH } from '@/lib/routes';
 import { useTheme } from '@/lib/theme';
 import { useAuth } from '@/providers/auth';
@@ -50,6 +51,13 @@ const AuthRail = ({ children }: { children: ReactNode }) => (
   </div>
 );
 
+const BrowserRedirect = ({ to }: { to: string }) => {
+  useEffect(() => {
+    window.location.replace(to);
+  }, [to]);
+  return null;
+};
+
 export const Auth = () => {
   const { email: sessionEmail, loading, login, register } = useAuth();
   const location = useLocation();
@@ -62,6 +70,9 @@ export const Auth = () => {
   const [busy, setBusy] = useState(false);
 
   const registering = location.pathname === CREATE_ACCOUNT_PATH;
+  const oauthNext = oauthReturnPath(location.search, window.location.origin);
+  const authPath = (path: string) =>
+    oauthNext ? `${path}?next=${encodeURIComponent(oauthNext)}` : path;
 
   const clearTransient = () => {
     setConfirm('');
@@ -70,7 +81,11 @@ export const Auth = () => {
   };
 
   if (!loading && sessionEmail) {
-    return <Navigate to="/home" replace />;
+    return oauthNext ? (
+      <BrowserRedirect to={oauthNext} />
+    ) : (
+      <Navigate to="/home" replace />
+    );
   }
 
   const submit = async (event: FormEvent) => {
@@ -186,7 +201,7 @@ export const Auth = () => {
 
                 <div className="mt-10 grid grid-cols-2 border border-border lg:mt-0">
                   <Link
-                    to={SIGN_IN_PATH}
+                    to={authPath(SIGN_IN_PATH)}
                     onClick={clearTransient}
                     aria-current={!registering ? 'page' : undefined}
                     className={`h-10 cursor-pointer font-medium text-[13px] transition-colors duration-150 ${
@@ -198,7 +213,7 @@ export const Auth = () => {
                     sign in
                   </Link>
                   <Link
-                    to={CREATE_ACCOUNT_PATH}
+                    to={authPath(CREATE_ACCOUNT_PATH)}
                     onClick={clearTransient}
                     aria-current={registering ? 'page' : undefined}
                     className={`h-10 cursor-pointer border-border border-l font-medium text-[13px] transition-colors duration-150 ${
@@ -340,7 +355,9 @@ export const Auth = () => {
                 </form>
 
                 <Link
-                  to={registering ? SIGN_IN_PATH : CREATE_ACCOUNT_PATH}
+                  to={authPath(
+                    registering ? SIGN_IN_PATH : CREATE_ACCOUNT_PATH,
+                  )}
                   onClick={clearTransient}
                   className="mt-6 block w-full cursor-pointer text-center text-[12px] text-secondary transition-colors duration-150 hover:text-primary"
                 >

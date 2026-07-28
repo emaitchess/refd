@@ -9,6 +9,7 @@ import { businessEmailError } from '../lib/email-policy';
 import { parseBody } from '../lib/http';
 import { emailField, singleLineText } from '../lib/sanitize';
 import { configForUser } from '../lib/user-config';
+import { revokeOwnedConnections } from '../oauth/revoke';
 import { type AuthedBindings, requireAuth } from './middleware';
 import { hashPassword, verifyPassword } from './password';
 import {
@@ -201,6 +202,7 @@ account.delete('/', async (c) => {
   ) {
     return c.json({ error: 'current password is incorrect' }, 403);
   }
+  await revokeOwnedConnections(c.env, user.id);
 
   const rawKeys = await db
     .select({ key: results.r2Key })
@@ -251,12 +253,15 @@ account.delete('/', async (c) => {
     `delete from entities where workspace_id in (
       select id from workspaces where owner_user_id = ?
     )`,
+    `delete from mcp_connections where workspace_id in (
+      select id from workspaces where owner_user_id = ?
+    )`,
     'delete from workspaces where owner_user_id = ?',
     'delete from login_attempts where key = ?',
     'delete from users where id = ?',
   ].map((statement, index) =>
     c.env.DB.prepare(statement).bind(
-      index === 10 ? `email:${user.email}` : user.id,
+      index === 11 ? `email:${user.email}` : user.id,
     ),
   );
 
