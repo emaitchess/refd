@@ -11,6 +11,19 @@ authorization, refd asks you to select one workspace. The resulting connection
 can read only that workspace, cannot change refd data, and cannot start runs or
 spend provider quota.
 
+## Official Registry
+
+The domain-verified remote server is published in the official MCP Registry as
+`ai.refd/refd`. Its canonical metadata lives in the repository root at
+`server.json`; version `0.1.0` points clients to the Streamable HTTP endpoint
+above.
+
+Registry versions are immutable. Any later metadata or transport change must
+bump the semantic version in `server.json` before republishing. Domain
+authentication uses the public proof at
+`https://refd.ai/.well-known/mcp-registry-auth`; the private publishing key is
+never stored in the repository.
+
 ## Connect from Claude
 
 Claude custom connectors are available from **Customize → Connectors**. On an
