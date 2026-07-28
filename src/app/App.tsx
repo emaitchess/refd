@@ -23,6 +23,7 @@ const Competitors = lazyRoute(
 const Help = lazyRoute(() => import('./pages/Help'), 'Help');
 const Home = lazyRoute(() => import('./pages/Home'), 'Home');
 const Glossary = lazyRoute(() => import('./pages/Help'), 'Glossary');
+const McpGuide = lazyRoute(() => import('./pages/Help'), 'McpGuide');
 const Landing = lazyRoute(() => import('./pages/Landing'), 'Landing');
 const Onboarding = lazyRoute(() => import('./pages/Onboarding'), 'Onboarding');
 const Overview = lazyRoute(() => import('./pages/Overview'), 'Overview');
@@ -141,6 +142,7 @@ export const App = () => (
               <Route path="/help" element={suspended(<Help />)}>
                 <Route index element={<Navigate to="glossary" replace />} />
                 <Route path="glossary" element={suspended(<Glossary />)} />
+                <Route path="mcp" element={suspended(<McpGuide />)} />
               </Route>
               <Route path="/settings" element={suspended(<Settings />)} />
               <Route path="/account" element={suspended(<Account />)} />

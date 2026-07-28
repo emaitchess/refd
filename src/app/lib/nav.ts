@@ -17,7 +17,7 @@ export const NAV: NavItem[] = [
   { to: '/sources', label: 'Sources', icon: 'sources', chord: 's' },
   { to: '/competitors', label: 'Competitors', icon: 'competitors', chord: 'c' },
   { to: '/runs', label: 'Runs', icon: 'runs', chord: 'r' },
-  { to: '/help/glossary', label: 'Help', icon: 'question', chord: '/' },
+  { to: '/help', label: 'Help', icon: 'question', chord: '/' },
   { to: '/settings', label: 'Settings', icon: 'settings', chord: ',' },
   { to: '/account', label: 'Account', icon: 'account', chord: 'a' },
 ];
