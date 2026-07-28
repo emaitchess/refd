@@ -31,7 +31,7 @@ const tooltipContent = (label: string, shortcut?: string) => (
   </span>
 );
 
-const UTILITY_PATHS = new Set(['/help/glossary', '/settings', '/account']);
+const UTILITY_PATHS = new Set(['/help', '/settings', '/account']);
 const PRIMARY_NAV = NAV.filter((item) => !UTILITY_PATHS.has(item.to));
 const UTILITY_NAV = NAV.filter((item) => UTILITY_PATHS.has(item.to));
 
