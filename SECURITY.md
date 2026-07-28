@@ -1,6 +1,6 @@
 # Security Policy
 
-refd handles authentication (self-built PBKDF2 + JWT sessions), API secrets,
+refd handles authentication (bcrypt password hashing + JWT sessions), API secrets,
 and per-workspace tenant data, so we take security reports seriously.
 
 ## Reporting a vulnerability
