@@ -8,7 +8,7 @@ Guidance for AI coding agents working in this repository.
 
 refd (refd.ai) — open-source AI search monitoring. Each workspace tracks one brand's visibility, mentions, citations, and rank across AI answer surfaces: ChatGPT, Perplexity, Gemini, Google AI Mode (BrightData dataset scrapers), and Google AI Overviews (BrightData SERP API). BrightData is the **only** data provider. Available hosted (refd.ai) or self-hosted; born tracking mrmr, since generalized. Public copy never pairs "refd" with "aeo".
 
-Reference docs: `docs/plan.md` (original implementation plan — historical; predates workspaces and registration), `docs/DESIGN.md` (design system — all UI work follows it), `docs/plan-metrics-v2.md` (metrics v2 implementation plan — fully executed; the design lives in `docs/FEATURES.md` → "Metrics (v2)").
+Reference docs: `docs/DESIGN.md` (design system — all UI work follows it), `docs/METRICS.md` (scoring and aggregation contract), and `docs/mcp.md` (remote MCP and OAuth usage).
 
 ## Code style
 
