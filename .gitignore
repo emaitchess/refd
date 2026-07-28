@@ -10,7 +10,8 @@ out/
 # secrets — never commit
 .env
 .env.*
-.dev.vars
+.dev.vars*
+!.dev.vars.example
 
 # generated
 public/sitemap.xml
