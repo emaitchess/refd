@@ -39,7 +39,7 @@ export const MetricInfo = ({
     <button
       type="button"
       aria-label={`What ${label} means`}
-      className="inline-flex size-5 cursor-help items-center justify-center text-muted transition-colors hover:text-primary focus-visible:text-primary"
+      className="inline-flex size-5 shrink-0 cursor-help items-center justify-center text-muted transition-colors hover:text-primary focus-visible:text-primary"
     >
       <DitherIcon name="info" size={12} />
     </button>
