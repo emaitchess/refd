@@ -19,5 +19,9 @@ worker-configuration.d.ts
 scripts/.*.tmp.sql
 vite.config.ts.timestamp-*
 
+# internal planning docs — kept locally, never published
+/GTM.md
+/docs/plan-agent-native.md
+
 # os / editor noise
 .DS_Store
