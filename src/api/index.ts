@@ -2,13 +2,21 @@ import { scheduledMonitoringEligible } from '../shared/workspaces';
 import { getDb } from './db/client';
 import { workspaces } from './db/schema';
 import type { AppEnv } from './env';
+import { handleHomepage } from './homepage';
 import { handleIngestBatch } from './ingest/consumer';
 import type { IngestMessage } from './ingest/messages';
 import { createRun } from './ingest/runs';
 import { oauthFetch } from './oauth/provider';
 
 export default {
-  fetch: oauthFetch,
+  fetch: async (
+    request: Request,
+    env: AppEnv,
+    ctx: ExecutionContext,
+  ): Promise<Response> =>
+    (await handleHomepage(request, (assetRequest) =>
+      env.ASSETS.fetch(assetRequest),
+    )) ?? oauthFetch(request, env, ctx),
 
   async scheduled(
     _controller: ScheduledController,
