@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { WorkspaceIcon } from '@/components/layout/WorkspaceIcon';
 import { Badge, Card, EmptyState, Modal, Skeleton } from '@/components/ui';
 import { api, useAsyncAction, useQuery } from '@/lib/api';
+import { timestamp } from '@/lib/format';
 import { useParamFlag } from '@/lib/params';
 import { cn } from '@/lib/utils';
 import { useWorkspace, type Workspace } from '@/providers/workspace';
@@ -467,6 +468,192 @@ const SurfacesCard = () => {
   );
 };
 
+interface ConnectedApp {
+  id: number;
+  clientName: string;
+  scopes: string[];
+  createdAt: number;
+  lastUsedAt: number | null;
+}
+
+const CONNECTION_GRID =
+  'grid md:grid-cols-[minmax(180px,1fr)_minmax(170px,0.8fr)_minmax(150px,0.7fr)_minmax(150px,0.7fr)_minmax(90px,0.4fr)]';
+
+const ConnectedAppsCard = () => {
+  const query = useQuery<{ connections: ConnectedApp[] }>(
+    '/settings/connections',
+  );
+  const [revoking, setRevoking] = useState<ConnectedApp | null>(null);
+  const action = useAsyncAction();
+  const toast = useToast();
+
+  const close = () => {
+    if (action.busy) {
+      return;
+    }
+    setRevoking(null);
+    action.setError(null);
+  };
+
+  const revoke = () => {
+    if (!revoking) {
+      return;
+    }
+    const connection = revoking;
+    void action.run(async () => {
+      await api(`/settings/connections/${connection.id}`, {
+        method: 'DELETE',
+      });
+      setRevoking(null);
+      toast(`${connection.clientName} disconnected`);
+      query.refetch();
+    });
+  };
+
+  return (
+    <>
+      <Card className="overflow-hidden p-0">
+        <header className="border-border border-b bg-bg-elevated px-5 py-3">
+          <h2 className="section-label text-primary">connected apps</h2>
+          <p className="mt-1 max-w-3xl text-[12px] text-muted leading-relaxed">
+            Apps listed here can read this workspace through MCP. They cannot
+            change data or start provider runs.
+          </p>
+        </header>
+
+        <div
+          className={cn(
+            CONNECTION_GRID,
+            'hidden min-h-9 items-center bg-bg-elevated md:grid',
+          )}
+        >
+          <div className="section-label border-border border-r px-5">app</div>
+          <div className="section-label border-border border-r px-4">
+            permission
+          </div>
+          <div className="section-label border-border border-r px-4">
+            connected
+          </div>
+          <div className="section-label border-border border-r px-4">
+            last used
+          </div>
+          <div className="section-label px-5 text-right">action</div>
+        </div>
+
+        {query.loading && !query.data ? (
+          <div className="flex flex-col gap-px bg-border">
+            {[0, 1].map((index) => (
+              <Skeleton key={index} className="h-14 rounded-none" />
+            ))}
+          </div>
+        ) : query.error && !query.data ? (
+          <EmptyState
+            title="connections unavailable"
+            hint="Connected apps could not be loaded."
+            action={
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={query.refetch}
+              >
+                retry
+              </button>
+            }
+            className="border-0"
+          />
+        ) : query.data?.connections.length === 0 ? (
+          <EmptyState
+            title="no connected apps"
+            hint="Apps you authorize through OAuth will appear here."
+            className="border-0"
+          />
+        ) : (
+          <ul>
+            {query.data?.connections.map((connection) => (
+              <li
+                key={connection.id}
+                className={cn(CONNECTION_GRID, 'border-border border-t')}
+              >
+                <div className="flex min-w-0 items-center px-5 py-3 md:border-border md:border-r">
+                  <span className="truncate text-[13px] text-primary">
+                    {connection.clientName}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 border-border border-t px-5 py-2 md:border-t-0 md:border-r md:px-4">
+                  <span className="field-label md:hidden">permission</span>
+                  {connection.scopes.map((scope) => (
+                    <Badge key={scope} tone="neutral">
+                      {scope === 'data:read' ? 'read workspace data' : scope}
+                    </Badge>
+                  ))}
+                </div>
+                <div
+                  className="flex items-center gap-2 border-border border-t px-5 py-2 font-mono text-[11px] text-muted md:border-t-0 md:border-r md:px-4"
+                  title={timestamp(connection.createdAt)}
+                >
+                  <span className="field-label md:hidden">connected</span>
+                  {timestamp(connection.createdAt)}
+                </div>
+                <div
+                  className="flex items-center gap-2 border-border border-t px-5 py-2 font-mono text-[11px] text-muted md:border-t-0 md:border-r md:px-4"
+                  title={timestamp(connection.lastUsedAt)}
+                >
+                  <span className="field-label md:hidden">last used</span>
+                  {timestamp(connection.lastUsedAt)}
+                </div>
+                <div className="flex items-center justify-end border-border border-t px-5 py-2 md:border-t-0">
+                  <button
+                    type="button"
+                    className="btn-ghost h-7 px-2 font-mono text-[11px] text-error"
+                    onClick={() => {
+                      action.setError(null);
+                      setRevoking(connection);
+                    }}
+                  >
+                    revoke
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      {revoking ? (
+        <Modal title={`Disconnect ${revoking.clientName}?`} onClose={close}>
+          <p className="text-[13px] text-secondary leading-relaxed">
+            This immediately revokes the app&apos;s access and refresh tokens
+            for this workspace. The app will need your approval to reconnect.
+          </p>
+          {action.error ? (
+            <p className="mt-3 text-[13px] text-error" aria-live="polite">
+              {action.error}
+            </p>
+          ) : null}
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={close}
+              disabled={action.busy}
+            >
+              cancel
+            </button>
+            <button
+              type="button"
+              className="btn-secondary text-error"
+              onClick={revoke}
+              disabled={action.busy}
+            >
+              {action.busy ? 'disconnecting…' : 'disconnect app'}
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+    </>
+  );
+};
+
 // Layer 5 operator lever: queue-driven backfill rescore. Deliberately gated
 // to dev builds until it grows an admin surface — rewriting historical
 // scores is an operator action, not a user feature.
@@ -553,6 +740,7 @@ export const Settings = () => (
     <div className="flex flex-col gap-4">
       <WorkspacesCard />
       <SurfacesCard />
+      <ConnectedAppsCard />
       {import.meta.env.DEV ? <RescoreCard /> : null}
     </div>
   </>

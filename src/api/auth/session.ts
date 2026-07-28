@@ -19,6 +19,21 @@ export interface SessionClaims {
 const secretKey = (env: AppEnv): Uint8Array =>
   new TextEncoder().encode(env.JWT_SECRET);
 
+const readCookie = (request: Request, name: string): string | null => {
+  const pair = (request.headers.get('Cookie') ?? '')
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name}=`));
+  if (!pair) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(pair.slice(name.length + 1));
+  } catch {
+    return null;
+  }
+};
+
 export const issueSession = async <E extends { Bindings: AppEnv }>(
   c: Context<E>,
   user: { id: number; email: string; tokenVersion: number },
@@ -50,13 +65,28 @@ export const readSession = async <E extends { Bindings: AppEnv }>(
   c: Context<E>,
 ): Promise<SessionClaims | null> => {
   const token = getCookie(c, COOKIE_NAME);
+  return token ? verifySessionToken(token, c.env) : null;
+};
+
+export const readRequestSession = async (
+  request: Request,
+  env: AppEnv,
+): Promise<SessionClaims | null> => {
+  const token = readCookie(request, COOKIE_NAME);
+  return token ? verifySessionToken(token, env) : null;
+};
+
+const verifySessionToken = async (
+  token: string,
+  env: AppEnv,
+): Promise<SessionClaims | null> => {
   if (!token) {
     return null;
   }
   try {
     // algorithms pins HS256 so a forged token can't downgrade to "none".
     // jwtVerify also enforces exp, throwing (and returning null) when expired.
-    const { payload } = await jwtVerify(token, secretKey(c.env), {
+    const { payload } = await jwtVerify(token, secretKey(env), {
       algorithms: [ALG],
     });
     const sub = Number(payload.sub);
