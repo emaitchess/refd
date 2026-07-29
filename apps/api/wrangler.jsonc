@@ -62,8 +62,8 @@
   ],
   "kv_namespaces": [
     {
-      // Wrangler provisions the namespace on first deploy and writes back its id.
-      "binding": "OAUTH_KV"
+      "binding": "OAUTH_KV",
+      "id": "0e1e5eb02e504673a62f3000a313f783"
     }
   ],
   "ratelimits": [
