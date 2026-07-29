@@ -90,6 +90,7 @@ const breadcrumbStructuredData = {
   title={`${title} | refd`}
   description={description}
   path={path}
+  markdownPath={`${path}.md`}
   ogType="article"
   author={author.name}
   publishedAt={publishedAt}
@@ -208,3 +209,53 @@ const breadcrumbStructuredData = {
   </main>
   <SiteFooter />
 </Base>
+
+<script>
+  import { activeTocHeadingId } from '../lib/toc';
+
+  const toc = document.querySelector<HTMLElement>('.content-toc');
+  const prose = document.querySelector<HTMLElement>('.prose');
+  const headings = Array.from(
+    document.querySelectorAll<HTMLElement>('.prose h2[id], .prose h3[id]'),
+  );
+  const links = Array.from(
+    document.querySelectorAll<HTMLAnchorElement>('.content-toc a[href^="#"]'),
+  );
+
+  if (toc && prose && headings.length > 0 && links.length > 0) {
+    let frame: number | null = null;
+
+    const update = () => {
+      frame = null;
+      const activeId = activeTocHeadingId({
+        contentTop: prose.getBoundingClientRect().top,
+        headings: headings.map((heading) => ({
+          id: heading.id,
+          top: heading.getBoundingClientRect().top,
+        })),
+        anchor: Math.min(160, window.innerHeight * 0.25),
+        atPageEnd:
+          window.scrollY + window.innerHeight >=
+          document.documentElement.scrollHeight - 2,
+      });
+
+      for (const link of links) {
+        if (link.getAttribute('href') === `#${activeId}`) {
+          link.setAttribute('aria-current', 'location');
+        } else {
+          link.removeAttribute('aria-current');
+        }
+      }
+    };
+
+    const scheduleUpdate = () => {
+      if (frame === null) {
+        frame = window.requestAnimationFrame(update);
+      }
+    };
+
+    update();
+    window.addEventListener('scroll', scheduleUpdate, { passive: true });
+    window.addEventListener('resize', scheduleUpdate);
+  }
+</script>

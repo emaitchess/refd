@@ -1,4 +1,8 @@
 .content-rail {
+  --content-sidebar-width: 220px;
+  --content-column-gap: 64px;
+  --content-prose-width: 720px;
+
   width: min(var(--rail), 100%);
   margin-inline: auto;
   border-inline: 1px solid var(--border);
@@ -73,8 +77,11 @@
 
 .answer-box {
   display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
-  gap: 32px;
+  grid-template-columns:
+    var(--content-sidebar-width)
+    minmax(0, var(--content-prose-width));
+  gap: var(--content-column-gap);
+  justify-content: center;
   padding: 32px;
   border-bottom: 1px solid var(--border);
   background: var(--accent-soft);
@@ -89,8 +96,10 @@
 
 .content-body {
   display: grid;
-  grid-template-columns: 220px minmax(0, 720px);
-  gap: 64px;
+  grid-template-columns:
+    var(--content-sidebar-width)
+    minmax(0, var(--content-prose-width));
+  gap: var(--content-column-gap);
   align-items: start;
   justify-content: center;
   padding: 64px 32px 88px;
@@ -117,6 +126,30 @@
 
 .content-toc li[data-depth='3'] {
   padding-left: 14px;
+}
+
+.content-toc a {
+  position: relative;
+  display: block;
+  transition: color 160ms;
+}
+
+.content-toc a::before {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: -12px;
+  width: 1px;
+  background: transparent;
+  content: '';
+}
+
+.content-toc a[aria-current='location'] {
+  color: var(--primary);
+}
+
+.content-toc a[aria-current='location']::before {
+  background: var(--primary);
 }
 
 .content-toc a:hover {
@@ -442,7 +475,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .content-card,
-  .content-card-arrow {
+  .content-card-arrow,
+  .content-toc a {
     transition: none;
   }
 }

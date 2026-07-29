@@ -7,6 +7,7 @@ export interface PublicContentEntry {
   description: string;
   publishedAt: Date;
   order: number;
+  answer: string;
   body: string;
   section: 'Blog' | 'Documentation' | 'Guides';
 }
@@ -19,6 +20,7 @@ export const getPublicContent = async (): Promise<PublicContentEntry[]> => {
       description: entry.data.description,
       publishedAt: entry.data.publishedAt,
       order: entry.data.order,
+      answer: entry.data.answer,
       body: entry.body ?? '',
       section: 'Guides',
     }),
@@ -30,6 +32,7 @@ export const getPublicContent = async (): Promise<PublicContentEntry[]> => {
       description: entry.data.description,
       publishedAt: entry.data.publishedAt,
       order: entry.data.order,
+      answer: entry.data.answer,
       body: entry.body ?? '',
       section: 'Documentation',
     }),
@@ -41,6 +44,7 @@ export const getPublicContent = async (): Promise<PublicContentEntry[]> => {
       description: entry.data.description,
       publishedAt: entry.data.publishedAt,
       order: entry.data.order,
+      answer: entry.data.answer,
       body: entry.body ?? '',
       section: 'Blog',
     }),
