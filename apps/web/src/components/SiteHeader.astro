@@ -10,9 +10,15 @@ import BrandMark from './BrandMark.astro';
         <BrandMark size={20} />
         <span>refd</span>
       </a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="/methodology">methodology</a>
+        <a href="/docs">docs</a>
+        <a href="/blog">blog</a>
+        <a href="/agents">agents</a>
+      </nav>
       <div class="header-actions">
         <button class="theme-toggle" type="button" id="theme-toggle">theme</button>
-        <a class="btn btn-ghost" href={SIGN_IN_URL}>sign in</a>
+        <a class="btn btn-ghost header-sign-in" href={SIGN_IN_URL}>sign in</a>
         <a class="btn btn-primary" href={CREATE_ACCOUNT_URL}>start monitoring</a>
       </div>
     </div>

@@ -6,7 +6,12 @@ interface Props {
   description?: string;
   path?: string;
   ogImage?: string;
+  ogType?: 'article' | 'website';
   noindex?: boolean;
+  author?: string;
+  publishedAt?: Date;
+  updatedAt?: Date;
+  structuredData?: Record<string, unknown>[];
 }
 
 const {
@@ -14,7 +19,12 @@ const {
   description = "Open-source AI search monitoring. Track your brand's mentions, citations, position, and share of voice across ChatGPT, Perplexity, Gemini, Google AI Mode, and Overview.",
   path = '/',
   ogImage = '/og.png',
+  ogType = 'website',
   noindex = false,
+  author = 'refd',
+  publishedAt,
+  updatedAt,
+  structuredData = [],
 } = Astro.props;
 
 const site = Astro.site ?? new URL('https://refd.ai');
@@ -25,6 +35,7 @@ const jsonLd = [
   {
     '@context': 'https://schema.org',
     '@type': 'Organization',
+    '@id': new URL('/#organization', site).href,
     name: 'refd',
     url: site.href,
     logo: new URL('/apple-touch-icon.png', site).href,
@@ -33,15 +44,15 @@ const jsonLd = [
   },
   {
     '@context': 'https://schema.org',
-    '@type': 'SoftwareApplication',
+    '@type': 'WebSite',
+    '@id': new URL('/#website', site).href,
     name: 'refd',
-    applicationCategory: 'BusinessApplication',
-    operatingSystem: 'Web',
     url: site.href,
-    description,
-    offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+    publisher: { '@id': new URL('/#organization', site).href },
   },
+  ...structuredData,
 ];
+const jsonLdText = JSON.stringify(jsonLd).replaceAll('<', '\\u003c');
 ---
 
 <!doctype html>
@@ -56,11 +67,18 @@ const jsonLd = [
     <title>{title}</title>
     <meta name="description" content={description} />
     <meta name="application-name" content="refd" />
-    <meta name="author" content="refd" />
+    <meta name="author" content={author} />
     <meta name="robots" content={noindex ? 'noindex, nofollow' : 'index, follow'} />
     <link rel="canonical" href={canonical} />
+    <link rel="sitemap" href="/sitemap-index.xml" />
+    <link
+      rel="alternate"
+      type="application/rss+xml"
+      title="refd research and documentation"
+      href={new URL('/rss.xml', site).href}
+    />
 
-    <meta property="og:type" content="website" />
+    <meta property="og:type" content={ogType} />
     <meta property="og:site_name" content="refd" />
     <meta property="og:url" content={canonical} />
     <meta property="og:title" content={title} />
@@ -70,6 +88,22 @@ const jsonLd = [
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="refd: open-source AI search monitoring" />
     <meta property="og:locale" content="en_US" />
+    {
+      publishedAt && (
+        <meta
+          property="article:published_time"
+          content={publishedAt.toISOString()}
+        />
+      )
+    }
+    {
+      updatedAt && (
+        <meta
+          property="article:modified_time"
+          content={updatedAt.toISOString()}
+        />
+      )
+    }
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
@@ -102,7 +136,7 @@ const jsonLd = [
       })();
     </script>
 
-    <Fragment set:html={`<script type="application/ld+json">${JSON.stringify(jsonLd)}</script>`} />
+    <Fragment set:html={`<script type="application/ld+json">${jsonLdText}</script>`} />
   </head>
   <body>
     <slot />

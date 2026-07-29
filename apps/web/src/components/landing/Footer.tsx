@@ -34,7 +34,19 @@ export const Footer = () => {
               open-source ai search monitoring
             </span>
           </div>
-          <div className="flex items-center gap-5 font-mono text-[10px] text-muted uppercase tracking-[0.08em]">
+          <div className="flex flex-wrap items-center justify-end gap-x-5 gap-y-3 font-mono text-[10px] text-muted uppercase tracking-[0.08em]">
+            <a href="/methodology" className="hover:text-primary">
+              methodology
+            </a>
+            <a href="/docs" className="hover:text-primary">
+              docs
+            </a>
+            <a href="/blog" className="hover:text-primary">
+              blog
+            </a>
+            <a href="/agents" className="hover:text-primary">
+              agents
+            </a>
             <a
               href={GITHUB_URL}
               target="_blank"
