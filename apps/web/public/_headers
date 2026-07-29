@@ -1,7 +1,13 @@
 # Response headers for the public website (Cloudflare Workers/Pages _headers).
 /
   Link: <https://api.refd.ai/.well-known/oauth-protected-resource/mcp>; rel="service-desc"; type="application/json"
+  Link: </.well-known/agent>; rel="service-desc"; type="application/json"
+  Link: </openapi.json>; rel="service-desc"; type="application/json"
   Link: </llms.txt>; rel="describedby"; type="text/plain"
+
+# The discovery manifest has no file extension; pin its media type.
+/.well-known/agent
+  Content-Type: application/json; charset=utf-8
 
 /*
   X-Content-Type-Options: nosniff

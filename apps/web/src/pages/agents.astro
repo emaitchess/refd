@@ -1,0 +1,184 @@
+---
+import SiteFooter from '../components/SiteFooter.astro';
+import SiteHeader from '../components/SiteHeader.astro';
+import { GITHUB_URL } from '../consts';
+import Base from '../layouts/Base.astro';
+
+const MCP_ENDPOINT = 'https://api.refd.ai/mcp';
+
+const tools = [
+  ['get_workspace_info', 'The brand, tracked competitors, prompts, and enabled AI surfaces for the workspace.'],
+  ['get_visibility_overview', 'Mention rate, citation rate, position, and share of voice across surfaces.'],
+  ['get_competitor_landscape', 'How the brand ranks against the competitors it tracks.'],
+  ['get_prompt_performance', 'Per-prompt visibility, broken down by AI surface.'],
+  ['get_citation_sources', 'Which domains AI answers cite for the workspace.'],
+  ['get_recent_changes', 'Material moves between the two most recent completed runs.'],
+  ['find_prompt_results', 'Search tracked prompts and their scored results.'],
+  ['read_answer', 'The raw AI answer behind a result, with entity mentions highlighted.'],
+  ['get_digest', 'A 30-day rollup of the workspace, the same one that grounds the dashboard chat.'],
+];
+
+const discovery = [
+  ['MCP endpoint', 'https://api.refd.ai/mcp', 'Streamable HTTP, OAuth-protected'],
+  ['Protected-resource metadata', 'https://api.refd.ai/.well-known/oauth-protected-resource/mcp', 'RFC 9728'],
+  ['Authorization-server metadata', 'https://api.refd.ai/.well-known/oauth-authorization-server', 'RFC 8414'],
+  ['OpenAPI catalog', 'https://refd.ai/openapi.json', 'Public HTTP surface'],
+  ['Agent manifest', 'https://refd.ai/.well-known/agent', 'Discovery pointers'],
+  ['MCP Registry', 'ai.refd/refd', 'registry.modelcontextprotocol.io'],
+  ['llms.txt', 'https://refd.ai/llms.txt', 'Plain-text summary'],
+];
+
+const clients = [
+  ['Claude / Claude Code', 'Add a custom connector (or `claude mcp add --transport http refd https://api.refd.ai/mcp`) and complete the OAuth sign-in.'],
+  ['ChatGPT', 'Settings → Connectors → add a custom MCP server, enter the endpoint, and authorize.'],
+  ['Any MCP client', 'Point a Streamable HTTP MCP client at the endpoint; it discovers auth via the protected-resource metadata.'],
+];
+---
+
+<Base
+  title="Build with refd | agent access"
+  description="Connect an AI agent to refd's read-only MCP server over OAuth. Read a brand's AI search visibility, competitors, citations, and answer evidence, scoped to one workspace."
+  path="/agents"
+>
+  <SiteHeader />
+
+  <main>
+    <section class="hero" id="top">
+      <div class="rail">
+        <div class="hero-inner">
+          <span class="tag">agent access</span>
+          <h1 class="hero-title">
+            Build with refd.
+            <span class="muted">Read your AI visibility from any agent.</span>
+          </h1>
+          <p class="hero-sub">
+            refd exposes a workspace's AI search monitoring through a read-only,
+            OAuth-protected remote MCP server. Connect Claude, ChatGPT, or any
+            MCP client and query visibility, competitors, citations, and the raw
+            answers behind them, scoped to a single workspace.
+          </p>
+          <div class="hero-cta">
+            <a class="btn btn-primary" href="#connect">how to connect</a>
+            <a class="btn" href="/openapi.json">OpenAPI catalog</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- The connector -->
+    <section class="section" id="connector">
+      <div class="rail">
+        <div class="section-head">
+          <p class="section-index">01 / the connector</p>
+          <h2>A read-only connector, scoped to one workspace.</h2>
+          <p>
+            Every OAuth grant is bound to a single workspace and is read-only.
+            The connector cannot change data or start paid runs, and the owner
+            can revoke it anytime from Settings. Web prompt-injection can, at
+            worst, read within the one workspace the human authorized.
+          </p>
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <p class="k">transport</p>
+            <h3>Streamable HTTP MCP</h3>
+            <p>A stateless Model Context Protocol server at <code>{MCP_ENDPOINT}</code>.</p>
+          </div>
+          <div class="cell">
+            <p class="k">auth</p>
+            <h3>OAuth 2.1 + PKCE</h3>
+            <p>Authorization-code flow with per-workspace, revocable grants and the <code>data:read</code> scope.</p>
+          </div>
+          <div class="cell">
+            <p class="k">access</p>
+            <h3>Read-only</h3>
+            <p>Nine tools plus a metric-glossary resource. No writes, no run triggers, no spend.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tools -->
+    <section class="section" id="tools">
+      <div class="rail">
+        <div class="section-head">
+          <p class="section-index">02 / the tools</p>
+          <h2>Nine read tools, discovered at runtime.</h2>
+          <p>Call <code>tools/list</code> after connecting. Every tool resolves the workspace from the OAuth grant, never from arguments.</p>
+        </div>
+        <div class="grid">
+          {
+            tools.map(([name, desc]) => (
+              <div class="cell">
+                <h3><code>{name}</code></h3>
+                <p>{desc}</p>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <!-- Connect -->
+    <section class="section" id="connect">
+      <div class="rail">
+        <div class="section-head">
+          <p class="section-index">03 / connect</p>
+          <h2>Point a client at the endpoint.</h2>
+          <p>The endpoint is always <code>{MCP_ENDPOINT}</code>. Discovery and sign-in are automatic; you authorize one workspace per connection.</p>
+        </div>
+        <div class="grid">
+          {
+            clients.map(([name, how]) => (
+              <div class="cell">
+                <h3>{name}</h3>
+                <p>{how}</p>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <!-- Discovery -->
+    <section class="section" id="discovery">
+      <div class="rail">
+        <div class="section-head">
+          <p class="section-index">04 / discovery</p>
+          <h2>Everything is discoverable.</h2>
+        </div>
+        <div class="grid">
+          {
+            discovery.map(([label, value, note]) => (
+              <div class="cell">
+                <p class="k">{label}</p>
+                <h3 style="font-size:14px;word-break:break-all"><code>{value}</code></h3>
+                <p>{note}</p>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <!-- Open source -->
+    <section class="section" id="open-source">
+      <div class="rail">
+        <div class="section-head">
+          <p class="section-index">05 / open source</p>
+          <h2>Self-host the whole stack.</h2>
+          <p>
+            refd is MIT licensed and runs on Cloudflare Workers. Run the MCP
+            server on your own account, or connect to the hosted one on refd.ai.
+          </p>
+        </div>
+        <div class="hero-cta" style="margin-top:28px;justify-content:flex-start">
+          <a class="btn" href={GITHUB_URL} rel="noreferrer">view on GitHub</a>
+          <a class="btn btn-primary" href="https://dash.refd.ai/auth/create-account">start monitoring</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <SiteFooter />
+</Base>
