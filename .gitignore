@@ -12,6 +12,9 @@ out/
 .env.*
 .dev.vars*
 !.dev.vars.example
+# MCP registry domain-auth private key (pairs with the public key served at
+# refd.ai/.well-known/mcp-registry-auth). Needed to publish server.json.
+.mcp-registry-key.hex
 # committed public (non-secret) build-time origins, per Vite/Astro mode
 !apps/web/.env.development
 !apps/web/.env.production
