@@ -71,7 +71,7 @@ export const Help = () => (
   </>
 );
 
-const MCP_ENDPOINT = 'https://api.refd.ai/api/mcp';
+const MCP_ENDPOINT = 'https://api.refd.ai/mcp';
 
 const MCP_TOOLS = [
   {
@@ -462,7 +462,7 @@ claude mcp login refd`}</CodeBlock>
             native rate-limit bindings configured with account-unique namespace
             IDs, apply every D1 migration, and deploy the Worker. The endpoint
             is always{' '}
-            <code className="font-mono">&lt;PUBLIC_BASE_URL&gt;/api/mcp</code>.
+            <code className="font-mono">&lt;PUBLIC_BASE_URL&gt;/mcp</code>.
           </p>
           <p className="mt-3 text-[12px] text-muted leading-relaxed">
             The OAuth provider stores registered clients and encrypted grant and
@@ -474,9 +474,9 @@ claude mcp login refd`}</CodeBlock>
             After <code className="font-mono">bun run dev</code>, these requests
             check discovery and bearer protection:
           </p>
-          <CodeBlock>{`curl -i https://api.refdlocal.io/.well-known/oauth-protected-resource/api/mcp
+          <CodeBlock>{`curl -i https://api.refdlocal.io/.well-known/oauth-protected-resource/mcp
 curl -i https://api.refdlocal.io/.well-known/oauth-authorization-server
-curl -i -X POST https://api.refdlocal.io/api/mcp \\
+curl -i -X POST https://api.refdlocal.io/mcp \\
   -H 'Content-Type: application/json' \\
   --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}'`}</CodeBlock>
           <p className="mt-3 text-[12px] text-muted leading-relaxed">

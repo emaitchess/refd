@@ -31,7 +31,7 @@
     "SCHEDULED_MONITORING_POLICY": "entitled",
     // The API Worker's own public origin: the base for BrightData notify
     // callbacks (with BRIGHTDATA_WEBHOOK_SECRET) and the canonical MCP resource
-    // URL (<PUBLIC_BASE_URL>/api/mcp) and OAuth discovery.
+    // URL (<PUBLIC_BASE_URL>/mcp) and OAuth discovery.
     "PUBLIC_BASE_URL": "https://api.refd.ai",
     // Three-worker origins. Setting DASHBOARD_ORIGIN turns on credentialed CORS
     // and the cross-origin sign-in redirect; until the dashboard Worker is live

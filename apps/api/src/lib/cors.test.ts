@@ -14,28 +14,28 @@ const bridgeEnv = {} as AppEnv;
 
 const app = () => {
   const instance = new Hono<{ Bindings: AppEnv }>();
-  instance.use('/api/*', dashboardCors);
-  instance.use('/api/*', requireDashboardOrigin);
-  instance.get('/api/x', (c) => c.json({ ok: true }));
-  instance.post('/api/x', (c) => c.json({ ok: true }));
+  instance.use('/*', dashboardCors);
+  instance.use('/*', requireDashboardOrigin);
+  instance.get('/x', (c) => c.json({ ok: true }));
+  instance.post('/x', (c) => c.json({ ok: true }));
   return instance;
 };
 
 const req = (init: RequestInit, env: AppEnv) =>
-  app().request(`${API}/api/x`, init, env);
+  app().request(`${API}/x`, init, env);
 
 describe('isAllowedBrowserOrigin', () => {
   test('allows same-origin and the dashboard origin, rejects others', () => {
-    expect(isAllowedBrowserOrigin(API, `${API}/api/x`, splitEnv)).toBe(true);
-    expect(isAllowedBrowserOrigin(DASH, `${API}/api/x`, splitEnv)).toBe(true);
+    expect(isAllowedBrowserOrigin(API, `${API}/x`, splitEnv)).toBe(true);
+    expect(isAllowedBrowserOrigin(DASH, `${API}/x`, splitEnv)).toBe(true);
     expect(
-      isAllowedBrowserOrigin('https://evil.example', `${API}/api/x`, splitEnv),
+      isAllowedBrowserOrigin('https://evil.example', `${API}/x`, splitEnv),
     ).toBe(false);
   });
 
   test('bridge (no dashboard origin) allows only same-origin', () => {
-    expect(isAllowedBrowserOrigin(API, `${API}/api/x`, bridgeEnv)).toBe(true);
-    expect(isAllowedBrowserOrigin(DASH, `${API}/api/x`, bridgeEnv)).toBe(false);
+    expect(isAllowedBrowserOrigin(API, `${API}/x`, bridgeEnv)).toBe(true);
+    expect(isAllowedBrowserOrigin(DASH, `${API}/x`, bridgeEnv)).toBe(false);
   });
 
   test('local dev auto-allows the refdlocal.io dashboard, no config', () => {
@@ -45,28 +45,24 @@ describe('isAllowedBrowserOrigin', () => {
     expect(
       isAllowedBrowserOrigin(
         localDash,
-        'https://api.refdlocal.io/api/x',
+        'https://api.refdlocal.io/x',
         bridgeEnv,
       ),
     ).toBe(true);
     expect(
-      isAllowedBrowserOrigin(
-        localDash,
-        'http://localhost:8787/api/x',
-        bridgeEnv,
-      ),
+      isAllowedBrowserOrigin(localDash, 'http://localhost:8787/x', bridgeEnv),
     ).toBe(true);
     // The production dashboard origin is not a local origin.
     expect(
-      isAllowedBrowserOrigin(DASH, 'https://api.refdlocal.io/api/x', bridgeEnv),
+      isAllowedBrowserOrigin(DASH, 'https://api.refdlocal.io/x', bridgeEnv),
     ).toBe(false);
   });
 });
 
 describe('dashboardCors local dev', () => {
   test.each([
-    'https://api.refdlocal.io/api/x',
-    'http://localhost:8787/api/x', // how wrangler dev may see it behind Caddy
+    'https://api.refdlocal.io/x',
+    'http://localhost:8787/x', // how wrangler dev may see it behind Caddy
   ])('answers the local dashboard preflight (%s), no config', async (url) => {
     const res = await app().request(
       url,

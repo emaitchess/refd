@@ -19,11 +19,11 @@ export const oauthResourceUrl = (
     request.hostname === '127.0.0.1' ||
     request.hostname.endsWith('refdlocal.io');
   if (local || !publicBaseUrl) {
-    return new URL('/api/mcp', request.origin).toString();
+    return new URL('/mcp', request.origin).toString();
   }
   try {
-    return new URL('/api/mcp', publicBaseUrl).toString();
+    return new URL('/mcp', publicBaseUrl).toString();
   } catch {
-    return new URL('/api/mcp', request.origin).toString();
+    return new URL('/mcp', request.origin).toString();
   }
 };

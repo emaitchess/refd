@@ -77,13 +77,13 @@ export const createOAuthOptions = (
   const requestHostname = new URL(request.url).hostname;
   let options: OAuthProviderOptions<AppEnv>;
   options = {
-    apiRoute: '/api/mcp',
+    apiRoute: '/mcp',
     apiHandler: {
       fetch: async (apiRequest, apiEnv, ctx) => {
         const mcpHandler = createMcpHandler(
           () => createRefdMcpServer(apiEnv, ctx),
           {
-            route: '/api/mcp',
+            route: '/mcp',
             allowedHostnames: [...new Set([resourceHostname, requestHostname])],
             allowedOriginHostnames: [
               resourceHostname,
@@ -118,9 +118,9 @@ export const createOAuthOptions = (
           resource,
         ),
     },
-    authorizeEndpoint: '/api/oauth/authorize',
-    tokenEndpoint: '/api/oauth/token',
-    clientRegistrationEndpoint: '/api/oauth/register',
+    authorizeEndpoint: '/oauth/authorize',
+    tokenEndpoint: '/oauth/token',
+    clientRegistrationEndpoint: '/oauth/register',
     ...OAUTH_PROTOCOL_OPTIONS,
     onError: (error) => {
       const current = new URL(request.url);
@@ -157,7 +157,7 @@ export const oauthFetch = async (
 ): Promise<Response> => {
   const path = new URL(request.url).pathname;
   const limited =
-    path === '/api/mcp'
+    path === '/mcp'
       ? await limitMcpRequest(request, env)
       : await limitOAuthRequest(request, env);
   return (

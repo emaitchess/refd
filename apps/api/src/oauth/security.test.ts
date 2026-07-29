@@ -22,19 +22,19 @@ describe('OAuth protocol policy', () => {
   test('binds hosted tokens to the exact MCP resource', () => {
     expect(
       oauthResourceUrl(
-        'https://preview.example.test/api/oauth/authorize',
+        'https://preview.example.test/oauth/authorize',
         'https://refd.ai',
       ),
-    ).toBe('https://refd.ai/api/mcp');
+    ).toBe('https://refd.ai/mcp');
   });
 
   test('uses the request origin for local development', () => {
     expect(
       oauthResourceUrl(
-        'https://refdlocal.io/api/oauth/authorize',
+        'https://refdlocal.io/oauth/authorize',
         'https://refd.ai',
       ),
-    ).toBe('https://refdlocal.io/api/mcp');
+    ).toBe('https://refdlocal.io/mcp');
   });
 });
 
@@ -42,7 +42,7 @@ describe('OAuth consent security', () => {
   test('accepts only the CSRF token bound to the browser cookie', async () => {
     const token = createCsrfToken();
     const cookie = csrfCookie(token).split(';')[0];
-    const request = new Request('https://refd.ai/api/oauth/authorize', {
+    const request = new Request('https://refd.ai/oauth/authorize', {
       headers: { Cookie: cookie ?? '' },
     });
 

@@ -58,7 +58,7 @@ describe('handleHomepage', () => {
   test('ignores non-homepage requests', async () => {
     let called = false;
     const response = await handleHomepage(
-      new Request('https://refd.ai/api/health'),
+      new Request('https://refd.ai/health'),
       async () => {
         called = true;
         return new Response();

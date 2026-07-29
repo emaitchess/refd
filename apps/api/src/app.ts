@@ -30,33 +30,34 @@ import { workspaceRoutes } from './routes/workspaces';
 export const app = new Hono<AppBindings>();
 
 // Credentialed CORS + preflight for the dashboard origin (no-op same-origin).
-// Outermost so a preflight is answered before any other /api/* middleware.
-app.use('/api/*', dashboardCors);
-app.use('/api/*', async (c, next) => {
+// Outermost so a preflight is answered before any other middleware. The API is
+// served on its own origin (api.refd.ai), so routes carry no /api prefix.
+app.use('/*', dashboardCors);
+app.use('/*', async (c, next) => {
   await next();
   applyApiResponseHeaders(c.res.headers);
 });
 // BrightData's callback is public but shared-secret verified. Mount it before
 // the JSON mutation guard and the origin check so the secret is always the
 // cheapest check and server-to-server callbacks stay exempt from both.
-app.route('/api/webhooks', webhookRoutes);
-app.use('/api/*', requireJsonForMutations);
-app.use('/api/*', requireDashboardOrigin);
+app.route('/webhooks', webhookRoutes);
+app.use('/*', requireJsonForMutations);
+app.use('/*', requireDashboardOrigin);
 
-app.get('/api/health', (c) => c.json({ ok: true }));
-app.route('/api/auth', authRoutes);
+app.get('/health', (c) => c.json({ ok: true }));
+app.route('/auth', authRoutes);
 
 // Everything else requires a session; data routes additionally require an
-// owned workspace (/api/w/:workspaceId/...).
+// owned workspace (/w/:workspaceId/...).
 const authed = new Hono<AuthedBindings>();
 authed.use(requireAuth);
 authed.route('/config', configRoutes);
 authed.route('/workspaces', workspaceRoutes);
 // Favicon proxy: session-gated, workspace-agnostic (used across onboarding and
-// the dashboard), so it hangs off /api/favicon rather than a workspace scope.
+// the dashboard), so it hangs off /favicon rather than a workspace scope.
 authed.route('/favicon', faviconRoutes);
 // Image proxy (brand OG/preview images): same reason as favicon — the strict
-// img-src CSP forbids third-party image hosts, so route them same-origin.
+// img-src CSP forbids third-party image hosts, so route them via the API origin.
 authed.route('/image', imageRoutes);
 
 const scoped = new Hono<WorkspaceBindings>();
@@ -72,7 +73,7 @@ scoped.route('/onboarding', onboardingRoutes);
 scoped.route('/settings', settingsRoutes);
 scoped.route('/chat', chatRoutes);
 authed.route('/w/:workspaceId', scoped);
-app.route('/api', authed);
+app.route('/', authed);
 
 app.notFound((c) => c.json({ error: 'not found' }, 404));
 app.onError((error, c) => {
