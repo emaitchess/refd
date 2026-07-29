@@ -1,6 +1,5 @@
 import { DitherIcon } from '@/components/dither/DitherIcon';
 import { DitherGradient } from '@/components/dither-kit/gradient';
-import { Tooltip } from '@/components/dither-kit/tooltip';
 import { useTheme } from '@/lib/theme';
 import { SIGN_IN_URL } from '../../consts';
 import {
@@ -70,20 +69,15 @@ export const Footer = () => {
                 sign in
               </a>
             )}
-            <Tooltip
-              asChild
-              content={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-              className="border-border-strong bg-bg-elevated text-primary shadow-lg"
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="flex cursor-pointer items-center gap-2 hover:text-primary"
+              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
             >
-              <button
-                type="button"
-                onClick={toggleTheme}
-                className="flex cursor-pointer items-center gap-2 hover:text-primary"
-                aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-              >
-                <ThemeToggleIcon theme={theme} size={12} />
-              </button>
-            </Tooltip>
+              <ThemeToggleIcon theme={theme} size={12} />
+            </button>
           </div>
         </LandingInset>
       </LandingContainer>

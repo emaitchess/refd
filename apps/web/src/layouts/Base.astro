@@ -81,7 +81,7 @@ const jsonLdText = JSON.stringify(jsonLd).replaceAll('<', '\\u003c');
         />
       )
     }
-    <link rel="sitemap" href="/sitemap-index.xml" />
+    <link rel="sitemap" href="/sitemap.xml" />
     <link
       rel="alternate"
       type="application/rss+xml"
@@ -126,7 +126,7 @@ const jsonLdText = JSON.stringify(jsonLd).replaceAll('<', '\\u003c');
     <meta name="format-detection" content="telephone=no" />
 
     <link rel="icon" href="/favicon.ico" />
-    <link rel="icon" type="image/svg+xml" id="site-favicon" href="/logo-dark.svg" />
+    <link rel="icon" type="image/svg+xml" id="app-favicon" href="/logo-dark.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
     <script is:inline>
@@ -141,7 +141,7 @@ const jsonLdText = JSON.stringify(jsonLd).replaceAll('<', '\\u003c');
                 ? 'light'
                 : 'dark';
           document.documentElement.dataset.theme = theme;
-          const icon = document.getElementById('site-favicon');
+          const icon = document.getElementById('app-favicon');
           if (icon) icon.setAttribute('href', theme === 'light' ? '/logo-light.svg' : '/logo-dark.svg');
         } catch {}
       })();

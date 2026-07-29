@@ -40,6 +40,8 @@ const getSnapshot = (): Theme => {
   return current;
 };
 
+const getServerSnapshot = (): Theme => 'dark';
+
 const setTheme = (next: Theme) => {
   if (next === getSnapshot()) {
     return;
@@ -77,7 +79,7 @@ const subscribe = (listener: () => void) => {
 };
 
 export const useTheme = (): [Theme, () => void] => {
-  const theme = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const theme = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   // Idempotent; keeps the document honest if the pre-paint script never ran.
   useEffect(() => {
