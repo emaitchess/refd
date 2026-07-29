@@ -17,37 +17,9 @@ import BrandMark from './BrandMark.astro';
         <a href="/agents">agents</a>
       </nav>
       <div class="header-actions">
-        <button class="theme-toggle" type="button" id="theme-toggle">theme</button>
         <a class="btn btn-ghost header-sign-in" href={SIGN_IN_URL}>sign in</a>
         <a class="btn btn-primary" href={CREATE_ACCOUNT_URL}>start monitoring</a>
       </div>
     </div>
   </div>
 </header>
-
-<script is:inline>
-  (() => {
-    const btn = document.getElementById('theme-toggle');
-    if (!btn) return;
-    const relabel = () => {
-      btn.textContent =
-        document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-    };
-    relabel();
-    btn.addEventListener('click', () => {
-      const next =
-        document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-      document.documentElement.dataset.theme = next;
-      try {
-        localStorage.setItem('refd-theme', next);
-      } catch {}
-      const icon = document.getElementById('site-favicon');
-      if (icon)
-        icon.setAttribute(
-          'href',
-          next === 'light' ? '/logo-light.svg' : '/logo-dark.svg',
-        );
-      relabel();
-    });
-  })();
-</script>
