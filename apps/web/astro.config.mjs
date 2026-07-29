@@ -16,6 +16,9 @@ export default defineConfig({
   site: 'https://refd.ai',
   integrations: [react(), sitemap()],
   trailingSlash: 'never',
+  // Emit `agents.html` (served at `/agents`, no trailing-slash redirect) instead
+  // of `agents/index.html` (served at `/agents/`), matching trailingSlash:never.
+  build: { format: 'file' },
   vite: {
     plugins: [tailwindcss()],
     resolve: { alias: { '@': dashboardSrc } },

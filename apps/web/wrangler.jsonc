@@ -10,14 +10,15 @@
     }
   ],
   "workers_dev": false,
-  // Static Astro build fronted by a tiny Worker. run_worker_first: ["/"] lets the
-  // Worker do homepage Markdown negotiation; every other path serves straight
-  // from static assets, with 404.html for misses.
+  // Static Astro build fronted by a tiny Worker. run_worker_first runs the
+  // Worker for homepage Markdown negotiation ("/") and the agent manifest (to
+  // pin its JSON content-type); every other path serves straight from static
+  // assets, with 404.html for misses.
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "404-page",
-    "run_worker_first": ["/"]
+    "run_worker_first": ["/", "/.well-known/agent"]
   },
   "observability": {
     "logs": {
