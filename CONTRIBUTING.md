@@ -50,7 +50,7 @@ either). Highlights:
 - **UI work follows [`docs/DESIGN.md`](docs/DESIGN.md).** Charts are dither-kit
   only; monochrome chrome, hue belongs to data; no em dashes in UI copy.
 - Any user-facing metric change must also update the glossary
-  (`src/app/lib/metric-copy.ts`) and its tests.
+  (`packages/core/src/metric-copy.ts`) and its tests.
 - Comments only where they carry a non-obvious constraint, invariant, or why.
 
 ## Commit and pull request guidelines

@@ -1,7 +1,7 @@
 # Metrics
 
 Internal reference for refd's shipped scoring and aggregation contract.
-User-facing definitions live in `src/app/lib/metric-copy.ts`; the implementation
+User-facing definitions live in `packages/core/src/metric-copy.ts`; the implementation
 and its tests remain authoritative.
 
 The current metric system replaced the original single-name matching,
@@ -56,7 +56,7 @@ core, aggregation endpoints, alias capture, and historical rescoring.
   `firstOffset`, and `spans`. Spans feed position, prominence, and client
   highlighting.
 - **One matcher implementation, shared.** The matcher lives in
-  `src/shared/mentions.ts` and is imported by the Worker and SPA. The
+  `packages/core/src/mentions.ts` and is imported by the Worker and SPA. The
   client-side highlighter is a thin adapter over it, so there is no separate
   matching rule to keep synchronized.
 
@@ -165,7 +165,7 @@ core, aggregation endpoints, alias capture, and historical rescoring.
 ## Change alerts
 
 - **Derived on read, never stored.** `detectChanges` in
-  `src/api/routes/changes.ts` compares the two most recent completed runs using
+  `apps/api/src/routes/changes.ts` compares the two most recent completed runs using
   the same metric functions as the dashboard. `GET /changes` serves the report,
   so a rescore corrects it on the next read.
 - **Three honesty guards.** Only prompt and surface cells shared by both runs

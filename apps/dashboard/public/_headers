@@ -1,0 +1,10 @@
+# Response headers for the dashboard Worker's static assets (Cloudflare
+# Workers/Pages _headers format). The dashboard is authenticated and never
+# indexable; it talks to the API Worker cross-origin.
+/*
+  X-Robots-Tag: noindex, nofollow
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: no-referrer
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://api.refd.ai; font-src 'self'; connect-src 'self' https://api.refd.ai; frame-ancestors 'none'; base-uri 'self'; form-action 'self'

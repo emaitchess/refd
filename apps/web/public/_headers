@@ -1,0 +1,12 @@
+# Response headers for the public website (Cloudflare Workers/Pages _headers).
+/
+  Link: <https://api.refd.ai/.well-known/oauth-protected-resource/api/mcp>; rel="service-desc"; type="application/json"
+  Link: </llms.txt>; rel="describedby"; type="text/plain"
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: no-referrer
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  Content-Signal: search=yes, ai-input=yes, ai-train=yes
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'

@@ -1,0 +1,25 @@
+---
+import { GITHUB_URL, SIGN_IN_URL } from '../consts';
+import BrandMark from './BrandMark.astro';
+const year = new Date().getFullYear();
+---
+
+<footer style="border-top: 1px solid var(--border)">
+  <div class="rail">
+    <div class="site-footer">
+      <div class="top">
+        <a class="brand" href="/" aria-label="refd home">
+          <BrandMark size={16} />
+          <span>refd</span>
+        </a>
+        <nav>
+          <a href={GITHUB_URL} rel="noreferrer">GitHub</a>
+          <a href={SIGN_IN_URL}>Sign in</a>
+        </nav>
+      </div>
+      <p class="fine">
+        Open-source AI search monitoring. &copy; {year} refd. MIT licensed.
+      </p>
+    </div>
+  </div>
+</footer>

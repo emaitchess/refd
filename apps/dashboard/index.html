@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#080809" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f7f4f0" media="(prefers-color-scheme: light)" />
+
+    <title>refd | open-source AI search monitoring</title>
+    <meta
+      name="description"
+      content="Open-source AI search monitoring. Track your brand's mentions, citations, position, and share of voice across ChatGPT, Perplexity, Gemini, Google AI Mode, and Overview."
+    />
+    <meta name="application-name" content="refd" />
+    <meta name="author" content="refd" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://refd.ai/" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="refd" />
+    <meta property="og:url" content="https://refd.ai/" />
+    <meta property="og:title" content="refd &ndash; open-source AI search monitoring" />
+    <meta
+      property="og:description"
+      content="Know when AI answers mention your brand, and who they mention instead. Track mentions, citations, and rank across ChatGPT, Perplexity, Gemini, Google AI Mode, and AI Overview."
+    />
+    <meta property="og:image" content="https://refd.ai/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="refd: open-source AI search monitoring" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="refd &ndash; open-source AI search monitoring" />
+    <meta
+      name="twitter:description"
+      content="Know when AI answers mention your brand, and who they mention instead. Across ChatGPT, Perplexity, Gemini, Google AI Mode, and AI Overview."
+    />
+    <meta name="twitter:image" content="https://refd.ai/og.png" />
+    <meta name="twitter:image:alt" content="refd: open-source AI search monitoring" />
+
+    <!-- Mobile / PWA -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="refd" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="format-detection" content="telephone=no" />
+
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="icon" type="image/svg+xml" id="app-favicon" href="/logo-dark.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <script>
+      // Apply the theme before first paint: the stored choice, else the OS setting.
+      // The favicon follows the in-app theme, not the OS (a media query on the
+      // <link> would only track prefers-color-scheme, ignoring the toggle).
+      (() => {
+        try {
+          const stored = localStorage.getItem('refd-theme');
+          const theme =
+            stored === 'light' || stored === 'dark'
+              ? stored
+              : matchMedia('(prefers-color-scheme: light)').matches
+                ? 'light'
+                : 'dark';
+          document.documentElement.dataset.theme = theme;
+          const icon = document.getElementById('app-favicon');
+          if (icon) icon.href = theme === 'light' ? '/logo-light.svg' : '/logo-dark.svg';
+        } catch {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

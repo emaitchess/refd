@@ -1,0 +1,4 @@
+# The dashboard is a private, authenticated app. Nothing here is indexable;
+# the public, crawlable site lives at https://refd.ai.
+User-agent: *
+Disallow: /

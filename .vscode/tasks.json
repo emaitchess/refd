@@ -2,13 +2,59 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "dev",
+      "label": "caddy",
       "type": "shell",
-      "command": "bun run dev",
+      "command": "caddy run --config Caddyfile",
       "isBackground": true,
       "problemMatcher": [],
-      "group": { "kind": "build", "isDefault": true },
-      "presentation": { "reveal": "always", "panel": "dedicated" }
+      "presentation": {
+        "group": "dev",
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "api",
+      "type": "shell",
+      "command": "bun run db:migrate:local && bun run --filter '@refd/api' dev",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "group": "dev",
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "web",
+      "type": "shell",
+      "command": "bun run --filter '@refd/web' dev",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "group": "dev",
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "dashboard",
+      "type": "shell",
+      "command": "bun run --filter '@refd/dashboard' dev",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "group": "dev",
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "dev",
+      "dependsOn": ["caddy", "api", "web", "dashboard"],
+      "dependsOrder": "parallel",
+      "problemMatcher": [],
+      "group": { "kind": "build", "isDefault": true }
     },
     {
       "label": "typecheck + lint:fix",
