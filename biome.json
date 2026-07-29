@@ -7,14 +7,16 @@
   },
   "files": {
     "includes": [
-      "src/**",
+      "apps/**",
+      "packages/**",
       "scripts/**",
       "*.ts",
       "*.json",
       "!drizzle",
       "!**/*.css",
       "!**/*.svg",
-      "!src/app/components/dither-kit"
+      "!**/*.astro",
+      "!apps/dashboard/src/components/dither-kit"
     ]
   },
   "formatter": {

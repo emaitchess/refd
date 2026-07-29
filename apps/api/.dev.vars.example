@@ -1,0 +1,12 @@
+ADMIN_EMAILS=
+JWT_SECRET=
+
+EXA_API_KEY=
+
+BRIGHTDATA_API_TOKEN=
+BRIGHTDATA_WEBHOOK_SECRET=
+
+# Local dev needs no origin config: when the API is served on *.refdlocal.io it
+# automatically treats https://dash.refdlocal.io as the dashboard origin for CORS
+# and the OAuth sign-in redirect. Override DASHBOARD_ORIGIN only for a non-default
+# local host.

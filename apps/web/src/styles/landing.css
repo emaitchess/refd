@@ -1,0 +1,9 @@
+/* The landing reuses the dashboard's full stylesheet (Tailwind theme, fonts, and
+   the landing-* animation classes). @source makes Tailwind scan the reused
+   components so every utility class they use is generated in the web build. */
+@import "../../../dashboard/src/styles/global.css";
+
+@source "../components";
+@source "../../../dashboard/src/components/dither-kit";
+@source "../../../dashboard/src/components/dither";
+@source "../../../dashboard/src/components/svgs";

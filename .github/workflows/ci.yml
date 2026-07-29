@@ -26,6 +26,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Worker topology (cron/queues only on the API Worker)
+        run: bash scripts/check-worker-topology.sh
+
       - name: Typecheck
         run: bun run check
 

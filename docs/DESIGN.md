@@ -206,7 +206,7 @@ without relying on ornamental effects.
 ## Theme Architecture
 
 Theme state lives in the single `useSyncExternalStore` implementation in
-`src/app/lib/theme.ts`. Do not introduce component-local theme state. The
+`apps/dashboard/src/lib/theme.ts`. Do not introduce component-local theme state. The
 pre-paint script and React store must agree so the page never flashes the wrong
 theme.
 
@@ -288,7 +288,7 @@ Scarlet is not allowed for:
 ### Data and status colors
 
 Dashboard entity series use the fixed order in
-`src/app/lib/chart-colors.ts`:
+`apps/dashboard/src/lib/chart-colors.ts`:
 
 1. green, workspace brand
 2. purple
@@ -444,7 +444,7 @@ shadows.
 ### Dither-kit rules
 
 Dither-kit is the only chart and graph system. Components are vendored under
-`src/app/components/dither-kit/` and added by hand. Never run the dither-kit
+`apps/dashboard/src/components/dither-kit/` and added by hand. Never run the dither-kit
 CLI because registry items co-ship `palette.ts` and `lib.ts`, which would
 overwrite the repository's arrow-function codemod. Add only the new file,
 convert function declarations to arrow definitions, and add the vendor

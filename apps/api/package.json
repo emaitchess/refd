@@ -1,0 +1,20 @@
+{
+  "name": "@refd/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@refd/core": "workspace:*"
+  },
+  "scripts": {
+    "check": "wrangler types && tsc --noEmit",
+    "test": "bun test",
+    "lint": "biome check .",
+    "types": "wrangler types",
+    "dev": "wrangler dev",
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply refd --local",
+    "db:migrate:remote": "wrangler d1 migrations apply refd --remote"
+  }
+}

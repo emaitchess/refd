@@ -1,0 +1,25 @@
+{
+  "name": "@refd/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./config": "./src/config.ts",
+    "./surfaces": "./src/surfaces.ts",
+    "./mentions": "./src/mentions.ts",
+    "./workspaces": "./src/workspaces.ts",
+    "./site-metadata": "./src/site-metadata.ts",
+    "./blocks": "./src/blocks.ts",
+    "./metric-copy": "./src/metric-copy.ts",
+    "./glossary": "./src/glossary.ts",
+    "./public-pages": "./src/public-pages.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "bun test",
+    "lint": "biome check ."
+  },
+  "devDependencies": {
+    "@types/mdast": "^4.0.4"
+  }
+}

@@ -1,0 +1,110 @@
+---
+import '@fontsource-variable/inter';
+
+interface Props {
+  title?: string;
+  description?: string;
+  path?: string;
+  ogImage?: string;
+  noindex?: boolean;
+}
+
+const {
+  title = 'refd | open-source AI search monitoring',
+  description = "Open-source AI search monitoring. Track your brand's mentions, citations, position, and share of voice across ChatGPT, Perplexity, Gemini, Google AI Mode, and Overview.",
+  path = '/',
+  ogImage = '/og.png',
+  noindex = false,
+} = Astro.props;
+
+const site = Astro.site ?? new URL('https://refd.ai');
+const canonical = new URL(path, site).href;
+const ogImageUrl = new URL(ogImage, site).href;
+
+const jsonLd = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: 'refd',
+    url: site.href,
+    logo: new URL('/apple-touch-icon.png', site).href,
+    description: 'Open-source AI search monitoring.',
+    sameAs: ['https://github.com/emaitchess/refd'],
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: 'refd',
+    applicationCategory: 'BusinessApplication',
+    operatingSystem: 'Web',
+    url: site.href,
+    description,
+    offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+  },
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#080809" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f7f4f0" media="(prefers-color-scheme: light)" />
+
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="application-name" content="refd" />
+    <meta name="author" content="refd" />
+    <meta name="robots" content={noindex ? 'noindex, nofollow' : 'index, follow'} />
+    <link rel="canonical" href={canonical} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="refd" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={ogImageUrl} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="refd: open-source AI search monitoring" />
+    <meta property="og:locale" content="en_US" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImageUrl} />
+
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="refd" />
+    <meta name="format-detection" content="telephone=no" />
+
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="icon" type="image/svg+xml" id="site-favicon" href="/logo-dark.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <script is:inline>
+      // Apply the stored/OS theme before first paint; favicon follows the theme.
+      (() => {
+        try {
+          const stored = localStorage.getItem('refd-theme');
+          const theme =
+            stored === 'light' || stored === 'dark'
+              ? stored
+              : matchMedia('(prefers-color-scheme: light)').matches
+                ? 'light'
+                : 'dark';
+          document.documentElement.dataset.theme = theme;
+          const icon = document.getElementById('site-favicon');
+          if (icon) icon.setAttribute('href', theme === 'light' ? '/logo-light.svg' : '/logo-dark.svg');
+        } catch {}
+      })();
+    </script>
+
+    <Fragment set:html={`<script type="application/ld+json">${JSON.stringify(jsonLd)}</script>`} />
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>

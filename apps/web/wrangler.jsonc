@@ -1,0 +1,28 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "refd-web",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-07-01",
+  "routes": [
+    {
+      "pattern": "refd.ai",
+      "custom_domain": true
+    }
+  ],
+  "workers_dev": false,
+  // Static Astro build fronted by a tiny Worker. run_worker_first: ["/"] lets the
+  // Worker do homepage Markdown negotiation; every other path serves straight
+  // from static assets, with 404.html for misses.
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    "run_worker_first": ["/"]
+  },
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  }
+}

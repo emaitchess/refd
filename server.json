@@ -3,7 +3,7 @@
   "name": "ai.refd/refd",
   "title": "refd",
   "description": "Read AI search visibility, competitors, citations, prompts, and answer evidence from refd.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "websiteUrl": "https://refd.ai",
   "repository": {
     "url": "https://github.com/emaitchess/refd",
@@ -20,7 +20,7 @@
   "remotes": [
     {
       "type": "streamable-http",
-      "url": "https://refd.ai/api/mcp"
+      "url": "https://api.refd.ai/api/mcp"
     }
   ]
 }

@@ -12,16 +12,22 @@ out/
 .env.*
 .dev.vars*
 !.dev.vars.example
+# committed public (non-secret) build-time origins, per Vite/Astro mode
+!apps/web/.env.development
+!apps/web/.env.production
+!apps/dashboard/.env.development
+!apps/dashboard/.env.production
 
 # generated
-public/sitemap.xml
 worker-configuration.d.ts
 scripts/.*.tmp.sql
 vite.config.ts.timestamp-*
+.astro/
 
 # internal planning docs — kept locally, never published
 /GTM.md
 /docs/plan-agent-native.md
+/docs/plan-three-worker.md
 
 # os / editor noise
 .DS_Store

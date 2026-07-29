@@ -1,8 +1,24 @@
-# Local HTTPS front for the dev server: https://refdlocal.io → vite on :5173.
-# 127.0.0.1 refdlocal.io lives in /etc/hosts; `tls internal` uses Caddy's local
-# CA (run `caddy trust` once to add it to the keychain).
-# Usage: caddy run   (alongside `bun run dev`)
+# Local HTTPS front for `bun run dev` (three-worker split). `tls internal` uses
+# Caddy's local CA (run `caddy trust` once). Add to /etc/hosts:
+#   127.0.0.1 refdlocal.io dash.refdlocal.io api.refdlocal.io
+#
+# Real HTTPS here exercises secure cookies, cross-origin CORS, OAuth redirects,
+# and SSE streaming across same-site subdomains, just like production.
+
+# Public website — Astro dev server.
 refdlocal.io {
 	tls internal
+	reverse_proxy localhost:4321
+}
+
+# Dashboard SPA — Vite dev server (VITE_API_ORIGIN=https://api.refdlocal.io).
+dash.refdlocal.io {
+	tls internal
 	reverse_proxy localhost:5173
+}
+
+# API Worker — wrangler dev (DASHBOARD_ORIGIN=https://dash.refdlocal.io in .dev.vars).
+api.refdlocal.io {
+	tls internal
+	reverse_proxy localhost:8787
 }
