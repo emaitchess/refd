@@ -210,12 +210,18 @@ p {
   content: '';
   position: absolute;
   inset: 0;
+  z-index: 1;
   background: radial-gradient(
-    ellipse at 50% 30%,
-    var(--accent-soft) 0%,
-    transparent 60%
+    ellipse at 50% 46%,
+    color-mix(in srgb, var(--bg) 18%, transparent) 0%,
+    color-mix(in srgb, var(--bg) 50%, transparent) 58%,
+    color-mix(in srgb, var(--bg) 90%, transparent) 100%
   );
   pointer-events: none;
+}
+.hero > .rail {
+  position: relative;
+  z-index: 2;
 }
 .hero-inner {
   position: relative;

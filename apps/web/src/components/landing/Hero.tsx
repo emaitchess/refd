@@ -1,52 +1,10 @@
-import { Dithering } from '@paper-design/shaders-react';
-import { useEffect, useRef, useState } from 'react';
 import { DitherButton } from '@/components/dither-kit/button';
 import { SurfaceLogo } from '@/components/svgs/SurfaceLogo';
 import { SURFACE_ORDER, surfaceLabel } from '@/lib/format';
 import { useTheme } from '@/lib/theme';
 import { LandingContainer, LandingInset, useAccountCta } from './chrome';
 import { Header } from './Header';
-
-const HeroDither = ({ theme }: { theme: 'dark' | 'light' }) => {
-  const ref = useRef<HTMLDivElement>(null);
-  const [offscreen, setOffscreen] = useState(false);
-  const still =
-    typeof window !== 'undefined' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-  // Speed 0 cancels the shader's rAF loop entirely, so pausing while the hero
-  // is scrolled out of view stops all GPU work instead of animating unseen.
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(([entry]) => {
-      setOffscreen(!(entry?.isIntersecting ?? true));
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <div
-      ref={ref}
-      aria-hidden
-      className={`pointer-events-none absolute inset-0 ${
-        theme === 'dark' ? 'opacity-75' : 'opacity-65'
-      }`}
-    >
-      <Dithering
-        className="h-full w-full"
-        colorBack={theme === 'dark' ? '#080809' : '#f7f4f0'}
-        colorFront={theme === 'dark' ? '#3a1118' : '#e2b6bd'}
-        scale={1}
-        shape="warp"
-        size={2}
-        speed={still || offscreen ? 0 : 0.25}
-        type="2x2"
-      />
-    </div>
-  );
-};
+import { HeroDither } from './HeroDither';
 
 export const Hero = () => {
   const { to } = useAccountCta();
@@ -57,7 +15,7 @@ export const Hero = () => {
       id="top"
       className="relative flex min-h-svh flex-col overflow-hidden border-border border-b"
     >
-      <HeroDither theme={theme} />
+      <HeroDither />
       <div
         aria-hidden
         className={`pointer-events-none absolute inset-0 ${
