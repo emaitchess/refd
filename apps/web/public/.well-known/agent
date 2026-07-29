@@ -1,0 +1,20 @@
+{
+  "name": "refd",
+  "description": "Open-source AI search monitoring. Track a brand's visibility, mentions, citations, position, and share of voice across ChatGPT, Perplexity, Gemini, Google AI Mode, and Google AI Overviews.",
+  "url": "https://refd.ai",
+  "documentation": "https://refd.ai/agents",
+  "openapi": "https://refd.ai/openapi.json",
+  "repository": "https://github.com/emaitchess/refd",
+  "contact": "mailto:h@emaitchess.com",
+  "mcp": {
+    "url": "https://api.refd.ai/mcp",
+    "transport": "streamable-http",
+    "authorization": "oauth2",
+    "access": "read-only",
+    "scopes_supported": ["data:read"],
+    "protected_resource_metadata": "https://api.refd.ai/.well-known/oauth-protected-resource/mcp",
+    "authorization_server_metadata": "https://api.refd.ai/.well-known/oauth-authorization-server",
+    "registry": "ai.refd/refd"
+  },
+  "llms_txt": "https://refd.ai/llms.txt"
+}
