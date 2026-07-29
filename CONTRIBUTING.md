@@ -15,13 +15,15 @@ checks your change must pass, and how to open a pull request.
 
 ```bash
 bun install
-cp .dev.vars.example .dev.vars   # then fill in JWT_SECRET, BRIGHTDATA_API_TOKEN, EXA_API_KEY (optional)
-bun run dev                      # applies local migrations, starts vite + Caddy at https://refdlocal.io
+cp apps/api/.dev.vars.example apps/api/.dev.vars   # fill in JWT_SECRET, BRIGHTDATA_API_TOKEN, EXA_API_KEY (optional)
+bun run dev                                         # migrates local D1, runs all three Workers behind Caddy
 ```
 
-Local dev needs `127.0.0.1 refdlocal.io` in `/etc/hosts` and a one-time
-`caddy trust`. Plain `http://localhost:5173` works too. See the
-[README](README.md) for the full self-host and secrets walkthrough.
+Local dev needs `127.0.0.1 refdlocal.io dash.refdlocal.io api.refdlocal.io` in
+`/etc/hosts` and a one-time `caddy trust`. The site is served at
+**https://refdlocal.io**, the dashboard at **https://dash.refdlocal.io**, and
+the API at **https://api.refdlocal.io**. See the [README](README.md) for the
+full self-host and secrets walkthrough.
 
 ## Before you open a PR
 

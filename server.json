@@ -20,7 +20,7 @@
   "remotes": [
     {
       "type": "streamable-http",
-      "url": "https://api.refd.ai/api/mcp"
+      "url": "https://api.refd.ai/mcp"
     }
   ]
 }

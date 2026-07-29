@@ -1,6 +1,6 @@
 # Response headers for the public website (Cloudflare Workers/Pages _headers).
 /
-  Link: <https://api.refd.ai/.well-known/oauth-protected-resource/api/mcp>; rel="service-desc"; type="application/json"
+  Link: <https://api.refd.ai/.well-known/oauth-protected-resource/mcp>; rel="service-desc"; type="application/json"
   Link: </llms.txt>; rel="describedby"; type="text/plain"
 
 /*

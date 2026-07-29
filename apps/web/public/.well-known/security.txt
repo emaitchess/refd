@@ -1,0 +1,7 @@
+# refd security contact (RFC 9116). Full policy in SECURITY.md.
+Contact: mailto:h@emaitchess.com
+Contact: https://github.com/emaitchess/refd/security/advisories/new
+Expires: 2027-07-29T00:00:00.000Z
+Policy: https://github.com/emaitchess/refd/blob/main/SECURITY.md
+Preferred-Languages: en
+Canonical: https://refd.ai/.well-known/security.txt

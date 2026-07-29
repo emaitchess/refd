@@ -134,7 +134,7 @@ const BrandSitePreview = ({
         <div className="mt-6 overflow-hidden border border-border bg-bg-card">
           {metadata.imageUrl && !imageFailed ? (
             <img
-              src={`${apiOrigin()}/api/image?url=${encodeURIComponent(metadata.imageUrl)}`}
+              src={`${apiOrigin()}/image?url=${encodeURIComponent(metadata.imageUrl)}`}
               alt={`${name || 'Brand'} homepage preview`}
               // Session cookie must ride the cross-origin request to the proxy.
               crossOrigin="use-credentials"

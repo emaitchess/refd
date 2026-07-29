@@ -1,4 +1,4 @@
-// Stamped onto every /api/* response. Authenticated API data is per-user and
+// Stamped onto every API response. Authenticated API data is per-user and
 // must never be stored by a shared cache and replayed to another client, so
 // default to `private, no-store`. Routes that deliberately opt into caching
 // (the favicon/image proxies serve public, non-sensitive bytes) set their own

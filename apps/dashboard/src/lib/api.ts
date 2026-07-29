@@ -25,7 +25,7 @@ export const apiOrigin = (): string =>
 export const publicSiteOrigin = (): string =>
   import.meta.env.VITE_PUBLIC_SITE_ORIGIN || PUBLIC_SITE_ORIGIN;
 
-// Workspace-scoped routes live under /api/w/:id; auth + workspace management
+// Workspace-scoped routes live under /w/:id; auth + workspace management
 // stay unscoped. The provider sets this before any scoped call renders.
 let activeWorkspaceId: number | null = null;
 export const setActiveWorkspaceId = (id: number | null) => {
@@ -37,12 +37,12 @@ const UNSCOPED = ['/auth', '/config', '/workspaces', '/health'];
 export const apiPath = (path: string): string => {
   const scoped = (() => {
     if (UNSCOPED.some((prefix) => path.startsWith(prefix))) {
-      return `/api${path}`;
+      return path;
     }
     if (activeWorkspaceId === null) {
       throw new Error('no active workspace');
     }
-    return `/api/w/${activeWorkspaceId}${path}`;
+    return `/w/${activeWorkspaceId}${path}`;
   })();
   return `${API_ORIGIN}${scoped}`;
 };

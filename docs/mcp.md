@@ -3,7 +3,7 @@
 refd exposes a read-only remote Model Context Protocol server at:
 
 ```text
-https://api.refd.ai/api/mcp
+https://api.refd.ai/mcp
 ```
 
 The connector uses OAuth 2.1 with PKCE and Dynamic Client Registration. During
@@ -29,7 +29,7 @@ never stored in the repository.
 Claude custom connectors are available from **Customize → Connectors**. On an
 individual plan, select **+ → Add custom connector**. On Team and Enterprise
 plans, an Owner first adds it from **Organization settings → Connectors → Add →
-Custom → Web**. Enter `https://api.refd.ai/api/mcp`; no client ID or secret is
+Custom → Web**. Enter `https://api.refd.ai/mcp`; no client ID or secret is
 needed. Select **Connect**, sign in to refd, choose a workspace, and approve the
 read-only permission.
 
@@ -43,7 +43,7 @@ publicly reachable. See Anthropic's current
 Add the Streamable HTTP server:
 
 ```bash
-claude mcp add --transport http refd https://api.refd.ai/api/mcp
+claude mcp add --transport http refd https://api.refd.ai/mcp
 claude mcp login refd
 ```
 
@@ -61,7 +61,7 @@ Custom MCP apps currently require developer mode. In ChatGPT web:
    Apps → Advanced Settings**.
 2. Open **Workspace settings → Apps → Create** as an admin or owner, or
    **Settings → Apps → Create** as an authorized developer.
-3. Enter `https://api.refd.ai/api/mcp` as the MCP endpoint and select OAuth.
+3. Enter `https://api.refd.ai/mcp` as the MCP endpoint and select OAuth.
 4. Select **Scan Tools**, complete the refd authorization flow, and wait for the
    scan to finish.
 5. Select **Create**, then enable the draft app in a new chat to test it.
@@ -103,7 +103,7 @@ deleting the data.
 ## Self-hosting
 
 Create a dedicated KV namespace and put its ID in the `OAUTH_KV` binding in
-`wrangler.jsonc`:
+`apps/api/wrangler.jsonc`:
 
 ```bash
 bunx wrangler kv namespace create OAUTH_KV
@@ -114,7 +114,7 @@ plaintext application secret; clients and encrypted grant/token state live in
 the dedicated KV namespace. Keep the two native rate-limit bindings configured
 with account-unique namespace IDs.
 
-The production MCP URL is always `<PUBLIC_BASE_URL>/api/mcp`. Claude and
+The production MCP URL is always `<PUBLIC_BASE_URL>/mcp`. Claude and
 ChatGPT cloud connectors require a public HTTPS deployment. Claude Code can
 connect to a reachable development URL directly.
 
@@ -123,9 +123,9 @@ connect to a reachable development URL directly.
 After `bun run dev`, these endpoints provide a quick unauthenticated smoke test:
 
 ```bash
-curl -i https://api.refdlocal.io/.well-known/oauth-protected-resource/api/mcp
+curl -i https://api.refdlocal.io/.well-known/oauth-protected-resource/mcp
 curl -i https://api.refdlocal.io/.well-known/oauth-authorization-server
-curl -i -X POST https://api.refdlocal.io/api/mcp \
+curl -i -X POST https://api.refdlocal.io/mcp \
   -H 'Content-Type: application/json' \
   --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}'
 ```

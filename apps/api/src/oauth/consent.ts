@@ -438,7 +438,7 @@ export const handleOAuthDefault = async (
   oauth: OAuthHelpers,
   resourceUrl: string,
 ): Promise<Response> => {
-  if (new URL(request.url).pathname !== '/api/oauth/authorize') {
+  if (new URL(request.url).pathname !== '/oauth/authorize') {
     return app.fetch(request, env, ctx);
   }
   try {

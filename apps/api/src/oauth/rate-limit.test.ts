@@ -8,7 +8,7 @@ const limiter = (success: boolean): RateLimit => ({
 describe('MCP and OAuth rate limits', () => {
   test('allows an MCP request inside the token budget', async () => {
     const response = await limitMcpRequest(
-      new Request('https://refd.ai/api/mcp', {
+      new Request('https://refd.ai/mcp', {
         headers: { Authorization: 'Bearer access-token' },
       }),
       { MCP_RATE_LIMITER: limiter(true) },
@@ -18,7 +18,7 @@ describe('MCP and OAuth rate limits', () => {
 
   test('returns a bounded retry response when MCP traffic is limited', async () => {
     const response = await limitMcpRequest(
-      new Request('https://refd.ai/api/mcp', {
+      new Request('https://refd.ai/mcp', {
         headers: { Authorization: 'Bearer access-token' },
       }),
       { MCP_RATE_LIMITER: limiter(false) },
@@ -33,18 +33,15 @@ describe('MCP and OAuth rate limits', () => {
   test('limits only OAuth protocol endpoints', async () => {
     const env = { OAUTH_RATE_LIMITER: limiter(false) };
     expect(
-      await limitOAuthRequest(
-        new Request('https://refd.ai/api/oauth/token'),
-        env,
-      ),
+      await limitOAuthRequest(new Request('https://refd.ai/oauth/token'), env),
     ).toMatchObject({ status: 429 });
     expect(
-      await limitOAuthRequest(new Request('https://refd.ai/api/health'), env),
+      await limitOAuthRequest(new Request('https://refd.ai/health'), env),
     ).toBeNull();
   });
 
   test('does not consume the token request body', async () => {
-    const request = new Request('https://refd.ai/api/oauth/token', {
+    const request = new Request('https://refd.ai/oauth/token', {
       method: 'POST',
       headers: {
         'CF-Connecting-IP': '203.0.113.10',

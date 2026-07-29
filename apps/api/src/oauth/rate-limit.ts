@@ -18,13 +18,13 @@ const fingerprint = async (value: string): Promise<string> => {
 
 const oauthActor = async (request: Request, path: string): Promise<string> => {
   const ip = request.headers.get('CF-Connecting-IP') ?? 'local';
-  if (path === '/api/oauth/authorize') {
+  if (path === '/oauth/authorize') {
     const clientId = new URL(request.url).searchParams
       .get('client_id')
       ?.slice(0, 200);
     return clientId ? `${ip}:${clientId}` : ip;
   }
-  if (path === '/api/oauth/token') {
+  if (path === '/oauth/token') {
     const form = await request
       .clone()
       .formData()
@@ -68,9 +68,9 @@ export const limitOAuthRequest = async (
 ): Promise<Response | null> => {
   const path = new URL(request.url).pathname;
   if (
-    path !== '/api/oauth/authorize' &&
-    path !== '/api/oauth/token' &&
-    path !== '/api/oauth/register'
+    path !== '/oauth/authorize' &&
+    path !== '/oauth/token' &&
+    path !== '/oauth/register'
   ) {
     return null;
   }

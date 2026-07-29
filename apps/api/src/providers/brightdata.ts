@@ -7,7 +7,7 @@ import { collectStringsAndUrls } from '../scoring';
 import type { DatasetSurface, NormalizedAnswer } from './types';
 
 const API_BASE = 'https://api.brightdata.com/datasets/v3';
-const WEBHOOK_PATH = '/api/webhooks/brightdata';
+const WEBHOOK_PATH = '/webhooks/brightdata';
 
 // A 429/5xx from BrightData: retry with the server's Retry-After when given.
 export class ProviderRetryableError extends Error {

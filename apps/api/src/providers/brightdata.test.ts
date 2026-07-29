@@ -53,7 +53,7 @@ describe('BrightData notify configuration', () => {
       expect(url.searchParams.get('include_errors')).toBe('true');
       expect(url.searchParams.get('notify')).toBe('true');
       expect(url.searchParams.get('endpoint')).toBe(
-        'https://refd.ai/api/webhooks/brightdata',
+        'https://refd.ai/webhooks/brightdata',
       );
       expect(url.searchParams.get('auth_header')).toBe('callback-secret');
     } finally {

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { apiOrigin } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-// Brand favicon, proxied through the API Worker (GET /api/favicon?domain=…): the
+// Brand favicon, proxied through the API Worker (GET /favicon?domain=…): the
 // strict img-src CSP forbids third-party favicon hosts, so it loads from the API
 // origin instead (credentialed, since the proxy is session-gated). The proxy
 // tries Google (256px) then DuckDuckGo server-side and downscales via CSS.
@@ -23,7 +23,7 @@ export const Favicon = ({
   const [failedDomain, setFailedDomain] = useState<string | null>(null);
   const box = { width: size, height: size };
   const src = domain
-    ? `${apiOrigin()}/api/favicon?domain=${encodeURIComponent(domain)}`
+    ? `${apiOrigin()}/favicon?domain=${encodeURIComponent(domain)}`
     : undefined;
 
   if (!src || failedDomain === domain) {
