@@ -1,3 +1,12 @@
-// The public website's canonical origin. Dashboard "back to site" links point
-// here; the website Worker itself owns page routing and sitemap generation.
 export const PUBLIC_SITE_ORIGIN = 'https://refd.ai';
+
+export const PUBLIC_PAGE_PATHS = [
+  '/',
+  '/agents',
+  '/blog',
+  '/docs',
+  '/docs/getting-started',
+  '/methodology',
+];
+
+export const INDEXABLE_PUBLIC_PATHS = [...PUBLIC_PAGE_PATHS];

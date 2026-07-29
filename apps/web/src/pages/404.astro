@@ -6,18 +6,20 @@ import '../styles/global.css';
 ---
 
 <Base title="Page not found | refd" path="/404" noindex={true}>
-  <SiteHeader />
-  <main>
-    <div class="rail">
-      <div class="notfound">
-        <p class="section-index">404</p>
-        <h1>This page could not be found.</h1>
-        <p style="color: var(--secondary)">
-          The page may have moved. Head back to the homepage.
-        </p>
-        <a class="btn btn-primary" href="/">back to refd.ai</a>
+  <div class="notfound-page">
+    <SiteHeader />
+    <main class="notfound-main">
+      <div class="rail">
+        <div class="notfound">
+          <p class="section-index">404</p>
+          <h1>This page could not be found.</h1>
+          <p style="color: var(--secondary)">
+            The page may have moved. Head back to the homepage.
+          </p>
+          <a class="btn btn-primary" href="/">back to refd.ai</a>
+        </div>
       </div>
-    </div>
-  </main>
-  <SiteFooter />
+    </main>
+    <SiteFooter />
+  </div>
 </Base>

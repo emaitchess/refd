@@ -1,8 +1,10 @@
 ---
+import { HeroDither } from '../components/landing/HeroDither';
 import SiteFooter from '../components/SiteFooter.astro';
 import SiteHeader from '../components/SiteHeader.astro';
 import { GITHUB_URL } from '../consts';
 import Base from '../layouts/Base.astro';
+import '../styles/global.css';
 
 const MCP_ENDPOINT = 'https://api.refd.ai/mcp';
 
@@ -44,6 +46,7 @@ const clients = [
 
   <main>
     <section class="hero" id="top">
+      <HeroDither client:only="react" />
       <div class="rail">
         <div class="hero-inner">
           <span class="tag">agent access</span>

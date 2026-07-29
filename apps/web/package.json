@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@astrojs/rss": "^4.0.19",
     "@fontsource-variable/inter": "^5.2.8",
     "@paper-design/shaders-react": "^0.0.77",
     "@refd/core": "workspace:*",
