@@ -61,6 +61,7 @@ ${publishedContent}
 ## Project links
 
 - Homepage: https://refd.ai/
+- Interactive demo: https://refd.ai/demo
 - Documentation: https://refd.ai/docs
 - Research and guides: https://refd.ai/blog
 - Agent access: https://refd.ai/agents

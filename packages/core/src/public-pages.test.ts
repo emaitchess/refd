@@ -17,4 +17,9 @@ describe('public page catalog', () => {
       PUBLIC_PAGE_PATHS.every((path) => path === '/' || !path.endsWith('/')),
     ).toBe(true);
   });
+
+  test('includes the no-signup demo in public discovery', () => {
+    expect(PUBLIC_PAGE_PATHS).toContain('/demo');
+    expect(INDEXABLE_PUBLIC_PATHS).toContain('/demo');
+  });
 });

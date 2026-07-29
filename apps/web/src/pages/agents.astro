@@ -81,7 +81,7 @@ const clients = [
             worst, read within the one workspace the human authorized.
           </p>
         </div>
-        <div class="grid">
+        <div class="agent-grid">
           <div class="cell">
             <p class="k">transport</p>
             <h3>Streamable HTTP MCP</h3>
@@ -109,7 +109,7 @@ const clients = [
           <h2>Nine read tools, discovered at runtime.</h2>
           <p>Call <code>tools/list</code> after connecting. Every tool resolves the workspace from the OAuth grant, never from arguments.</p>
         </div>
-        <div class="grid">
+        <div class="agent-grid">
           {
             tools.map(([name, desc]) => (
               <div class="cell">
@@ -130,7 +130,7 @@ const clients = [
           <h2>Point a client at the endpoint.</h2>
           <p>The endpoint is always <code>{MCP_ENDPOINT}</code>. Discovery and sign-in are automatic; you authorize one workspace per connection.</p>
         </div>
-        <div class="grid">
+        <div class="agent-grid">
           {
             clients.map(([name, how]) => (
               <div class="cell">
@@ -150,7 +150,7 @@ const clients = [
           <p class="section-index">04 / discovery</p>
           <h2>Everything is discoverable.</h2>
         </div>
-        <div class="grid">
+        <div class="agent-grid">
           {
             discovery.map(([label, value, note]) => (
               <div class="cell">

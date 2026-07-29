@@ -3,6 +3,7 @@ import { getPublicContent } from '../lib/public-content';
 
 const staticLinks = [
   '- [Homepage](https://refd.ai/): product overview',
+  '- [Interactive demo](https://refd.ai/demo): no-signup sample visibility report with answer evidence',
   '- [Documentation](https://refd.ai/docs): setup and operating guides',
   '- [Research and guides](https://refd.ai/blog): public analysis and field notes',
   '- [Agent access](https://refd.ai/agents): MCP endpoint, permissions, tools, and connection instructions',

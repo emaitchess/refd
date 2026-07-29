@@ -1,0 +1,32 @@
+---
+import { DemoDashboard } from '../components/demo/DemoDashboard';
+import SiteFooter from '../components/SiteFooter.astro';
+import SiteHeader from '../components/SiteHeader.astro';
+import Base from '../layouts/Base.astro';
+import '../styles/global.css';
+
+const structuredData = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    '@id': 'https://refd.ai/demo#webpage',
+    url: 'https://refd.ai/demo',
+    name: 'Interactive AI search visibility demo',
+    description:
+      'Explore a no-signup sample refd workspace with AI visibility metrics, competitor charts, prompt results, citations, and answer evidence.',
+    isPartOf: { '@id': 'https://refd.ai/#website' },
+  },
+];
+---
+
+<Base
+  title="Interactive AI search visibility demo | refd"
+  description="Explore a no-signup sample refd workspace for Ultrahuman with AI mention rate, share of voice, citations, competitors, prompt results, and raw answer evidence."
+  path="/demo"
+  markdownPath="/demo.md"
+  structuredData={structuredData}
+>
+  <SiteHeader />
+  <DemoDashboard client:load />
+  <SiteFooter />
+</Base>
