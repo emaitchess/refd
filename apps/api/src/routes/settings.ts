@@ -13,6 +13,20 @@ import { parseBody, parseId } from '../lib/http';
 import { configForUser } from '../lib/user-config';
 import { enabledSurfaces, SURFACES } from '../providers/types';
 
+// `listUserGrants` reads OAUTH_KV via an eventually-consistent list, so a
+// just-created grant can be absent from the result for up to ~a minute. Without
+// a grace window, opening Settings right after connecting would find the fresh
+// grant "missing" and permanently revoke a connection that is actually live.
+// Only reconcile a row as stale once it is older than this window.
+export const RECONCILE_GRACE_MS = 10 * 60 * 1000;
+
+export const isStaleConnection = (
+  row: { grantId: string; createdAt: number },
+  activeGrantIds: ReadonlySet<string>,
+  now: number,
+  graceMs: number = RECONCILE_GRACE_MS,
+): boolean => !activeGrantIds.has(row.grantId) && now - row.createdAt > graceMs;
+
 export const settingsRoutes = new Hono<WorkspaceBindings>();
 
 // Workspace-level run settings. Currently just the enabled AI surfaces; shared
@@ -95,8 +109,9 @@ settingsRoutes.get('/connections', async (c) => {
   if (c.env.OAUTH_PROVIDER && rows.length > 0) {
     const grants = await listUserGrants(c.env.OAUTH_PROVIDER, String(userId));
     const activeGrantIds = new Set(grants.map((grant) => grant.id));
+    const now = Date.now();
     const staleIds = rows
-      .filter((row) => !activeGrantIds.has(row.grantId))
+      .filter((row) => isStaleConnection(row, activeGrantIds, now))
       .map((row) => row.id);
     if (staleIds.length > 0) {
       await db
