@@ -34,6 +34,9 @@ export const Footer = () => {
             </span>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-x-5 gap-y-3 font-mono text-[10px] text-muted uppercase tracking-[0.08em]">
+            <a href="/demo" className="hover:text-primary">
+              demo
+            </a>
             <a href="/methodology" className="hover:text-primary">
               methodology
             </a>

@@ -4,6 +4,7 @@ export const PUBLIC_PAGE_PATHS = [
   '/',
   '/agents',
   '/blog',
+  '/demo',
   '/docs',
   '/docs/getting-started',
   '/methodology',

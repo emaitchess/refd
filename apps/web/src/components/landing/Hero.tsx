@@ -60,8 +60,8 @@ export const Hero = () => {
             >
               start monitoring
             </DitherButton>
-            <a href="#platform" className="btn-secondary h-10 px-5">
-              see the platform
+            <a href="/demo" className="btn-secondary h-10 px-5">
+              explore the demo
             </a>
           </div>
         </LandingInset>

@@ -305,7 +305,7 @@ h1.hero-title .muted {
   color: var(--secondary);
   line-height: 1.7;
 }
-.grid {
+.agent-grid {
   margin-top: 44px;
   display: grid;
   gap: 1px;
@@ -388,11 +388,7 @@ h1.hero-title .muted {
   outline-offset: 2px;
 }
 
-@media (max-width: 640px) {
-  .section > .rail,
-  .closing {
-    padding-inline: 20px;
-  }
+@media (max-width: 760px) {
   .site-header .bar {
     display: flex;
     height: 56px;
@@ -406,5 +402,12 @@ h1.hero-title .muted {
   .header-actions .btn-primary {
     height: 32px;
     padding-inline: 12px;
+  }
+}
+
+@media (max-width: 640px) {
+  .section > .rail,
+  .closing {
+    padding-inline: 20px;
   }
 }
