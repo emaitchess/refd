@@ -4,6 +4,7 @@ import { getPublicContent } from '../lib/public-content';
 const staticLinks = [
   '- [Homepage](https://refd.ai/): product overview',
   '- [Interactive demo](https://refd.ai/demo): no-signup sample visibility report with answer evidence',
+  '- [AI surface trackers](https://refd.ai/trackers): product pages for ChatGPT, Perplexity, Gemini, Google AI Mode, and Google AI Overviews',
   '- [Documentation](https://refd.ai/docs): setup and operating guides',
   '- [Research and guides](https://refd.ai/blog): public analysis and field notes',
   '- [Agent access](https://refd.ai/agents): MCP endpoint, permissions, tools, and connection instructions',
@@ -27,9 +28,9 @@ export const GET: APIRoute = async () => {
 
 > Auditable AI search monitoring for businesses. See where a brand appears, who appears instead, and the raw answer behind every metric.
 
-refd monitors buyer questions across ChatGPT, Perplexity, Gemini, Google AI Mode, and Google AI Overviews. It measures mentions, citations, first-mention position, sentiment, prominence, and share of voice while preserving the underlying answer evidence.
+refd tracks buyer questions across ChatGPT, Perplexity, Gemini, Google AI Mode, and Google AI Overviews. It measures mentions, citations, first-mention position, sentiment, prominence, and share of voice while preserving the underlying answer evidence.
 
-The hosted product runs at refd.ai. The complete stack is MIT licensed and can be self-hosted on Cloudflare with a separate Bright Data account. Bright Data is the only answer-collection provider.
+The hosted product runs at refd.ai. The complete stack is MIT licensed and can be self-hosted with separate infrastructure and collection accounts.
 
 ## Public content
 ${contentLinks.join('\n')}

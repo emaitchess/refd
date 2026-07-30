@@ -19,25 +19,35 @@ export const getStaticPaths = async () => {
 const { entry } = Astro.props;
 const { Content, headings } = await render(entry);
 const path = contentPath('pages', entry.id);
-const PageLayout = entry.data.layout === 'legal' ? LegalPage : ContentPage;
----
-
-<PageLayout
-  title={entry.data.title}
-  description={entry.data.description}
-  path={path}
-  eyebrow={entry.data.eyebrow}
-  answer={entry.data.answer}
-  publishedAt={entry.data.publishedAt}
-  updatedAt={entry.data.updatedAt}
-  author={entry.data.author}
-  headings={headings}
-  breadcrumbs={[
+const layoutProps = {
+  title: entry.data.title,
+  description: entry.data.description,
+  path,
+  publishedAt: entry.data.publishedAt,
+  updatedAt: entry.data.updatedAt,
+  headings,
+  breadcrumbs: [
     { href: '/', label: 'Home' },
     { href: path, label: entry.data.title },
-  ]}
-  related={entry.data.related}
-  schemaType="Article"
->
-  <Content />
-</PageLayout>
+  ],
+};
+---
+
+{
+  entry.data.layout === 'legal' ? (
+    <LegalPage {...layoutProps}>
+      <Content />
+    </LegalPage>
+  ) : (
+    <ContentPage
+      {...layoutProps}
+      eyebrow={entry.data.eyebrow}
+      answer={entry.data.answer}
+      author={entry.data.author}
+      related={entry.data.related}
+      surface={entry.data.surface}
+    >
+      <Content />
+    </ContentPage>
+  )
+}

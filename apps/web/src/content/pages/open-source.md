@@ -2,7 +2,7 @@
 title: "Open-source refd"
 description: "How refd's MIT-licensed code, auditable metrics, three-Worker Cloudflare architecture, hosted service, and contribution path fit together."
 eyebrow: "Open source"
-answer: "refd's application code is available under the MIT License. The repository contains the public Astro site, React dashboard, Hono API Worker, shared scoring code, database migrations, OAuth and MCP server, and deployment configuration. Self-hosters bring their own Cloudflare and Bright Data accounts. The hosted service operates the same project with managed infrastructure."
+answer: "refd's application code is available under the MIT License. The repository contains the public Astro site, React dashboard, Hono API Worker, shared scoring code, database migrations, OAuth and MCP server, and deployment configuration. Self-hosters bring their own infrastructure and collection accounts. The hosted service operates the same project with managed infrastructure."
 publishedAt: 2026-07-30
 author:
   name: "Mohammad Hamza Suhail"
@@ -37,7 +37,7 @@ with three independently deployed Cloudflare Workers and a shared core package.
 
 | Package | Role |
 | --- | --- |
-| `apps/api` | Hono API, authentication, OAuth, remote MCP, cron, queues, D1, R2, Workers AI, Browser Rendering, and provider integrations |
+| `apps/api` | Hono API, authentication, OAuth, remote MCP, cron, queues, D1, R2, Workers AI, Browser Rendering, and collection integrations |
 | `apps/dashboard` | React and Vite authenticated dashboard, deployed as an assets-only Worker |
 | `apps/web` | Astro public site with documentation, research, discovery files, and a small asset-fronting Worker |
 | `packages/core` | Runtime-neutral metric definitions, mention matching, surface metadata, limits, glossary copy, and public-page contracts |
@@ -46,10 +46,9 @@ The repository also includes Drizzle database migrations, scoring tests, the
 design system, metric definitions, local development configuration, CI, and
 deployment scripts.
 
-Bright Data is the only provider used to collect ChatGPT, Perplexity, Gemini,
-Google AI Mode, and Google AI Overview results. A self-hosted deployment
-therefore needs its own compatible Bright Data account and collection
-configuration.
+refd tracks ChatGPT, Perplexity, Gemini, Google AI Mode, and Google AI
+Overviews. A self-hosted deployment needs its own compatible collection account
+and configuration.
 
 ## Why auditability matters
 
@@ -80,7 +79,7 @@ project, but they have different operators and responsibilities.
 | Area | Hosted at refd.ai | Self-hosted |
 | --- | --- | --- |
 | Infrastructure | Operated by refd on Cloudflare | Operated in your Cloudflare account |
-| Answer collection | Managed provider configuration | Your Bright Data account and configuration |
+| Answer collection | Managed collection configuration | Your collection account and configuration |
 | Secrets and domains | Managed by refd | Managed by you |
 | Database migrations and releases | Applied by refd | Applied by you |
 | Account and workspace support | [Hosted support](/support) | Community support through GitHub |
@@ -113,7 +112,7 @@ A production deployment currently requires:
 - Three Cloudflare Workers for the API, dashboard, and public site.
 - Cloudflare D1, R2, KV, Queues, Workers AI, Browser Rendering, rate limits,
   scheduled triggers, and the required Worker secrets.
-- A Bright Data account with the supported dataset scrapers and SERP API.
+- A compatible account for collecting the supported AI surfaces.
 - Custom domains for the public site, dashboard, and API.
 - Secure production values for signing, provider, webhook, and operator
   configuration.

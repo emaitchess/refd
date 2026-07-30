@@ -66,7 +66,7 @@ refd support does not need your:
 - Session cookie.
 - OAuth access or refresh token.
 - Cloudflare API token.
-- Bright Data token or webhook secret.
+- Collection token or webhook secret.
 - JWT secret.
 - Raw provider record containing information unrelated to the report.
 

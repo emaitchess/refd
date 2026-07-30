@@ -18,6 +18,7 @@ const sectionLinks = [
   },
 ];
 const resourceLinks = [
+  { href: '/trackers', label: 'trackers' },
   { href: '/methodology', label: 'methodology' },
   { href: '/docs', label: 'docs' },
   { href: '/blog', label: 'blog' },
@@ -32,7 +33,17 @@ const pageLinks = [
 const mobileLinks = [...sectionLinks, ...pageLinks];
 const isCurrent = (href: string) =>
   currentPath === href || currentPath.startsWith(`${href}/`);
-const resourceIsCurrent = resourceLinks.some((link) => isCurrent(link.href));
+const isSurfaceTracker =
+  currentPath === '/chatgpt-visibility-tracker' ||
+  currentPath === '/perplexity-visibility-tracker' ||
+  currentPath === '/gemini-visibility-tracker' ||
+  currentPath === '/google-ai-mode-tracker' ||
+  currentPath === '/google-ai-overview-tracker';
+const isResourceCurrent = (href: string) =>
+  isCurrent(href) || (href === '/trackers' && isSurfaceTracker);
+const resourceIsCurrent = resourceLinks.some((link) =>
+  isResourceCurrent(link.href),
+);
 ---
 
 <header class="public-header" data-public-header>
@@ -75,7 +86,7 @@ const resourceIsCurrent = resourceLinks.some((link) => isCurrent(link.href));
             resourceLinks.map((link) => (
               <a
                 href={link.href}
-                aria-current={isCurrent(link.href) ? 'page' : undefined}
+                aria-current={isResourceCurrent(link.href) ? 'page' : undefined}
               >
                 {link.label}
               </a>
@@ -129,7 +140,7 @@ const resourceIsCurrent = resourceLinks.some((link) => isCurrent(link.href));
             aria-current={
               'section' in link
                 ? undefined
-                : isCurrent(link.href)
+                : isResourceCurrent(link.href)
                   ? 'page'
                   : undefined
             }

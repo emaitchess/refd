@@ -141,7 +141,7 @@ instructions, or meet legal obligations.
 | Recipient | What it does |
 | --- | --- |
 | [Cloudflare](https://www.cloudflare.com/privacypolicy/) | Hosts the website, dashboard, API, database, object storage, queues, OAuth records, network security, browser rendering, and Workers AI inference |
-| [Bright Data](https://brightdata.com/privacy) | Receives monitoring prompts and collection settings, then returns answers and search results from the configured AI surfaces |
+| Monitoring collection service | Receives monitoring prompts and collection settings, then returns answers and search results from the configured AI surfaces |
 | [Exa](https://exa.ai/privacy-policy) | Searches public web indexes for competitor discovery and for dashboard web research when that feature is used |
 | [OneDollarStats](https://onedollarstats.com/privacy) | Processes aggregate traffic information from the public `refd.ai` website |
 | An MCP client you authorize | Receives read-only workspace data requested through the tools available to that client |
