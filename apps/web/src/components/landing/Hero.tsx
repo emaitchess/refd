@@ -3,7 +3,6 @@ import { SurfaceLogo } from '@/components/svgs/SurfaceLogo';
 import { SURFACE_ORDER, surfaceLabel } from '@/lib/format';
 import { useTheme } from '@/lib/theme';
 import { LandingContainer, LandingInset, useAccountCta } from './chrome';
-import { Header } from './Header';
 import { HeroDither } from './HeroDither';
 
 export const Hero = () => {
@@ -14,6 +13,9 @@ export const Hero = () => {
     <section
       id="top"
       className="relative flex min-h-svh flex-col overflow-hidden border-border border-b"
+      style={{
+        minHeight: 'calc(100svh - var(--public-header-height, 72px))',
+      }}
     >
       <HeroDither />
       <div
@@ -24,9 +26,6 @@ export const Hero = () => {
             : 'bg-[radial-gradient(ellipse_at_50%_46%,rgba(247,244,240,0.3)_0%,rgba(247,244,240,0.62)_58%,rgba(247,244,240,0.95)_100%)]'
         }`}
       />
-
-      <Header />
-      <div aria-hidden className="h-14 shrink-0 md:h-17" />
 
       <LandingContainer className="relative z-1 flex flex-1">
         <LandingInset className="flex flex-1 flex-col items-center justify-center py-20 text-center sm:py-24">

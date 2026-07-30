@@ -99,51 +99,6 @@ p {
   color: var(--accent);
 }
 
-/* Header */
-.site-header {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--border);
-}
-.site-header .bar {
-  display: grid;
-  height: 68px;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  padding-inline: 24px;
-}
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font: 400 15px/1 var(--mono);
-}
-.brand svg {
-  width: 20px;
-  height: 20px;
-  color: var(--primary);
-}
-.header-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-.site-nav {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 22px;
-  color: var(--secondary);
-  font-size: 13px;
-}
-.site-nav a:hover {
-  color: var(--primary);
-}
-
 /* Buttons */
 .btn {
   display: inline-flex;
@@ -386,23 +341,6 @@ h1.hero-title .muted {
 :focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
-}
-
-@media (max-width: 760px) {
-  .site-header .bar {
-    display: flex;
-    height: 56px;
-    justify-content: space-between;
-    padding-inline: 20px;
-  }
-  .site-nav,
-  .header-sign-in {
-    display: none;
-  }
-  .header-actions .btn-primary {
-    height: 32px;
-    padding-inline: 12px;
-  }
 }
 
 @media (max-width: 640px) {

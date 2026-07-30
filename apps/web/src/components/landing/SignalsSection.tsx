@@ -114,7 +114,8 @@ const SignalGraphic = ({ index }: { index: number }) => {
 export const SignalsSection = () => (
   <section
     id="signals"
-    className="scroll-mt-14 border-border border-b md:scroll-mt-[68px]"
+    className="border-border border-b"
+    style={{ scrollMarginTop: 'var(--public-header-height, 72px)' }}
   >
     <LandingContainer className="py-16 sm:py-24">
       <LandingInset>

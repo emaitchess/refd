@@ -1,13 +1,11 @@
 ---
 import { Landing } from '../components/Landing';
+import SiteHeader from '../components/SiteHeader.astro';
 import Base from '../layouts/Base.astro';
 import '../styles/landing.css';
 ---
 
 <Base>
-  <!-- The original React landing (WebGL dither, smooth-scroll, dither-kit
-       charts) rendered as a client island. client:only avoids SSR of the
-       browser-only shader/lenis code; the SEO-critical <head> is server-rendered
-       by Base. -->
+  <SiteHeader />
   <Landing client:only="react" />
 </Base>
