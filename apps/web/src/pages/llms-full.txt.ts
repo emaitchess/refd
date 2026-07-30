@@ -65,6 +65,8 @@ ${publishedContent}
 - Documentation: https://refd.ai/docs
 - Research and guides: https://refd.ai/blog
 - Agent access: https://refd.ai/agents
+- Privacy policy: https://refd.ai/privacy
+- Terms of service: https://refd.ai/terms
 - RSS: https://refd.ai/rss.xml
 - Source code: https://github.com/emaitchess/refd
 - Create an account: https://dash.refd.ai/auth/create-account

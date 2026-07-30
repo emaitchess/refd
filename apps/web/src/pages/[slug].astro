@@ -1,6 +1,7 @@
 ---
 import { getCollection, render, type CollectionEntry } from 'astro:content';
 import ContentPage from '../layouts/ContentPage.astro';
+import LegalPage from '../layouts/LegalPage.astro';
 import { contentPath, isPublished } from '../lib/content';
 
 interface Props {
@@ -18,9 +19,10 @@ export const getStaticPaths = async () => {
 const { entry } = Astro.props;
 const { Content, headings } = await render(entry);
 const path = contentPath('pages', entry.id);
+const PageLayout = entry.data.layout === 'legal' ? LegalPage : ContentPage;
 ---
 
-<ContentPage
+<PageLayout
   title={entry.data.title}
   description={entry.data.description}
   path={path}
@@ -38,4 +40,4 @@ const path = contentPath('pages', entry.id);
   schemaType="Article"
 >
   <Content />
-</ContentPage>
+</PageLayout>

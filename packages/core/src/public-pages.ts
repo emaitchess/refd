@@ -8,6 +8,8 @@ export const PUBLIC_PAGE_PATHS = [
   '/docs',
   '/docs/getting-started',
   '/methodology',
+  '/privacy',
+  '/terms',
 ];
 
 export const INDEXABLE_PUBLIC_PATHS = [...PUBLIC_PAGE_PATHS];
