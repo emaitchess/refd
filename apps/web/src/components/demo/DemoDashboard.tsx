@@ -19,6 +19,7 @@ import { Card } from '@/components/ui/Card';
 import { ChartCard } from '@/components/ui/ChartCard';
 import { SentimentTag } from '@/components/ui/SentimentTag';
 import { StatTile } from '@/components/ui/StatTile';
+import { ANALYTICS_EVENTS, trackEvent } from '@/lib/analytics';
 import { BRANDED_THEME_TOKENS } from '@/lib/branded-theme';
 import { useTheme } from '@/lib/theme';
 import { CREATE_ACCOUNT_URL } from '../../consts';
@@ -265,6 +266,12 @@ const EvidencePanel = ({ result }: { result: DemoPromptResult }) => (
   </section>
 );
 
+// The evidence panel renders on load with the first result already selected, so
+// a /demo pageview cannot tell a bounce from an evaluation. Touching a control
+// is what says somebody actually looked.
+const trackExplored = (control: 'result' | 'range' | 'surface') =>
+  trackEvent(ANALYTICS_EVENTS.demoExplored, { control });
+
 export const DemoDashboard = () => {
   const [theme] = useTheme();
   const [range, setRange] = useState<DemoRange>('30d');
@@ -346,7 +353,10 @@ export const DemoDashboard = () => {
                     <button
                       key={value}
                       type="button"
-                      onClick={() => setRange(value)}
+                      onClick={() => {
+                        setRange(value);
+                        trackExplored('range');
+                      }}
                       aria-pressed={range === value}
                       className={`h-9 min-w-14 px-3 font-mono text-[11px] transition-colors ${
                         range === value
@@ -602,7 +612,10 @@ export const DemoDashboard = () => {
                     type="button"
                     role="tab"
                     aria-selected={surface === value}
-                    onClick={() => setSurface(value)}
+                    onClick={() => {
+                      setSurface(value);
+                      trackExplored('surface');
+                    }}
                     className={`h-8 shrink-0 px-3 font-mono text-[10px] transition-colors ${
                       surface === value
                         ? 'bg-primary text-bg'
@@ -628,7 +641,10 @@ export const DemoDashboard = () => {
                   key={result.id}
                   result={result}
                   selected={result.id === selected?.id}
-                  onSelect={() => setSelectedId(result.id)}
+                  onSelect={() => {
+                    setSelectedId(result.id);
+                    trackExplored('result');
+                  }}
                 />
               ))}
             </Card>

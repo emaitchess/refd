@@ -7,6 +7,7 @@ import { DitherGradient } from '@/components/dither-kit/gradient';
 import { Tooltip } from '@/components/dither-kit/tooltip';
 import { SurfaceLogo } from '@/components/svgs/SurfaceLogo';
 import { PasswordInput } from '@/components/ui';
+import { ANALYTICS_EVENTS, trackEvent } from '@/lib/analytics';
 import { apiOrigin, publicSiteOrigin } from '@/lib/api';
 import { BRANDED_THEME_TOKENS } from '@/lib/branded-theme';
 import { SURFACE_ORDER, surfaceLabel } from '@/lib/format';
@@ -100,6 +101,11 @@ export const Auth = () => {
     setError(null);
     try {
       await (registering ? register(email, password) : login(email, password));
+      trackEvent(
+        registering
+          ? ANALYTICS_EVENTS.signupCompleted
+          : ANALYTICS_EVENTS.signinCompleted,
+      );
     } catch (e) {
       setError(
         e instanceof Error

@@ -9,6 +9,7 @@ import { useToast } from '@/components/feedback/Toast';
 import { ChatPanels } from '@/components/home/ChatPanels';
 import { ProposalCard } from '@/components/home/ProposalCard';
 import { EmptyState, SectionLabel } from '@/components/ui';
+import { ANALYTICS_EVENTS, trackEvent } from '@/lib/analytics';
 import { ApiError, api, apiStream, useAsyncAction, useQuery } from '@/lib/api';
 import { clockTime, timestamp } from '@/lib/format';
 import type {
@@ -232,6 +233,10 @@ export const Home = () => {
       return;
     }
     setInput('');
+    // Name only. The question itself never leaves the Service.
+    trackEvent(ANALYTICS_EVENTS.chatMessageSent, {
+      chat: chatId === null ? 'new' : 'existing',
+    });
     // Optimistic user bubble; the server's stored pair replaces it.
     setMessages((current) => [
       ...current,

@@ -52,7 +52,7 @@ The production MCP endpoint is https://api.refd.ai/mcp. It uses OAuth with PKCE,
 
 ## Hosted and self-hosted
 
-Hosted registration and sign-in live on https://dash.refd.ai. Self-hosters bring their own infrastructure and collection accounts. A self-hosted public website does not send analytics to refd because hosted website analytics are enabled only when the browser hostname is exactly refd.ai.
+Hosted registration and sign-in live on https://dash.refd.ai. Self-hosters bring their own infrastructure and collection accounts. A self-hosted deployment sends no analytics to refd: the tracker is only built in when the hosted analytics settings are configured, and it then collects only from refd.ai and dash.refd.ai.
 
 ## Published content
 

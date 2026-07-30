@@ -1,7 +1,8 @@
 import { SURFACES } from '@refd/core/surfaces';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useWorkspace } from '../providers/workspace';
+import { ANALYTICS_EVENTS, trackEvent } from './analytics';
 import { api } from './api';
 import {
   PROMPT_CATEGORIES,
@@ -83,6 +84,18 @@ export const useOnboardingFlow = () => {
     };
   }, [current?.id]);
 
+  // Drop-off inside the wizard needs each step entry, not just the endpoints.
+  // Once per step per mount, including the step a reload resumes at.
+  const trackedSteps = useRef(new Set<OnboardingStep>());
+  useEffect(() => {
+    const step = state?.step;
+    if (!step || trackedSteps.current.has(step)) {
+      return;
+    }
+    trackedSteps.current.add(step);
+    trackEvent(ANALYTICS_EVENTS.onboardingStep, { step });
+  }, [state?.step]);
+
   const call = useCallback(
     async <T>(fn: () => Promise<T>): Promise<T | null> => {
       setBusy(true);
@@ -146,9 +159,23 @@ export const useOnboardingFlow = () => {
   const aiStep = useCallback(
     (path: string, regenerate: boolean) =>
       call(async () => {
+        // Asking for a second draft is the clearest signal that the first one
+        // was not good enough. The client refuses over-cap requests, so every
+        // call reaching here is a real rejection of what refd drafted.
+        if (regenerate) {
+          trackEvent(ANALYTICS_EVENTS.onboardingRegenerate, { step: path });
+        }
         const res = await api<ExtractResult>(`/onboarding/${path}`, {
           method: 'POST',
           body: JSON.stringify({ regenerate }),
+        });
+        // These steps soft-fail to manual entry, so a broken dependency degrades
+        // onboarding silently. `reason` is a fixed server-side enum naming which
+        // one gave way (page fetch, model, or search).
+        trackEvent(ANALYTICS_EVENTS.onboardingAiResult, {
+          step: path,
+          ok: res.ok,
+          ...(res.reason ? { reason: res.reason } : {}),
         });
         setState(res.state);
         return res;
@@ -185,6 +212,7 @@ export const useOnboardingFlow = () => {
     () =>
       call(async () => {
         await api('/onboarding/commit', { method: 'POST', body: '{}' });
+        trackEvent(ANALYTICS_EVENTS.onboardingCommitted);
         setJustCommitted(true);
         return true;
       }),
@@ -197,6 +225,7 @@ export const useOnboardingFlow = () => {
     () =>
       call(async () => {
         await api('/onboarding/complete', { method: 'POST', body: '{}' });
+        trackEvent(ANALYTICS_EVENTS.onboardingCompleted);
         if (current) {
           markOnboarded(current.id);
         }

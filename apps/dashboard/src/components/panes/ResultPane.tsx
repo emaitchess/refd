@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { DitherIcon } from '@/components/dither/DitherIcon';
@@ -21,6 +21,7 @@ import {
   SectionLabel,
   SentimentTag,
 } from '@/components/ui';
+import { ANALYTICS_EVENTS, trackEvent } from '@/lib/analytics';
 import { apiPath, useQuery as useApiQuery } from '@/lib/api';
 import { SERIES_HEX, seriesColor } from '@/lib/chart-colors';
 import { position as fmtPosition, surfaceLabel, timestamp } from '@/lib/format';
@@ -222,6 +223,13 @@ export const ResultPane = ({
   const { data, error, loading } = useApiQuery<ResultDetail>(
     `/runs/${runId}/results/${resultId}`,
   );
+
+  // The activation funnel's "inspected the evidence" step. This pane is the only
+  // way into a raw answer and its citations, from both the dashboard and the
+  // onboarding report.
+  useEffect(() => {
+    trackEvent(ANALYTICS_EVENTS.evidenceOpened);
+  }, []);
 
   // Colour by the entity's own sortOrder position, so a mention in the answer
   // wears the same hue as its chip in the scores table and its series in every

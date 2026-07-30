@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./analytics": "./src/analytics.ts",
     "./config": "./src/config.ts",
     "./surfaces": "./src/surfaces.ts",
     "./mentions": "./src/mentions.ts",
