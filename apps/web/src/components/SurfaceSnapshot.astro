@@ -1,0 +1,56 @@
+---
+import type { SurfacePageDetails } from '../lib/surface-page';
+
+interface Props {
+  surface: SurfacePageDetails;
+}
+
+const { surface } = Astro.props;
+---
+
+<section class="surface-snapshot" aria-labelledby="surface-snapshot-title">
+  <header class="surface-snapshot__header">
+    <div>
+      <p class="section-index">Illustrative sample</p>
+      <h2 id="surface-snapshot-title">{surface.label} visibility snapshot</h2>
+    </div>
+    <div class="surface-snapshot__method">
+      <span>{surface.collection}</span>
+      <span>{surface.sampling}</span>
+    </div>
+  </header>
+
+  <div class="surface-snapshot__metrics">
+    {
+      surface.metrics.map((metric) => (
+        <div class="surface-snapshot__metric">
+          <p>{metric.label}</p>
+          <strong>{metric.value}</strong>
+          <span>{metric.detail}</span>
+        </div>
+      ))
+    }
+  </div>
+
+  <div class="surface-snapshot__evidence">
+    <div>
+      <p class="eyebrow">Buyer question</p>
+      <h3>{surface.samplePrompt}</h3>
+    </div>
+    <div>
+      <p class="eyebrow">Observed signal</p>
+      <p class="surface-snapshot__signal">{surface.sampleSignal}</p>
+      <p>{surface.sampleFinding}</p>
+    </div>
+  </div>
+
+  <footer class="surface-snapshot__footer">
+    <p>
+      Fabricated demonstration data for Ultrahuman. It illustrates the report
+      structure and is not live monitoring or a claim about current brand
+      performance.
+    </p>
+    <p>{surface.limitation}</p>
+    <a href="/demo">open the interactive demo <span aria-hidden="true">→</span></a>
+  </footer>
+</section>

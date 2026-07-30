@@ -32,11 +32,11 @@ refd is an open-source platform for monitoring brand visibility in AI search. It
 - AI Overview and citation-source coverage.
 - Material changes between compatible completed runs.
 
-Every metric can be traced to a prompt, surface, sample, normalized answer, and raw provider record. Mentions and citations are independent signals. Missing Google AI Overviews are valid observations rather than failed fetches.
+Every metric can be traced to a prompt, surface, sample, normalized answer, and raw collected response. Mentions and citations are independent signals. Missing Google AI Overviews are valid observations rather than failed fetches.
 
 ## Collection and architecture
 
-Bright Data is the only answer-collection provider. Dataset scrapers collect ChatGPT, Perplexity, Gemini, and Google AI Mode. The Bright Data SERP API collects Google AI Overviews.
+refd tracks ChatGPT, Perplexity, Gemini, Google AI Mode, and Google AI Overviews as separate surfaces. It repeats configured buyer questions and preserves the returned answer evidence.
 
 The repository contains three independently deployed Cloudflare Workers:
 
@@ -52,7 +52,7 @@ The production MCP endpoint is https://api.refd.ai/mcp. It uses OAuth with PKCE,
 
 ## Hosted and self-hosted
 
-Hosted registration and sign-in live on https://dash.refd.ai. Self-hosters bring their own Cloudflare and Bright Data accounts. A self-hosted public website does not send analytics to refd because hosted website analytics are enabled only when the browser hostname is exactly refd.ai.
+Hosted registration and sign-in live on https://dash.refd.ai. Self-hosters bring their own infrastructure and collection accounts. A self-hosted public website does not send analytics to refd because hosted website analytics are enabled only when the browser hostname is exactly refd.ai.
 
 ## Published content
 
@@ -62,6 +62,7 @@ ${publishedContent}
 
 - Homepage: https://refd.ai/
 - Interactive demo: https://refd.ai/demo
+- AI surface trackers: https://refd.ai/trackers
 - Documentation: https://refd.ai/docs
 - Research and guides: https://refd.ai/blog
 - Agent access: https://refd.ai/agents

@@ -3,8 +3,10 @@ import type { MarkdownHeading } from 'astro';
 import ContentCard from '../components/ContentCard.astro';
 import SiteFooter from '../components/SiteFooter.astro';
 import SiteHeader from '../components/SiteHeader.astro';
+import SurfaceSnapshot from '../components/SurfaceSnapshot.astro';
 import { CREATE_ACCOUNT_URL } from '../consts';
 import { formatContentDate } from '../lib/content';
+import type { SurfacePageDetails } from '../lib/surface-page';
 import '../styles/global.css';
 import '../styles/content.css';
 import Base from './Base.astro';
@@ -36,6 +38,7 @@ interface Props {
   breadcrumbs: Breadcrumb[];
   related: Related[];
   schemaType?: 'Article' | 'TechArticle';
+  surface?: SurfacePageDetails;
 }
 
 const {
@@ -51,6 +54,7 @@ const {
   breadcrumbs,
   related,
   schemaType = 'Article',
+  surface,
 } = Astro.props;
 
 const site = Astro.site ?? new URL('https://refd.ai');
@@ -155,6 +159,8 @@ const breadcrumbStructuredData = {
           <p class="eyebrow" id="short-answer">Short answer</p>
           <p>{answer}</p>
         </section>
+
+        {surface && <SurfaceSnapshot surface={surface} />}
 
         <div class="content-body">
           {

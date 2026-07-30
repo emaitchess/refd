@@ -33,10 +33,10 @@ and the implementation is available in the
 | --- | --- | --- |
 | Define | Freeze a brand, competitors, aliases, domains, prompts, and surfaces for each run | Mid-run edits cannot change the comparison set |
 | Collect | Run each prompt across enabled AI answer surfaces with repeated samples | One answer is not treated as a stable ranking |
-| Normalize | Extract the visible answer and source URLs from provider records | Provider-specific response shapes do not leak into scoring |
+| Normalize | Extract the visible answer and source URLs from collected results | Surface-specific response shapes do not leak into scoring |
 | Score | Detect mentions, citations, first-mention order, prominence, and sentiment | Each signal keeps a clear definition |
 | Aggregate | Calculate rates per prompt and surface, then roll them up with explicit denominators | Large or noisy prompt groups do not silently dominate |
-| Audit | Keep the raw provider payload and the normalized answer behind each result | Every chart can be checked against evidence |
+| Audit | Keep the raw collected result and normalized answer behind each result | Every chart can be checked against evidence |
 
 ## Start with a fixed question and entity set
 
@@ -62,24 +62,15 @@ market.
 
 ## Collect repeated answers across five surfaces
 
-refd currently monitors:
-
-| Surface | Collection path |
-| --- | --- |
-| ChatGPT | Bright Data dataset scraper |
-| Perplexity | Bright Data dataset scraper |
-| Gemini | Bright Data dataset scraper |
-| Google AI Mode | Bright Data dataset scraper |
-| Google AI Overviews | Bright Data SERP API |
-
-Bright Data is the only answer-collection provider. Provider access, geography,
-session state, and product changes can affect the returned answers. refd records
-what the configured provider observed at that time; it does not claim to
-reproduce every answer every person could receive.
+refd currently tracks ChatGPT, Perplexity, Gemini, Google AI Mode, and Google AI
+Overviews as separate surfaces. Collection conditions, geography, session
+state, and product changes can affect the returned answers. refd records the
+result observed at that time; it does not claim to reproduce every answer every
+person could receive.
 
 The hosted deployment currently takes two samples of each prompt and surface
 cell. Samples are collected independently. Identical prompts are never placed
-together in a way that could let a provider collapse them into one response.
+together in a way that could collapse them into one response.
 
 Two samples do not eliminate uncertainty. They make instability visible and
 reduce the temptation to interpret one answer as a durable rank. Trends across
@@ -98,13 +89,13 @@ visibility metric.
 
 ## Normalize the answer before scoring
 
-Provider response formats change and differ by surface. refd converts each
-record into one normalized answer:
+Response formats change and differ by surface. refd converts each collected
+result into one normalized answer:
 
 - The canonical visible answer text.
 - The source URLs attached to that answer.
 - Whether an answer was present.
-- The original provider payload.
+- The original collected response.
 
 Mention matching runs only against text a person would read as part of the
 answer. Link destinations, source-card titles, related searches, and interface
@@ -112,7 +103,7 @@ labels do not count as mentions.
 
 Citation extraction uses three levels of evidence:
 
-1. Provider-labeled source structures.
+1. Surface-labeled source structures.
 2. Links written directly in answer Markdown.
 3. A schema-agnostic deep walk, only when the first two levels found no URLs.
 
@@ -259,14 +250,15 @@ The underlying answers show what changed; a user still has to determine why.
 
 ## Audit every aggregate
 
-Raw provider payloads are stored in compressed form. The normalized visible
-answer, extracted citations, and per-entity scores are stored alongside the run.
-The dashboard can open the exact answer behind a prompt, surface, and sample.
+Raw collected responses are stored in compressed form. The normalized visible
+answer, extracted citations, and per-entity scores are stored alongside the
+run. The dashboard can open the exact answer behind a prompt, surface, and
+sample.
 
 Scoring is versioned. When deterministic parsing or matching improves, an
-operator can replay stored raw payloads through the current scorer without
-paying the provider to collect the answers again. Runs without stored raw data
-keep their original scores.
+operator can replay stored raw responses through the current scorer without
+collecting the answers again. Runs without stored raw data keep their original
+scores.
 
 The important contract is simple: a metric is a navigation aid, not a substitute
 for evidence. When a number matters, inspect the answers that produced it.
@@ -279,8 +271,8 @@ Use refd with these boundaries in mind:
   makes an answer permanent.
 - **The prompt set is selected.** Results describe the questions, surfaces, and
   tracked entities configured in the workspace.
-- **The provider has a viewpoint.** Collection reflects Bright Data's access
-  path and the response returned at collection time.
+- **Collection has a viewpoint.** Results reflect the access path and response
+  returned at collection time.
 - **Aliases require judgment.** A missing alias undercounts. A broad alias can
   create false positives. Human confirmation matters.
 - **Citation availability varies.** Some surfaces expose richer source data than

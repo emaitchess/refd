@@ -18,6 +18,7 @@ const productLinks = [
 ];
 
 const resourceLinks = [
+  { href: '/trackers', label: 'surface trackers' },
   { href: '/methodology', label: 'methodology' },
   { href: '/docs', label: 'documentation' },
   { href: '/blog', label: 'blog' },

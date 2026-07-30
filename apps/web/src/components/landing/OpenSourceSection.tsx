@@ -30,9 +30,8 @@ export const OpenSourceSection = () => {
             </h2>
             <p className="mt-6 max-w-[620px] text-[14px] text-secondary leading-[1.75]">
               refd is an MIT-licensed stack of three Cloudflare Workers with a
-              React dashboard, Astro site, D1, R2, Queues, and Bright Data. Read
-              the measurement code, fork the project, or use the managed
-              service.
+              React dashboard, Astro site, D1, R2, and Queues. Read the
+              measurement code, fork the project, or use the managed service.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">

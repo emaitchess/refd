@@ -22,7 +22,7 @@ complete platform yourself.
 - **Receipts:** Open the raw answer behind every score. When a metric changes,
   you can see exactly why.
 - **Hosted or self-hosted:** Use the hosted app, or deploy the complete stack
-  with your own Cloudflare and Bright Data accounts.
+  with your own infrastructure and collection accounts.
 
 ## How it works
 
@@ -30,7 +30,7 @@ Each workspace tracks a single brand and its competitors. On a daily schedule,
 refd runs your active prompts across every AI answer surface, takes repeat
 samples of each, and scores the results. Because AI answers are
 non-deterministic, refd compares trends across runs rather than trusting a single
-answer. Bright Data is the only data provider.
+answer.
 
 ## Open source
 

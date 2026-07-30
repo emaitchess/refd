@@ -23,6 +23,20 @@ describe('public page catalog', () => {
     expect(INDEXABLE_PUBLIC_PATHS).toContain('/demo');
   });
 
+  test('includes the surface tracker cluster in discovery', () => {
+    for (const path of [
+      '/trackers',
+      '/chatgpt-visibility-tracker',
+      '/perplexity-visibility-tracker',
+      '/gemini-visibility-tracker',
+      '/google-ai-mode-tracker',
+      '/google-ai-overview-tracker',
+    ]) {
+      expect(PUBLIC_PAGE_PATHS).toContain(path);
+      expect(INDEXABLE_PUBLIC_PATHS).toContain(path);
+    }
+  });
+
   test('includes the public policies in discovery', () => {
     expect(PUBLIC_PAGE_PATHS).toContain('/privacy');
     expect(PUBLIC_PAGE_PATHS).toContain('/terms');

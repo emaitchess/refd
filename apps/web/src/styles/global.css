@@ -277,7 +277,11 @@ h1.hero-title .muted {
   border: 1px solid var(--border);
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
+.tools-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
 .cell {
+  min-width: 0;
   background: var(--bg);
   padding: 28px 26px;
 }
@@ -292,6 +296,7 @@ h1.hero-title .muted {
   font-size: 17px;
   font-weight: 500;
   letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
 }
 .cell p {
   margin-top: 10px;
@@ -356,5 +361,15 @@ h1.hero-title .muted {
   .section > .rail,
   .closing {
     padding-inline: 20px;
+  }
+
+  .tools-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 880px) {
+  .tools-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

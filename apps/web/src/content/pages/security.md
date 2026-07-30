@@ -32,8 +32,8 @@ or a guarantee that the service is free from every vulnerability.
 ## Hosted and self-hosted responsibility
 
 The hosted service runs the public website, dashboard, API, database, object
-storage, queues, and agent connector on Cloudflare. Bright Data is the only
-provider used to collect AI answers and search results. Optional onboarding and
+storage, queues, and agent connector on Cloudflare. refd tracks AI answers and
+search results through a managed collection service. Optional onboarding and
 research features also use Cloudflare Workers AI, Browser Rendering, and Exa.
 
 The [Privacy policy](/privacy) explains what each provider processes.
@@ -89,10 +89,10 @@ records are compressed and stored in Cloudflare R2 so a result can be audited
 against the evidence that produced it. Raw answers are not published as public
 pages and are returned only through authenticated, workspace-scoped routes.
 
-Bright Data snapshot notifications are accepted only when the configured
+Collection completion notifications are accepted only when the configured
 webhook secret validates. Queue messages and database uniqueness constraints
 make retries idempotent, reducing the risk that a redelivery repeats paid
-provider work or writes duplicate results.
+collection work or writes duplicate results.
 
 Scraped answers, citation URLs, provider responses, and model output are treated
 as untrusted input:
