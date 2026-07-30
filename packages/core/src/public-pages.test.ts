@@ -22,4 +22,11 @@ describe('public page catalog', () => {
     expect(PUBLIC_PAGE_PATHS).toContain('/demo');
     expect(INDEXABLE_PUBLIC_PATHS).toContain('/demo');
   });
+
+  test('includes the public policies in discovery', () => {
+    expect(PUBLIC_PAGE_PATHS).toContain('/privacy');
+    expect(PUBLIC_PAGE_PATHS).toContain('/terms');
+    expect(INDEXABLE_PUBLIC_PATHS).toContain('/privacy');
+    expect(INDEXABLE_PUBLIC_PATHS).toContain('/terms');
+  });
 });

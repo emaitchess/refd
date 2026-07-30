@@ -3,7 +3,9 @@ import type { APIRoute } from 'astro';
 import { getPublicContent } from '../lib/public-content';
 
 export const GET: APIRoute = async ({ site }) => {
-  const entries = await getPublicContent();
+  const entries = (await getPublicContent()).filter(
+    (entry) => entry.section !== 'Legal',
+  );
 
   return rss({
     title: 'refd research and documentation',

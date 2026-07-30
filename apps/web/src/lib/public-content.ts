@@ -9,7 +9,7 @@ export interface PublicContentEntry {
   order: number;
   answer: string;
   body: string;
-  section: 'Blog' | 'Documentation' | 'Guides';
+  section: 'Blog' | 'Documentation' | 'Guides' | 'Legal';
 }
 
 export const getPublicContent = async (): Promise<PublicContentEntry[]> => {
@@ -22,7 +22,7 @@ export const getPublicContent = async (): Promise<PublicContentEntry[]> => {
       order: entry.data.order,
       answer: entry.data.answer,
       body: entry.body ?? '',
-      section: 'Guides',
+      section: entry.data.layout === 'legal' ? 'Legal' : 'Guides',
     }),
   );
   const docs = (await getCollection('docs')).filter(isPublished).map(

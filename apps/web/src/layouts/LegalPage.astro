@@ -1,0 +1,188 @@
+---
+import type { MarkdownHeading } from 'astro';
+import SiteFooter from '../components/SiteFooter.astro';
+import SiteHeader from '../components/SiteHeader.astro';
+import { formatContentDate } from '../lib/content';
+import '../styles/global.css';
+import '../styles/content.css';
+import Base from './Base.astro';
+
+interface Breadcrumb {
+  href: string;
+  label: string;
+}
+
+interface Props {
+  title: string;
+  description: string;
+  path: string;
+  publishedAt: Date;
+  updatedAt?: Date;
+  headings: MarkdownHeading[];
+  breadcrumbs: Breadcrumb[];
+}
+
+const {
+  title,
+  description,
+  path,
+  publishedAt,
+  updatedAt,
+  headings,
+  breadcrumbs,
+} = Astro.props;
+
+const site = Astro.site ?? new URL('https://refd.ai');
+const canonical = new URL(path, site).href;
+const tableOfContents = headings.filter(
+  ({ depth }) => depth === 2 || depth === 3,
+);
+const webPageStructuredData = {
+  '@context': 'https://schema.org',
+  '@type': 'WebPage',
+  name: title,
+  description,
+  url: canonical,
+  datePublished: publishedAt.toISOString(),
+  dateModified: (updatedAt ?? publishedAt).toISOString(),
+  isPartOf: { '@id': new URL('/#website', site).href },
+};
+const breadcrumbStructuredData = {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: breadcrumbs.map((breadcrumb, index) => ({
+    '@type': 'ListItem',
+    position: index + 1,
+    name: breadcrumb.label,
+    item: new URL(breadcrumb.href, site).href,
+  })),
+};
+---
+
+<Base
+  title={`${title} | refd`}
+  description={description}
+  path={path}
+  markdownPath={`${path}.md`}
+  updatedAt={updatedAt}
+  structuredData={[webPageStructuredData, breadcrumbStructuredData]}
+>
+  <SiteHeader />
+  <main>
+    <article>
+      <div class="content-rail">
+        <header class="content-hero">
+          <nav class="breadcrumbs" aria-label="Breadcrumb">
+            <ol>
+              {
+                breadcrumbs.map((breadcrumb, index) => (
+                  <li>
+                    {index < breadcrumbs.length - 1 ? (
+                      <a href={breadcrumb.href}>{breadcrumb.label}</a>
+                    ) : (
+                      <span aria-current="page">{breadcrumb.label}</span>
+                    )}
+                  </li>
+                ))
+              }
+            </ol>
+          </nav>
+          <p class="section-index">Legal</p>
+          <h1>{title}</h1>
+          <p class="content-dek">{description}</p>
+          <div class="content-meta">
+            <span>
+              Effective{' '}
+              <time datetime={publishedAt.toISOString()}>
+                {formatContentDate(publishedAt)}
+              </time>
+            </span>
+            {
+              updatedAt && (
+                <span>
+                  Updated{' '}
+                  <time datetime={updatedAt.toISOString()}>
+                    {formatContentDate(updatedAt)}
+                  </time>
+                </span>
+              )
+            }
+          </div>
+        </header>
+
+        <div class="content-body">
+          {
+            tableOfContents.length > 0 && (
+              <aside class="content-toc">
+                <p class="eyebrow">On this page</p>
+                <nav aria-label="On this page">
+                  <ol>
+                    {tableOfContents.map((heading) => (
+                      <li data-depth={heading.depth}>
+                        <a href={`#${heading.slug}`}>{heading.text}</a>
+                      </li>
+                    ))}
+                  </ol>
+                </nav>
+              </aside>
+            )
+          }
+          <div class="prose">
+            <slot />
+          </div>
+        </div>
+      </div>
+    </article>
+  </main>
+  <SiteFooter />
+</Base>
+
+<script>
+  import { activeTocHeadingId } from '../lib/toc';
+
+  const toc = document.querySelector<HTMLElement>('.content-toc');
+  const prose = document.querySelector<HTMLElement>('.prose');
+  const headings = Array.from(
+    document.querySelectorAll<HTMLElement>('.prose h2[id], .prose h3[id]'),
+  );
+  const links = Array.from(
+    document.querySelectorAll<HTMLAnchorElement>('.content-toc a[href^="#"]'),
+  );
+
+  if (toc && prose && headings.length > 0 && links.length > 0) {
+    let frame: number | null = null;
+
+    const update = () => {
+      frame = null;
+      const activeId = activeTocHeadingId({
+        contentTop: prose.getBoundingClientRect().top,
+        headings: headings.map((heading) => ({
+          id: heading.id,
+          top: heading.getBoundingClientRect().top,
+        })),
+        anchor: Math.min(160, window.innerHeight * 0.25),
+        atPageEnd:
+          window.scrollY + window.innerHeight >=
+          document.documentElement.scrollHeight - 2,
+      });
+
+      for (const link of links) {
+        if (link.getAttribute('href') === `#${activeId}`) {
+          link.setAttribute('aria-current', 'location');
+        } else {
+          link.removeAttribute('aria-current');
+        }
+      }
+    };
+
+    const scheduleUpdate = () => {
+      if (frame === null) {
+        frame = window.requestAnimationFrame(update);
+      }
+    };
+
+    update();
+    window.addEventListener('scroll', scheduleUpdate, { passive: true });
+    window.addEventListener('resize', scheduleUpdate);
+  }
+</script>

@@ -260,6 +260,15 @@ h1.hero-title .muted {
   color: var(--secondary);
   line-height: 1.7;
 }
+.section-head a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 4px;
+}
+.section-head a:hover {
+  text-decoration-color: var(--accent);
+}
 .agent-grid {
   margin-top: 44px;
   display: grid;

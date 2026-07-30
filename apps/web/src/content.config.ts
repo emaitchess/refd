@@ -18,6 +18,7 @@ const contentSchema = z.object({
   description: z.string().min(1).max(180),
   eyebrow: z.string().min(1).max(40),
   answer: z.string().min(1).max(500),
+  layout: z.enum(['article', 'legal']).default('article'),
   publishedAt: z.coerce.date(),
   updatedAt: z.coerce.date().optional(),
   author: authorSchema,

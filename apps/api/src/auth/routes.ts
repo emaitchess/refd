@@ -253,16 +253,24 @@ account.delete('/', async (c) => {
     `delete from entities where workspace_id in (
       select id from workspaces where owner_user_id = ?
     )`,
+    `delete from chat_messages where chat_id in (
+      select chats.id from chats
+      join workspaces on chats.workspace_id = workspaces.id
+      where workspaces.owner_user_id = ?
+    )`,
+    `delete from chats where workspace_id in (
+      select id from workspaces where owner_user_id = ?
+    )`,
     `delete from mcp_connections where workspace_id in (
       select id from workspaces where owner_user_id = ?
     )`,
     'delete from workspaces where owner_user_id = ?',
-    'delete from login_attempts where key = ?',
-    'delete from users where id = ?',
-  ].map((statement, index) =>
-    c.env.DB.prepare(statement).bind(
-      index === 11 ? `email:${user.email}` : user.id,
+  ].map((statement) => c.env.DB.prepare(statement).bind(user.id));
+  statements.push(
+    c.env.DB.prepare('delete from login_attempts where key = ?').bind(
+      `email:${user.email}`,
     ),
+    c.env.DB.prepare('delete from users where id = ?').bind(user.id),
   );
 
   const keys = rawKeys.flatMap((row) => (row.key ? [row.key] : []));

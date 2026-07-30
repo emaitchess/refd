@@ -347,10 +347,11 @@ const resourceIsCurrent = resourceLinks.some((link) => isCurrent(link.href));
     display: grid;
     grid-template-columns: minmax(180px, 1fr) auto minmax(260px, 1fr);
     align-items: center;
-    width: min(1440px, 100%);
+    width: min(1120px, 100%);
     height: 100%;
     margin-inline: auto;
-    padding-inline: clamp(24px, 3vw, 48px);
+    padding-inline: 32px;
+    border-inline: 1px solid var(--nav-border);
   }
 
   .public-header__brand {
@@ -694,7 +695,7 @@ const resourceIsCurrent = resourceLinks.some((link) => isCurrent(link.href));
     .public-header__inner {
       display: flex;
       justify-content: space-between;
-      padding-inline: clamp(20px, 5vw, 32px);
+      padding-inline: 20px;
     }
 
     .public-header__nav,

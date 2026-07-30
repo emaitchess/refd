@@ -7,6 +7,8 @@ const staticLinks = [
   '- [Documentation](https://refd.ai/docs): setup and operating guides',
   '- [Research and guides](https://refd.ai/blog): public analysis and field notes',
   '- [Agent access](https://refd.ai/agents): MCP endpoint, permissions, tools, and connection instructions',
+  '- [Privacy policy](https://refd.ai/privacy): hosted-service data collection, providers, retention, deletion, and user rights',
+  '- [Terms of service](https://refd.ai/terms): rules for the hosted service, customer content, AI evidence, and MCP access',
   '- [Full overview for LLMs](https://refd.ai/llms-full.txt): product and public content in one file',
   '- [Source code](https://github.com/emaitchess/refd): MIT-licensed implementation',
   '- [Design system](https://github.com/emaitchess/refd/blob/main/docs/DESIGN.md): public UI and charting rules',
