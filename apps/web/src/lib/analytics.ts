@@ -7,6 +7,8 @@ import {
 } from '@refd/core/analytics';
 import { CREATE_ACCOUNT_URL, DASHBOARD_ORIGIN } from '../consts';
 
+export { ANALYTICS_EVENTS, trackEvent } from '@refd/core/analytics';
+
 interface AnalyticsEnv {
   websiteId?: string;
   hostUrl?: string;

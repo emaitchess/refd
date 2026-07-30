@@ -16,14 +16,18 @@ export type AnalyticsTag = (typeof ANALYTICS_TAGS)[keyof typeof ANALYTICS_TAGS];
 
 // umami caps event names at 50 characters.
 export const ANALYTICS_EVENTS = {
+  demoExplored: 'demo_explored',
   signupClick: 'signup_click',
   signupCompleted: 'signup_completed',
   signinCompleted: 'signin_completed',
   onboardingStep: 'onboarding_step',
+  onboardingAiResult: 'onboarding_ai_result',
+  onboardingRegenerate: 'onboarding_regenerate',
   onboardingCommitted: 'onboarding_committed',
   firstReportViewed: 'first_report_viewed',
   onboardingCompleted: 'onboarding_completed',
   evidenceOpened: 'evidence_opened',
+  chatMessageSent: 'chat_message_sent',
 } as const;
 
 export type AnalyticsEvent =

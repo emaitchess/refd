@@ -159,9 +159,23 @@ export const useOnboardingFlow = () => {
   const aiStep = useCallback(
     (path: string, regenerate: boolean) =>
       call(async () => {
+        // Asking for a second draft is the clearest signal that the first one
+        // was not good enough. The client refuses over-cap requests, so every
+        // call reaching here is a real rejection of what refd drafted.
+        if (regenerate) {
+          trackEvent(ANALYTICS_EVENTS.onboardingRegenerate, { step: path });
+        }
         const res = await api<ExtractResult>(`/onboarding/${path}`, {
           method: 'POST',
           body: JSON.stringify({ regenerate }),
+        });
+        // These steps soft-fail to manual entry, so a broken dependency degrades
+        // onboarding silently. `reason` is a fixed server-side enum naming which
+        // one gave way (page fetch, model, or search).
+        trackEvent(ANALYTICS_EVENTS.onboardingAiResult, {
+          step: path,
+          ok: res.ok,
+          ...(res.reason ? { reason: res.reason } : {}),
         });
         setState(res.state);
         return res;
