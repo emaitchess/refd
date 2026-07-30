@@ -17,7 +17,7 @@ interface Props {
 
 const {
   title = 'refd | open-source AI search monitoring',
-  description = "Open-source AI search monitoring. Track your brand's mentions, citations, position, and share of voice across ChatGPT, Perplexity, Gemini, Google AI Mode, and Overview.",
+  description = 'Track where your brand appears in AI answers, who appears instead, and the evidence behind every mention, citation, position, and score.',
   path = '/',
   markdownPath,
   ogImage = '/og.png',
@@ -41,7 +41,8 @@ const jsonLd = [
     name: 'refd',
     url: site.href,
     logo: new URL('/apple-touch-icon.png', site).href,
-    description: 'Open-source AI search monitoring.',
+    description:
+      'Track where your brand appears in AI answers, who appears instead, and the evidence behind every mention, citation, position, and score.',
     sameAs: ['https://github.com/emaitchess/refd'],
   },
   {
@@ -120,6 +121,7 @@ const jsonLdText = JSON.stringify(jsonLd).replaceAll('<', '\\u003c');
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImageUrl} />
+    <meta name="twitter:image:alt" content="refd: open-source AI search monitoring" />
 
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="refd" />
