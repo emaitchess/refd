@@ -2,8 +2,8 @@ import { METRIC_INFO } from '@refd/core/metric-copy';
 import { Link } from 'react-router';
 import { MetricInfo } from '@/components/ui';
 import { useQuery } from '@/lib/api';
-import { pct, position, shortDate } from '@/lib/format';
-import type { ChangeEvent, ChangesResponse } from '@/lib/types';
+import { pct, position, shortDate, utcClockTime } from '@/lib/format';
+import type { ChangeEvent, ChangeRunRef, ChangesResponse } from '@/lib/types';
 
 // "What changed" card: material movements between the last two completed
 // runs, derived server-side (api/routes/changes.ts holds the honesty
@@ -14,19 +14,39 @@ import type { ChangeEvent, ChangesResponse } from '@/lib/types';
 const value = (event: ChangeEvent, v: number): string =>
   event.unit === 'rank' ? position(v) : pct(v);
 
+// Rows pair `subject` with this chip, so the magnitude is stated once (the
+// full `headline` is for consumers that render one string alone).
 const deltaText = (event: ChangeEvent): string => {
   const glyph = event.direction === 'up' ? '↑' : '↓';
-  return event.unit === 'rank'
-    ? `${glyph} ${Math.abs(event.delta).toFixed(1)}`
-    : `${glyph} ${Math.abs(event.delta * 100).toFixed(0)}pp`;
+  if (event.unit !== 'rank') {
+    return `${glyph} ${Math.abs(event.delta * 100).toFixed(0)}pp`;
+  }
+  const ranks = Math.abs(Math.round(event.delta * 10) / 10);
+  const amount = Number.isInteger(ranks) ? ranks.toFixed(0) : ranks.toFixed(1);
+  return `${glyph} ${amount} rank${ranks === 1 ? '' : 's'}`;
 };
 
 export const WhatChanged = () => {
   const { data } = useQuery<ChangesResponse>('/changes');
-  if (data?.status !== 'ok' || !data.latest || !data.previous) {
+  if (
+    data?.status !== 'ok' ||
+    !data.latest ||
+    !data.previous ||
+    data.cells == null
+  ) {
     return null;
   }
   const events = data.events ?? [];
+  // Two runs can share a date (an onboarding pair, or a manual re-run on a
+  // cron day); the completion time is what tells them apart.
+  const withTime =
+    data.latest.date === data.previous.date &&
+    data.latest.completedAt != null &&
+    data.previous.completedAt != null;
+  const runLabel = (run: ChangeRunRef): string =>
+    withTime && run.completedAt != null
+      ? `${shortDate(run.date)} ${utcClockTime(run.completedAt)}`
+      : shortDate(run.date);
   return (
     <section
       aria-labelledby="what-changed"
@@ -43,8 +63,9 @@ export const WhatChanged = () => {
           />
         </div>
         <span className="font-mono text-[10px] text-muted uppercase tracking-[0.1em]">
-          {shortDate(data.previous.date)} → {shortDate(data.latest.date)} ·{' '}
-          {data.promptCount} prompts × {data.surfaceCount} surfaces
+          {runLabel(data.previous)} → {runLabel(data.latest)} · {data.cells}{' '}
+          cells across {data.promptCount} prompts and {data.surfaceCount}{' '}
+          surfaces
         </span>
       </header>
 
@@ -66,7 +87,7 @@ export const WhatChanged = () => {
                 {event.direction === 'up' ? '↑' : '↓'}
               </span>
               <span className="min-w-0 flex-1 text-[13px] text-primary">
-                {event.headline}
+                {event.subject}
               </span>
               <span className="font-mono text-[11px] text-secondary">
                 {value(event, event.previous)} → {value(event, event.current)}

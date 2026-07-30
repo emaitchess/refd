@@ -160,7 +160,7 @@ export const METRIC_INFO = {
     definition:
       'A movement between the two most recent completed runs large enough to outrank sampling noise: 15 points for mention and citation rates, 10 points for share of voice, 20 points for sentiment shares, and one full rank for average position.',
     details:
-      'Runs are compared only over the prompts and surfaces both runs actually answered, so a partial run can never fabricate a change. Share of voice, position, and competitor comparisons pause when the tracked competitor set changed between the runs, because those metrics are relative to that set. Smaller movements stay silent: AI answers are sampled and non-deterministic, and run-to-run wobble below these thresholds is noise rather than news.',
+      'Runs are compared only over the cells (one prompt on one surface) that both runs actually answered, so a partial run can never fabricate a change. That count is usually smaller than prompts times surfaces, because a surface that returned no answer for a prompt leaves nothing to compare. Share of voice, position, and competitor comparisons pause when the tracked competitor set changed between the runs, because those metrics are relative to that set. Smaller movements stay silent: AI answers are sampled and non-deterministic, and run-to-run wobble below these thresholds is noise rather than news.',
   },
 } as const satisfies Record<string, MetricDefinition>;
 

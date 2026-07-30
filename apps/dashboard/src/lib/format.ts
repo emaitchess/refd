@@ -37,6 +37,11 @@ export const timestamp = (epochMs: number | null): string => {
     : new Date(epochMs).toISOString().replace('T', ' ').slice(0, 16);
 };
 
+// UTC time-of-day, for pairing with a run's date: run dates are UTC, so a
+// local-clock time could name an hour that belongs to the neighbouring date.
+export const utcClockTime = (epochMs: number): string =>
+  new Date(epochMs).toISOString().slice(11, 16);
+
 // Local wall-clock time for conversational rows (chat); pair with a
 // `timestamp()` title for the full UTC datetime on hover.
 export const clockTime = (epochMs: number): string =>
