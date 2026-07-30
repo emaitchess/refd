@@ -61,6 +61,7 @@ const slice = (
     runId,
     date: runId === 2 ? '2026-07-20' : '2026-07-19',
     trigger: 'cron',
+    completedAt: runId === 2 ? 1_753_000_000_000 : 1_752_900_000_000,
     entitySetHash: hash,
   },
   rows,
@@ -283,6 +284,50 @@ describe('detectChanges', () => {
     expect(overall).toHaveLength(1);
     expect(overall[0]?.scope).toBe('overall');
     expect(overall[0]?.headline).not.toContain('ChatGPT');
+  });
+
+  test('subject names what moved without the magnitude the card also shows', () => {
+    // The Overview card renders `subject` beside its own delta chip, so the
+    // magnitude must live only in `headline` (which MCP renders alone).
+    const previous = slice(
+      1,
+      prompts.map((p) => row(1, p, { mentioned: true, position: 1 })),
+    );
+    const latest = slice(
+      2,
+      prompts.map((p) => row(2, p, { mentioned: true, position: 3 })),
+    );
+    const report = detectChanges(latest, previous, entities, brand);
+    expect(report.events.length).toBeGreaterThan(0);
+    for (const event of report.events) {
+      expect(event.subject).not.toMatch(/\d/);
+      expect(event.headline).toMatch(/\d/);
+      expect(event.headline.startsWith(event.subject)).toBe(true);
+    }
+    const positionEvent = report.events.find((e) => e.type === 'position');
+    expect(positionEvent?.subject).toBe('Average position');
+  });
+
+  test('subject keeps the surface for a per-surface event', () => {
+    const report = detectChanges(
+      slice(2, [
+        ...prompts.map((p) => row(2, p)),
+        ...prompts.map((p) =>
+          row(2, p, { surface: 'perplexity', mentioned: true }),
+        ),
+      ]),
+      slice(1, [
+        ...prompts.map((p) => row(1, p, { mentioned: true })),
+        ...prompts.map((p) => row(1, p, { surface: 'perplexity' })),
+      ]),
+      entities,
+      brand,
+    );
+    const subjects = report.events.map((e) => e.subject).sort();
+    expect(subjects).toEqual([
+      'Mention rate on ChatGPT',
+      'Mention rate on Perplexity',
+    ]);
   });
 
   test('orders events by severity, worst first', () => {

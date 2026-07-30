@@ -96,6 +96,7 @@ export interface ChangeEvent {
   previous: number;
   delta: number;
   severity: number;
+  subject: string;
   headline: string;
   question: string;
 }
@@ -104,6 +105,7 @@ export interface ChangeRunRef {
   runId: number;
   date: string;
   trigger: string;
+  completedAt: number | null;
 }
 
 export interface ChangesResponse {

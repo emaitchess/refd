@@ -63,6 +63,11 @@ export interface ChangeEvent {
   previous: number;
   delta: number;
   severity: number;
+  // What moved, without the magnitude: the Overview card pairs this with its
+  // own delta chip, so a headline there would state the same number twice.
+  subject: string;
+  // The full sentence, magnitude included, for consumers that render one
+  // string alone (MCP get_recent_changes has no delta chip to lean on).
   headline: string;
   // The same fact phrased as a question the Home agent can be asked — the
   // Overview "ask" affordance and the idle chips both use it verbatim.
@@ -73,6 +78,9 @@ export interface RunRef {
   runId: number;
   date: string;
   trigger: string;
+  // Disambiguates two runs that share a date (an onboarding pair, or a manual
+  // re-run on a cron day). Null only for legacy directly-inserted imports.
+  completedAt: number | null;
   entitySetHash: string | null;
 }
 
@@ -112,6 +120,7 @@ const shareEvent = (
   const direction = delta >= 0 ? 'up' : 'down';
   const verb = direction === 'up' ? 'rose' : 'fell';
   const where = scope === 'overall' ? '' : ` on ${surfaceLabel(scope)}`;
+  const subject = `${label}${where}`;
   return {
     type,
     scope,
@@ -123,7 +132,8 @@ const shareEvent = (
     previous,
     delta,
     severity: Math.abs(delta),
-    headline: `${label}${where} ${verb} ${ppText(delta)}`,
+    subject,
+    headline: `${subject} ${verb} ${ppText(delta)}`,
     question: `${label}${where} ${verb} from ${pctText(previous)} to ${pctText(current)} between the last two runs. ${tail[direction]}`,
   };
 };
@@ -152,6 +162,7 @@ const positionEvent = (
     // One rank weighs like a threshold-level rate move, so mixed sorts stay
     // sane.
     severity: Math.abs(delta) * RATE_PP,
+    subject: 'Average position',
     headline: `Average position ${verb} ${ranksText}`,
     question: `Average position ${verb} from ${rankText(previous)} to ${rankText(current)} between the last two runs. ${
       direction === 'up'
@@ -369,6 +380,7 @@ export const loadLatestRunPair = async (
       id: runs.id,
       date: runs.date,
       trigger: runs.trigger,
+      completedAt: runs.completedAt,
       entitySetHash: runs.entitySetHash,
     })
     .from(runs)
@@ -409,6 +421,7 @@ export const loadLatestRunPair = async (
       runId: r.id,
       date: r.date,
       trigger: r.trigger,
+      completedAt: r.completedAt,
       entitySetHash: r.entitySetHash,
     },
     rows: rows.filter((row) => row.runId === r.id),
