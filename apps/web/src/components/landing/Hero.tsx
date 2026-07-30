@@ -14,7 +14,7 @@ export const Hero = () => {
       id="top"
       className="relative flex min-h-svh flex-col overflow-hidden border-border border-b"
       style={{
-        minHeight: 'calc(100svh - var(--public-header-height, 72px))',
+        minHeight: 'calc(100svh - var(--public-header-height, 56px))',
       }}
     >
       <HeroDither />
@@ -66,13 +66,13 @@ export const Hero = () => {
         </LandingInset>
       </LandingContainer>
 
-      <div className="landing-hero-reveal landing-hero-reveal-5 relative z-1 border-border border-t bg-bg/35 backdrop-blur-sm">
-        <LandingContainer>
-          <LandingInset className="flex flex-col items-center gap-4 py-5 text-primary lg:flex-row lg:justify-between">
-            <span className="font-mono text-[10px] uppercase tracking-[0.14em]">
+      <div className="landing-hero-reveal landing-hero-reveal-5 relative z-1 h-14 border-border border-t bg-bg">
+        <LandingContainer className="h-full">
+          <LandingInset className="flex h-full items-center gap-6 overflow-x-auto text-primary lg:justify-between">
+            <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.14em]">
               monitored surfaces
             </span>
-            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 lg:justify-end">
+            <div className="flex shrink-0 items-center gap-x-6 lg:justify-end">
               {SURFACE_ORDER.map((surface) => (
                 <span key={surface} className="flex items-center gap-2">
                   <SurfaceLogo surface={surface} className="h-3.5 w-3.5" />

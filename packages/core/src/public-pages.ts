@@ -8,7 +8,10 @@ export const PUBLIC_PAGE_PATHS = [
   '/docs',
   '/docs/getting-started',
   '/methodology',
+  '/open-source',
   '/privacy',
+  '/security',
+  '/support',
   '/terms',
 ];
 

@@ -150,7 +150,7 @@ export const PlatformSection = () => (
   <section
     id="platform"
     className="border-border border-b"
-    style={{ scrollMarginTop: 'var(--public-header-height, 72px)' }}
+    style={{ scrollMarginTop: 'var(--public-header-height, 56px)' }}
   >
     <LandingContainer className="py-16 sm:py-24">
       <LandingInset className="grid items-end gap-8 lg:grid-cols-[1fr_0.7fr]">

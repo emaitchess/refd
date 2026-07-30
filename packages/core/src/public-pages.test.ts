@@ -29,4 +29,11 @@ describe('public page catalog', () => {
     expect(INDEXABLE_PUBLIC_PATHS).toContain('/privacy');
     expect(INDEXABLE_PUBLIC_PATHS).toContain('/terms');
   });
+
+  test('includes the public trust pages in discovery', () => {
+    for (const path of ['/open-source', '/security', '/support']) {
+      expect(PUBLIC_PAGE_PATHS).toContain(path);
+      expect(INDEXABLE_PUBLIC_PATHS).toContain(path);
+    }
+  });
 });
