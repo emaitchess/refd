@@ -22,6 +22,8 @@ const resourceLinks = [
   { href: '/docs', label: 'docs' },
   { href: '/blog', label: 'blog' },
   { href: '/agents', label: 'agents' },
+  { href: '/security', label: 'security' },
+  { href: '/support', label: 'support' },
 ];
 const pageLinks = [
   { href: '/demo', label: 'demo' },
@@ -311,7 +313,7 @@ const resourceIsCurrent = resourceLinks.some((link) => isCurrent(link.href));
 
 <style>
   :global(:root) {
-    --public-header-height: 72px;
+    --public-header-height: 56px;
   }
 
   .public-header,
@@ -338,7 +340,7 @@ const resourceIsCurrent = resourceLinks.some((link) => isCurrent(link.href));
     z-index: 100;
     height: var(--public-header-height);
     border-bottom: 1px solid var(--nav-border);
-    background: color-mix(in srgb, var(--nav-bg) 94%, transparent);
+    background: var(--nav-bg);
     color: var(--nav-primary);
     backdrop-filter: blur(14px);
   }
@@ -689,7 +691,7 @@ const resourceIsCurrent = resourceLinks.some((link) => isCurrent(link.href));
 
   @media (max-width: 960px) {
     :global(:root) {
-      --public-header-height: 60px;
+      --public-header-height: 56px;
     }
 
     .public-header__inner {

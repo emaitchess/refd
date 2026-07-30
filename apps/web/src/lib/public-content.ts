@@ -9,8 +9,10 @@ export interface PublicContentEntry {
   order: number;
   answer: string;
   body: string;
-  section: 'Blog' | 'Documentation' | 'Guides' | 'Legal';
+  section: 'Blog' | 'Documentation' | 'Guides' | 'Legal' | 'Trust';
 }
+
+const trustPageIds = new Set(['open-source', 'security', 'support']);
 
 export const getPublicContent = async (): Promise<PublicContentEntry[]> => {
   const pages = (await getCollection('pages')).filter(isPublished).map(
@@ -22,7 +24,12 @@ export const getPublicContent = async (): Promise<PublicContentEntry[]> => {
       order: entry.data.order,
       answer: entry.data.answer,
       body: entry.body ?? '',
-      section: entry.data.layout === 'legal' ? 'Legal' : 'Guides',
+      section:
+        entry.data.layout === 'legal'
+          ? 'Legal'
+          : trustPageIds.has(entry.id)
+            ? 'Trust'
+            : 'Guides',
     }),
   );
   const docs = (await getCollection('docs')).filter(isPublished).map(

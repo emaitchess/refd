@@ -115,7 +115,7 @@ export const SignalsSection = () => (
   <section
     id="signals"
     className="border-border border-b"
-    style={{ scrollMarginTop: 'var(--public-header-height, 72px)' }}
+    style={{ scrollMarginTop: 'var(--public-header-height, 56px)' }}
   >
     <LandingContainer className="py-16 sm:py-24">
       <LandingInset>

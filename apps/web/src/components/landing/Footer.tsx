@@ -14,7 +14,7 @@ const productLinks = [
   { href: '/#platform', label: 'platform' },
   { href: '/#signals', label: 'signals' },
   { href: '/demo', label: 'interactive demo' },
-  { href: '/#open-source', label: 'open source' },
+  { href: '/open-source', label: 'open source' },
 ];
 
 const resourceLinks = [
@@ -22,6 +22,11 @@ const resourceLinks = [
   { href: '/docs', label: 'documentation' },
   { href: '/blog', label: 'blog' },
   { href: '/agents', label: 'agent access' },
+];
+
+const trustLinks = [
+  { href: '/security', label: 'security' },
+  { href: '/support', label: 'support' },
   { href: '/privacy', label: 'privacy' },
   { href: '/terms', label: 'terms' },
 ];
@@ -85,7 +90,7 @@ export const Footer = () => {
           opacity={theme === 'dark' ? 0.12 : 0.06}
           bloom="off"
         />
-        <LandingInset className="relative z-1 grid gap-x-10 gap-y-12 py-12 sm:grid-cols-2 lg:grid-cols-[1.5fr_repeat(3,minmax(0,1fr))] lg:gap-x-12 lg:py-16">
+        <LandingInset className="relative z-1 grid gap-x-10 gap-y-12 py-12 sm:grid-cols-2 lg:grid-cols-[1.5fr_repeat(4,minmax(0,1fr))] lg:gap-x-10 lg:py-16">
           <div className="sm:col-span-2 lg:col-span-1">
             <a
               href="/"
@@ -102,6 +107,7 @@ export const Footer = () => {
           </div>
           <FooterLinks title="product" links={productLinks} />
           <FooterLinks title="resources" links={resourceLinks} />
+          <FooterLinks title="trust" links={trustLinks} />
           <FooterLinks title="connect" links={connectLinks} />
         </LandingInset>
 

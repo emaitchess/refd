@@ -65,6 +65,9 @@ ${publishedContent}
 - Documentation: https://refd.ai/docs
 - Research and guides: https://refd.ai/blog
 - Agent access: https://refd.ai/agents
+- Security: https://refd.ai/security
+- Support: https://refd.ai/support
+- Open source: https://refd.ai/open-source
 - Privacy policy: https://refd.ai/privacy
 - Terms of service: https://refd.ai/terms
 - RSS: https://refd.ai/rss.xml

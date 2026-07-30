@@ -9,7 +9,7 @@ export const OpenSourceSection = () => {
     <section
       id="open-source"
       className="relative overflow-hidden border-border border-b text-primary"
-      style={{ scrollMarginTop: 'var(--public-header-height, 72px)' }}
+      style={{ scrollMarginTop: 'var(--public-header-height, 56px)' }}
     >
       <LandingContainer className="overflow-hidden">
         <DitherGradient
@@ -29,25 +29,31 @@ export const OpenSourceSection = () => {
               Run it with us. Or run the whole stack yourself.
             </h2>
             <p className="mt-6 max-w-[620px] text-[14px] text-secondary leading-[1.75]">
-              refd is one Cloudflare Worker with a React dashboard, D1, R2,
-              Queues, and Bright Data. Read the code, fork it, and keep control
-              of your data.
+              refd is an MIT-licensed stack of three Cloudflare Workers with a
+              React dashboard, Astro site, D1, R2, Queues, and Bright Data. Read
+              the measurement code, fork the project, or use the managed
+              service.
             </p>
           </div>
-          <a
-            href={GITHUB_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="group btn-primary h-11 px-5"
-          >
-            view the source{' '}
-            <span
-              aria-hidden
-              className="transition-transform duration-150 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 motion-reduce:transition-none"
+          <div className="flex flex-wrap items-center gap-3">
+            <a href="/open-source" className="btn-secondary h-11 px-5">
+              how it is built
+            </a>
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="group btn-primary h-11 px-5"
             >
-              ↗
-            </span>
-          </a>
+              view the source{' '}
+              <span
+                aria-hidden
+                className="transition-transform duration-150 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 motion-reduce:transition-none"
+              >
+                ↗
+              </span>
+            </a>
+          </div>
         </LandingInset>
       </LandingContainer>
     </section>
