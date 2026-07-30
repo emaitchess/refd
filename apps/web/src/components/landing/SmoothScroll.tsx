@@ -2,12 +2,29 @@ import 'lenis/dist/lenis.css';
 import { ReactLenis, useLenis } from 'lenis/react';
 import { type ReactNode, useEffect } from 'react';
 
-// Routes same-page anchor clicks through Lenis so they animate instead of
-// jumping. Lenis reads the target's scroll-margin-top, so the fixed-header
-// offset stays defined once, in the sections' scroll-mt classes. force lets
-// a click inside the open mobile menu scroll even while the menu holds Lenis
-// stopped; the menu's own close handler runs first (React delegates at #root,
-// below this document listener).
+const currentHashTarget = () => {
+  const id = window.location.hash.slice(1);
+  if (!id) {
+    return null;
+  }
+  try {
+    return document.getElementById(decodeURIComponent(id));
+  } catch {
+    return null;
+  }
+};
+
+const NativeHashScroll = () => {
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      currentHashTarget()?.scrollIntoView();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  return null;
+};
+
 const SmoothAnchors = () => {
   const lenis = useLenis();
 
@@ -15,6 +32,12 @@ const SmoothAnchors = () => {
     if (!lenis) {
       return;
     }
+    const initialTarget = currentHashTarget();
+    const frame = initialTarget
+      ? requestAnimationFrame(() => {
+          lenis.scrollTo(initialTarget, { force: true, immediate: true });
+        })
+      : null;
     const onClick = (event: MouseEvent) => {
       if (
         event.defaultPrevented ||
@@ -41,7 +64,24 @@ const SmoothAnchors = () => {
       lenis.scrollTo(target, { force: true });
     };
     document.addEventListener('click', onClick);
-    return () => document.removeEventListener('click', onClick);
+    const onPublicMenu = (event: Event) => {
+      if (
+        event instanceof CustomEvent &&
+        typeof event.detail === 'object' &&
+        event.detail !== null &&
+        'open' in event.detail
+      ) {
+        event.detail.open === true ? lenis.stop() : lenis.start();
+      }
+    };
+    window.addEventListener('refd:public-menu', onPublicMenu);
+    return () => {
+      if (frame !== null) {
+        cancelAnimationFrame(frame);
+      }
+      document.removeEventListener('click', onClick);
+      window.removeEventListener('refd:public-menu', onPublicMenu);
+    };
   }, [lenis]);
 
   return null;
@@ -54,7 +94,12 @@ export const SmoothScroll = ({ children }: { children: ReactNode }) => {
   const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   if (still) {
-    return children;
+    return (
+      <>
+        <NativeHashScroll />
+        {children}
+      </>
+    );
   }
   return (
     <ReactLenis root>

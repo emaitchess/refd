@@ -8,7 +8,8 @@ export const OpenSourceSection = () => {
   return (
     <section
       id="open-source"
-      className="relative scroll-mt-14 overflow-hidden border-border border-b text-primary md:scroll-mt-[68px]"
+      className="relative overflow-hidden border-border border-b text-primary"
+      style={{ scrollMarginTop: 'var(--public-header-height, 72px)' }}
     >
       <LandingContainer className="overflow-hidden">
         <DitherGradient
