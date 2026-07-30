@@ -36,6 +36,7 @@ import {
   SectionLabel,
   SentimentDistTag,
 } from '@/components/ui';
+import { ANALYTICS_EVENTS, trackEvent } from '@/lib/analytics';
 import { apiOrigin, useQuery } from '@/lib/api';
 import { seriesColor } from '@/lib/chart-colors';
 import { pct, position, SURFACE_ORDER, surfaceLabel } from '@/lib/format';
@@ -186,6 +187,12 @@ export const OnboardingReport = ({
   const siteMetadata =
     state.profile.siteMetadata ?? metadataQ.data?.metadata ?? null;
   const [promptCategory, setPromptCategory] = useState(ALL_PROMPT_CATEGORIES);
+
+  // "Received a first report" in the activation funnel. The report renders live
+  // while the run finishes, so reaching it is the milestone, not the run status.
+  useEffect(() => {
+    trackEvent(ANALYTICS_EVENTS.firstReportViewed);
+  }, []);
 
   // Progress spans both onboard runs (preliminary + background).
   const onboardRuns =

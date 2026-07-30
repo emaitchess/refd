@@ -7,4 +7,4 @@
   X-Frame-Options: DENY
   Referrer-Policy: no-referrer
   Strict-Transport-Security: max-age=31536000; includeSubDomains
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://api.refd.ai; font-src 'self'; connect-src 'self' https://api.refd.ai; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://analytics.tunnl.xyz; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://api.refd.ai; font-src 'self'; connect-src 'self' https://api.refd.ai https://analytics.tunnl.xyz; frame-ancestors 'none'; base-uri 'self'; form-action 'self'

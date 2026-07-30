@@ -1,7 +1,8 @@
 import { SURFACES } from '@refd/core/surfaces';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useWorkspace } from '../providers/workspace';
+import { ANALYTICS_EVENTS, trackEvent } from './analytics';
 import { api } from './api';
 import {
   PROMPT_CATEGORIES,
@@ -82,6 +83,18 @@ export const useOnboardingFlow = () => {
       alive = false;
     };
   }, [current?.id]);
+
+  // Drop-off inside the wizard needs each step entry, not just the endpoints.
+  // Once per step per mount, including the step a reload resumes at.
+  const trackedSteps = useRef(new Set<OnboardingStep>());
+  useEffect(() => {
+    const step = state?.step;
+    if (!step || trackedSteps.current.has(step)) {
+      return;
+    }
+    trackedSteps.current.add(step);
+    trackEvent(ANALYTICS_EVENTS.onboardingStep, { step });
+  }, [state?.step]);
 
   const call = useCallback(
     async <T>(fn: () => Promise<T>): Promise<T | null> => {
@@ -185,6 +198,7 @@ export const useOnboardingFlow = () => {
     () =>
       call(async () => {
         await api('/onboarding/commit', { method: 'POST', body: '{}' });
+        trackEvent(ANALYTICS_EVENTS.onboardingCommitted);
         setJustCommitted(true);
         return true;
       }),
@@ -197,6 +211,7 @@ export const useOnboardingFlow = () => {
     () =>
       call(async () => {
         await api('/onboarding/complete', { method: 'POST', body: '{}' });
+        trackEvent(ANALYTICS_EVENTS.onboardingCompleted);
         if (current) {
           markOnboarded(current.id);
         }

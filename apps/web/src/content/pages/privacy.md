@@ -19,8 +19,7 @@ to `refd.ai`, `dash.refd.ai`, `api.refd.ai`, and the hosted refd MCP server
 The open-source refd software can also be deployed independently. A person or
 organization operating a self-hosted deployment is responsible for that
 deployment and its privacy practices. Self-hosted installations do not send
-public-site analytics to refd unless their operator deliberately configures
-them to do so.
+analytics to refd unless their operator deliberately configures them to do so.
 
 ## Who is responsible for the data
 
@@ -73,18 +72,26 @@ The Service is designed to monitor brands and business questions. Do not submit
 special-category personal data, government identifiers, payment-card data,
 health records, or other sensitive personal information.
 
-### Public-site analytics and technical information
+### Product analytics and technical information
 
-On `refd.ai` only, OneDollarStats records aggregate usage information such as:
+On `refd.ai` and `dash.refd.ai` only, refd's own self-hosted
+[Umami](https://umami.is) instance records aggregate usage information such as:
 
 - The page visited and time of the visit.
 - Referring page and campaign parameters.
-- Session length.
 - General device type, operating system, browser, and country information.
+- A small set of named product events, used to measure how far people get
+  through account creation, onboarding, and their first report.
 
-refd does not intentionally send account details, workspace prompts, or report
-content to OneDollarStats. The integration does not set an analytics cookie or
-use browser storage. It is disabled on local and self-hosted domains.
+Umami is cookieless and uses no browser storage for tracking. It derives a
+rotating, non-reversible session identifier server-side and stores no network
+address alongside it.
+
+Dashboard page addresses are stripped of query strings and record identifiers
+before they are sent, so workspace content never leaves the Service this way.
+refd does not send account details, brand names, prompts, AI answers, or report
+figures to its analytics instance. Analytics is disabled entirely on local and
+self-hosted deployments.
 
 Cloudflare also processes ordinary request and security information needed to
 deliver the Service, including network address, requested URL, timestamp,
@@ -129,7 +136,7 @@ Where the GDPR or similar law applies, we rely on the following legal bases:
 | Purpose | Legal basis |
 | --- | --- |
 | Accounts, workspaces, reports, MCP connections, and requested features | Performance of a contract or steps requested before entering one |
-| Security, abuse prevention, service diagnostics, and aggregate public-site analytics | Our legitimate interests in operating, protecting, and improving the Service |
+| Security, abuse prevention, service diagnostics, and aggregate website and product analytics | Our legitimate interests in operating, protecting, and improving the Service |
 | Tax, accounting, regulatory, and lawful disclosure duties | Compliance with a legal obligation |
 | Optional processing that the law requires us to offer by choice | Consent, which may be withdrawn at any time |
 
@@ -143,7 +150,7 @@ instructions, or meet legal obligations.
 | [Cloudflare](https://www.cloudflare.com/privacypolicy/) | Hosts the website, dashboard, API, database, object storage, queues, OAuth records, network security, browser rendering, and Workers AI inference |
 | Monitoring collection service | Receives monitoring prompts and collection settings, then returns answers and search results from the configured AI surfaces |
 | [Exa](https://exa.ai/privacy-policy) | Searches public web indexes for competitor discovery and for dashboard web research when that feature is used |
-| [OneDollarStats](https://onedollarstats.com/privacy) | Processes aggregate traffic information from the public `refd.ai` website |
+| A self-hosted [Umami](https://umami.is) instance operated by refd | Processes aggregate traffic and product-event information from `refd.ai` and `dash.refd.ai`. No third-party analytics provider receives this data |
 | An MCP client you authorize | Receives read-only workspace data requested through the tools available to that client |
 
 These providers process information under their own terms and privacy
