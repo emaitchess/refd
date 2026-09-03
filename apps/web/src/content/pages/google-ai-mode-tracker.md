@@ -1,14 +1,14 @@
 ---
 title: "Google AI Mode tracker with source evidence"
-description: "Track brand and competitor visibility in Google AI Mode across buyer questions, repeated answers, cited sources, position, and sentiment."
+description: "Track brand and competitor visibility in Google AI Mode across scheduled buyer questions, cited sources, position, and sentiment."
 eyebrow: "AI Mode tracking"
-answer: "refd monitors Google AI Mode as its own conversational Search surface. It repeats each buyer question, records the final answer and source URLs, and measures brand mentions, citations, first-mention position, sentiment, prominence, and share of voice separately from Google AI Overviews."
+answer: "refd monitors Google AI Mode as its own conversational Search surface. It tracks each buyer question on every scheduled run, records the final answer and source URLs, and measures brand mentions, citations, first-mention position, sentiment, prominence, and share of voice separately from Google AI Overviews."
 layout: "surface"
 surface:
   key: "google-ai-mode"
   label: "Google AI Mode"
   collection: "Tracked by refd"
-  sampling: "Two independent samples per prompt"
+  sampling: "One sample per prompt and run"
   metrics:
     - label: "Mention rate"
       value: "56.0%"
@@ -20,13 +20,14 @@ surface:
       value: "#2.0"
       detail: "Conditional on a brand mention"
     - label: "Samples per cell"
-      value: "2"
-      detail: "Independent prompt observations"
+      value: "1"
+      detail: "One observation per run"
   samplePrompt: "What are the best Oura Ring alternatives for recovery tracking?"
   sampleSignal: "Mentioned · not cited · position 2"
   sampleFinding: "The answer names Ultrahuman early but cites another tracked brand, showing why mentions and citations must remain separate."
   limitation: "refd records the final answer and returned source URLs, not AI Mode's internal fan-out queries, private context, or every personalized result."
 publishedAt: 2026-07-30
+updatedAt: 2026-08-02
 author:
   name: "Mohammad Hamza Suhail"
   url: "https://emaitchess.com"
@@ -43,7 +44,7 @@ related:
     description: "Explore the fabricated Ultrahuman workspace, prompt results, citations, competitors, and answer evidence."
   - href: "/methodology"
     title: "Measurement methodology"
-    description: "Review collection, repeated sampling, scoring, aggregation, and the limits of every metric."
+    description: "Review scheduled collection, scoring, aggregation, and the limits of every metric."
 ---
 
 Google AI Mode is the conversational, exploratory AI experience inside Google
@@ -147,10 +148,10 @@ AI Mode responses and links can vary with prompt wording, location, available
 sources, product updates, personalization, and collection time. The answer may
 also reflect related searches that refd does not see.
 
-Two samples expose some variation, but not every possible result. The tracker
-is a repeated measurement of a defined prompt set, country configuration, and
-collection time. It is not a complete account of Google's internal retrieval
-or every user's Search experience.
+Each scheduled run records one observation of the defined prompt set, country
+configuration, and collection time. Trends across completed runs provide
+context, but they are not a complete account of Google's internal retrieval or
+every user's Search experience.
 
 ## Frequently asked questions
 

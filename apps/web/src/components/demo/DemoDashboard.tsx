@@ -211,7 +211,6 @@ const EvidencePanel = ({ result }: { result: DemoPromptResult }) => (
     <div className="grid lg:grid-cols-[minmax(0,1.65fr)_minmax(260px,0.75fr)]">
       <div className="border-border p-5 lg:border-r">
         <div className="mb-5 flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[10px] text-muted uppercase tracking-[0.08em]">
-          <span>sample 2 of 2</span>
           <span>position {position(result.position)}</span>
           <span>captured 28 Jul 2026</span>
         </div>

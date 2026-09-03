@@ -2,13 +2,13 @@
 title: "Perplexity visibility and citation tracker"
 description: "Track brand mentions, cited domains, competitor position, and the answer evidence returned for your buyer questions in Perplexity."
 eyebrow: "Perplexity tracking"
-answer: "refd repeats a fixed set of buyer questions in Perplexity, records the returned answer and source URLs, and measures brand mentions, citations, competitor position, sentiment, prominence, and share of voice. Source-rich answers make citation gaps especially useful, but every citation remains separate from a visible brand mention."
+answer: "refd tracks a fixed set of buyer questions in Perplexity on each scheduled run, records the returned answer and source URLs, and measures brand mentions, citations, competitor position, sentiment, prominence, and share of voice. Source-rich answers make citation gaps especially useful, but every citation remains separate from a visible brand mention."
 layout: "surface"
 surface:
   key: "perplexity"
   label: "Perplexity"
   collection: "Tracked by refd"
-  sampling: "Two independent samples per prompt"
+  sampling: "One sample per prompt and run"
   metrics:
     - label: "Mention rate"
       value: "75.0%"
@@ -20,13 +20,14 @@ surface:
       value: "#1.5"
       detail: "Conditional on a brand mention"
     - label: "Samples per cell"
-      value: "2"
-      detail: "Independent prompt observations"
+      value: "1"
+      detail: "One observation per run"
   samplePrompt: "Which wearable is best for metabolic health insights?"
   sampleSignal: "Mentioned · cited · position 1"
   sampleFinding: "The answer leads with Ultrahuman, connects the brand to metabolic context, and cites the brand domain."
   limitation: "Perplexity answers and sources can vary by search mode, selected model, location, product changes, and collection time."
 publishedAt: 2026-07-30
+updatedAt: 2026-08-02
 author:
   name: "Mohammad Hamza Suhail"
   url: "https://emaitchess.com"
@@ -40,7 +41,7 @@ related:
     description: "Explore the fabricated Ultrahuman workspace, prompt results, citations, competitors, and answer evidence."
   - href: "/methodology"
     title: "Measurement methodology"
-    description: "Review collection, repeated sampling, scoring, aggregation, and the limits of every metric."
+    description: "Review scheduled collection, scoring, aggregation, and the limits of every metric."
   - href: "/chatgpt-visibility-tracker"
     title: "ChatGPT visibility tracker"
     description: "Track web-search-enabled ChatGPT answers with separate mention, citation, and position evidence."

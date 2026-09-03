@@ -16,7 +16,7 @@ import type { IngestMessage, RunPrompt } from './messages';
 
 export const samplesFor = (env: AppEnv): number => {
   const parsed = Number.parseInt(env.SAMPLES, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 2;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 };
 
 export const promptBatchSize = (env: AppEnv): number => {

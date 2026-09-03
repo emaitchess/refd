@@ -8,7 +8,7 @@ surface:
   key: "google-ai-overviews"
   label: "Google AI Overviews"
   collection: "Tracked by refd"
-  sampling: "Two independent samples per query"
+  sampling: "One sample per query and run"
   metrics:
     - label: "Mention rate"
       value: "52.0%"
@@ -20,13 +20,14 @@ surface:
       value: "#3.0"
       detail: "Conditional on a brand mention"
     - label: "Samples per cell"
-      value: "2"
-      detail: "Overview presence checked each time"
+      value: "1"
+      detail: "Overview presence checked per run"
   samplePrompt: "Is a smart ring or fitness band better for sleep tracking?"
   sampleSignal: "Overview present · mentioned · cited · position 3"
   sampleFinding: "The Overview explains the form-factor tradeoff, then names Ultrahuman after other tracked products and cites the brand domain."
   limitation: "Google shows AI Overviews only when its systems determine they add value, so coverage can vary by query, country, language, time, and product behavior."
 publishedAt: 2026-07-30
+updatedAt: 2026-08-02
 author:
   name: "Mohammad Hamza Suhail"
   url: "https://emaitchess.com"
@@ -43,7 +44,7 @@ related:
     description: "Explore the fabricated Ultrahuman workspace, prompt results, citations, competitors, and answer evidence."
   - href: "/methodology"
     title: "Measurement methodology"
-    description: "Review collection, repeated sampling, scoring, aggregation, and the limits of every metric."
+    description: "Review scheduled collection, scoring, aggregation, and the limits of every metric."
 ---
 
 Google AI Overviews are generated summaries that can appear on a standard
@@ -125,9 +126,9 @@ The evidence supports several separate conclusions:
 4. A page from the Ultrahuman domain appeared in the reference list.
 5. The brand was associated with the smart-ring side of the comparison.
 
-Another sample of the same query could return no Overview or a different
-answer. That is why refd stores coverage and visibility separately and repeats
-the observation.
+A later run of the same query could return no Overview or a different answer.
+That is why refd stores coverage and visibility separately and trends the
+observation over time.
 
 ## AI Overviews and AI Mode differ
 
@@ -164,9 +165,9 @@ AI Overview availability and content can vary by query, country, language,
 device context, time, source availability, and product changes. A valid
 observation may still contain no Overview.
 
-Two samples make some instability visible, but they do not represent every
-Google user or location. Trend coverage and visibility across repeated
-completed runs instead of treating one Search result as a durable fact.
+One scheduled observation does not represent every Google user or location.
+Trend coverage and visibility across completed runs instead of treating one
+Search result as a durable fact.
 
 ## Frequently asked questions
 

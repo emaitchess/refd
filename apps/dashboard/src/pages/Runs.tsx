@@ -69,14 +69,13 @@ const RUN_COLUMNS: ColumnSpec[] = [
 ];
 
 const RESULT_COLUMNS: ColumnSpec[] = [
-  { key: 'prompt', min: 280, fraction: 0.27 },
-  { key: 'surface', min: 130, fraction: 0.12 },
-  { key: 'sample', min: 72, fraction: 0.07 },
-  { key: 'status', min: 120, fraction: 0.12 },
-  { key: 'brand', min: 140, fraction: 0.13 },
-  { key: 'sentiment', min: 96, fraction: 0.09 },
+  { key: 'prompt', min: 280, fraction: 0.29 },
+  { key: 'surface', min: 130, fraction: 0.13 },
+  { key: 'status', min: 120, fraction: 0.13 },
+  { key: 'brand', min: 140, fraction: 0.14 },
+  { key: 'sentiment', min: 96, fraction: 0.1 },
   { key: 'urls', min: 72, fraction: 0.07 },
-  { key: 'duration', min: 96, fraction: 0.07 },
+  { key: 'duration', min: 96, fraction: 0.08 },
   { key: 'raw', min: 72, fraction: 0.06 },
 ];
 
@@ -100,7 +99,6 @@ const SENTIMENT_RANK = { positive: 2, neutral: 1, negative: 0 } as const;
 const BASE_RESULT_SORTS: SortAccessors<RunResultRow> = {
   prompt: promptResultSort,
   surface: (row) => row.surface,
-  sample: (row) => row.sample,
   status: (row) => (row.ok ? (row.answerPresent ? 2 : 1) : 0),
   brand: (row) => row.brandMentioned * 2 + row.brandCited,
   sentiment: (row) =>
@@ -853,7 +851,7 @@ export const RunDetail = () => {
                   </span>
                 </div>
                 <p className="mt-1 text-[12px] text-muted">
-                  One row per prompt, AI surface, and sample in this run.
+                  One row per collected prompt and AI surface in this run.
                 </p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center xl:justify-end">
@@ -929,14 +927,6 @@ export const RunDetail = () => {
                       sort={sort}
                       onToggle={toggle}
                       resizer={resizer('surface', 'surface')}
-                    />
-                    <Th
-                      label="Sample"
-                      sortKey="sample"
-                      sort={sort}
-                      onToggle={toggle}
-                      align="right"
-                      resizer={resizer('sample', 'sample')}
                     />
                     <Th
                       label="Outcome"
@@ -1040,9 +1030,6 @@ export const RunDetail = () => {
                               {surfaceLabel(row.surface)}
                             </span>
                           </span>
-                        </td>
-                        <td className="px-2 py-2.5 text-right font-mono text-[11px] tabular-nums">
-                          {row.sample}
                         </td>
                         <td className="px-2 py-2.5">
                           <ResultStatus row={row} />

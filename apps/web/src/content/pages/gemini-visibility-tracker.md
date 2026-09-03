@@ -2,13 +2,13 @@
 title: "Gemini visibility tracker with repeated answers"
 description: "Measure Gemini brand mentions, citations, competitor position, sentiment, and answer evidence across a stable set of buyer questions."
 eyebrow: "Gemini tracking"
-answer: "refd repeats a fixed set of buyer questions in Gemini and scores the returned answer text and source URLs. It shows how often the brand appears, whether its domain is cited, who is named first, how the brand is described, and which evidence supports every aggregate."
+answer: "refd tracks a fixed set of buyer questions in Gemini on each scheduled run and scores the returned answer text and source URLs. It shows how often the brand appears, whether its domain is cited, who is named first, how the brand is described, and which evidence supports every aggregate."
 layout: "surface"
 surface:
   key: "gemini"
   label: "Gemini"
   collection: "Tracked by refd"
-  sampling: "Two independent samples per prompt"
+  sampling: "One sample per prompt and run"
   metrics:
     - label: "Mention rate"
       value: "61.0%"
@@ -20,13 +20,14 @@ surface:
       value: "#2.0"
       detail: "Conditional on a brand mention"
     - label: "Samples per cell"
-      value: "2"
-      detail: "Independent prompt observations"
+      value: "1"
+      detail: "One observation per run"
   samplePrompt: "What are the best smart rings without a subscription?"
   sampleSignal: "Mentioned · cited · position 1"
   sampleFinding: "The answer leads with Ultrahuman and RingConn, then distinguishes the brands by recovery experience, price, and battery life."
   limitation: "Gemini does not expose sources for every response, and its decision to use web search can vary with the prompt and product behavior."
 publishedAt: 2026-07-30
+updatedAt: 2026-08-02
 author:
   name: "Mohammad Hamza Suhail"
   url: "https://emaitchess.com"
@@ -40,7 +41,7 @@ related:
     description: "Explore the fabricated Ultrahuman workspace, prompt results, citations, competitors, and answer evidence."
   - href: "/methodology"
     title: "Measurement methodology"
-    description: "Review collection, repeated sampling, scoring, aggregation, and the limits of every metric."
+    description: "Review scheduled collection, scoring, aggregation, and the limits of every metric."
   - href: "/google-ai-mode-tracker"
     title: "Google AI Mode tracker"
     description: "Measure Google's conversational Search surface separately from the standalone Gemini app."
@@ -132,10 +133,10 @@ Gemini responses are non-deterministic. Source availability, whether web search
 is used, location, prompt wording, product updates, and collection time can
 change the output.
 
-Two repeated samples make disagreement visible but do not capture every answer
-a user could receive. refd records the tracked result for the configured
-country and time. It does not control Gemini's retrieval decision or claim that
-a missing source URL means the answer had no outside influence.
+Each scheduled run records one observation and does not capture every answer a
+user could receive. refd records the tracked result for the configured country
+and time. It does not control Gemini's retrieval decision or claim that a
+missing source URL means the answer had no outside influence.
 
 ## Frequently asked questions
 

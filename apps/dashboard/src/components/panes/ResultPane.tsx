@@ -33,7 +33,6 @@ export interface ResultDetail {
     id: number;
     promptText: string;
     surface: string;
-    sample: number;
     provider: string;
     ok: boolean;
     answerPresent: boolean;
@@ -279,7 +278,6 @@ export const ResultPane = ({
               />
               {surfaceLabel(data.result.surface)}
             </Badge>
-            <Badge tone="neutral">sample {data.result.sample}</Badge>
             {data.result.ok ? (
               data.result.answerPresent ? (
                 <Badge tone="ok">ok</Badge>

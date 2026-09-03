@@ -25,7 +25,7 @@
   },
   "vars": {
     "GEO_COUNTRY": "US",
-    "SAMPLES": "2",
+    "SAMPLES": "1",
     "PROMPT_BATCH_SIZE": "5",
     // refd.ai checks workspace entitlements. Self-hosters should use "all".
     "SCHEDULED_MONITORING_POLICY": "entitled",

@@ -23,7 +23,7 @@ const HowItWorksIllustration = () => {
     >
       <figcaption className="sr-only">
         A monitoring run moves a prompt set across five AI surfaces, preserves
-        every answer, and turns repeated samples into a durable visibility
+        every answer, and turns scheduled observations into a durable visibility
         trend.
       </figcaption>
       <div
@@ -102,7 +102,7 @@ const HowItWorksIllustration = () => {
               durable signal
             </p>
             <p className="mt-1 text-[13px] text-secondary">
-              Repeated samples over time
+              Scheduled observations over time
             </p>
           </div>
           <span className="font-mono text-[10px] text-primary">+6.4 pp</span>
@@ -133,7 +133,7 @@ export const HowItWorksSection = () => {
               Track the questions that matter. Verify every answer.
             </h2>
             <p className="mt-5 max-w-[590px] text-[15px] text-secondary leading-[1.7]">
-              Repeat samples reveal durable trends instead of treating one
+              Completed runs reveal durable trends instead of treating one
               non-deterministic answer as the truth.
             </p>
             <ol

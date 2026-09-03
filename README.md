@@ -48,8 +48,8 @@ bun run deploy
 
 ## Notes
 
-- AI answers are non-deterministic: `SAMPLES=2` per prompt/surface; read trends across runs, not single samples.
-- Each standard full run is capped at 25 active prompts × 3 enabled surfaces × samples (25 × 3 × 2 = 150 records at the default). Quota scales with the number of workspaces eligible for scheduled monitoring.
+- AI answers are non-deterministic: hosted scheduled runs use `SAMPLES=1` per prompt and surface; read trends across completed runs, not one sample. Operators can request additional samples for focused manual runs.
+- Each standard full run is capped at 25 active prompts × 3 enabled surfaces × samples (25 × 3 × 1 = 75 records at the default). Quota scales with the number of workspaces eligible for scheduled monitoring.
 - Design system: `docs/DESIGN.md`. Scoring/metrics contract: `docs/METRICS.md`. Remote MCP + OAuth: `docs/mcp.md`.
 
 ## Contributing
