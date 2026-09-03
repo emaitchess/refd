@@ -38,6 +38,15 @@ const POLL_DELAY_SECONDS = 60;
 const BACKSTOP_DELAY_SECONDS = 1500;
 const MAX_POLLS = 60; // give a snapshot up to ~1h before declaring it lost
 
+// Cloudflare Queues producer backpressure (error 10250). Only the enqueue of
+// follow-on work failed, never the provider call the message stands for, and
+// every send site is idempotent on redelivery — so acking here would burn a
+// whole batch of prompts over a transient throughput limit.
+export const isQueueOverload = (error: unknown): boolean =>
+  (error instanceof Error ? error.message : String(error)).includes(
+    'Queue is overloaded',
+  );
+
 const backoffSeconds = (
   attempts: number,
   retryAfter: number | null,
@@ -623,6 +632,7 @@ export const handleIngestBatch = async (
       // idempotent, so retrying is always right.
       if (
         error instanceof ProviderRetryableError ||
+        isQueueOverload(error) ||
         body.kind === 'rescore_batch' ||
         body.kind === 'sentiment_score'
       ) {
