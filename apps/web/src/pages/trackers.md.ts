@@ -29,7 +29,7 @@ export const GET: APIRoute = async () => {
               href: '/methodology.md',
               title: 'How refd measures AI search visibility',
               description:
-                'Collection, repeated sampling, scoring, aggregation, and the evidence behind every metric.',
+                'Scheduled collection, scoring, aggregation, and the evidence behind every metric.',
             },
             {
               href: '/demo.md',

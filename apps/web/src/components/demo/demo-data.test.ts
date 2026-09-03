@@ -13,7 +13,7 @@ describe('interactive demo data', () => {
       expect(data.trend.length).toBeGreaterThanOrEqual(2);
       expect(data.surfaces).toHaveLength(DEMO_SURFACES.length);
       expect(data.answerCount).toBe(
-        data.runCount * DEMO_PROMPTS.length * DEMO_SURFACES.length * 2,
+        data.runCount * DEMO_PROMPTS.length * DEMO_SURFACES.length,
       );
 
       for (const value of [

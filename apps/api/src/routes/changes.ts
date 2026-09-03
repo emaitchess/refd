@@ -5,7 +5,7 @@
 // (prompt × surface) cells, so a subset run can never fabricate a drop;
 // set-relative metrics (SOV, position, competitor movement) are suppressed
 // when the tracked entity set changed between the runs; and deltas under the
-// material thresholds stay silent — SAMPLES=2 answers are non-deterministic,
+// material thresholds stay silent — single-sample runs are non-deterministic,
 // so small moves are noise, not news.
 
 import { SURFACE_ORDER, surfaceLabel } from '@refd/core/surfaces';

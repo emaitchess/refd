@@ -90,9 +90,9 @@ export const GLOSSARY_TERMS: GlossaryDefinition<TermCategory>[] = [
     title: 'AI answer',
     category: 'AI answers',
     definition:
-      'The response text and source list returned for one prompt, AI surface, and sample.',
+      'The response text and source list returned for one prompt on one AI surface in a run.',
     details:
-      'Each answer is scored independently. Because generated answers can vary, trends across runs and samples are more reliable than one answer in isolation.',
+      'Each answer is scored independently. Because generated answers can vary, trends across completed runs are more reliable than one answer in isolation.',
   },
   {
     id: 'mention',
@@ -135,14 +135,14 @@ export const GLOSSARY_TERMS: GlossaryDefinition<TermCategory>[] = [
     definition:
       'A valid Google search result in which Google did not show an AI Overview.',
     details:
-      'This outcome is not a collection failure. It records that no AI answer was available to score for that prompt and sample.',
+      'This outcome is not a collection failure. It records that no AI answer was available to score for that prompt in the run.',
   },
   {
     id: 'run',
     title: 'Run',
     category: 'Collection and scoring',
     definition:
-      'A collection batch covering the active prompts, enabled AI surfaces, and configured samples at a point in time.',
+      'A collection batch covering the active prompts and enabled AI surfaces at a point in time.',
     details:
       'Runs freeze their prompt set when they start, so edits made during collection do not change the work already in progress.',
   },
@@ -155,20 +155,10 @@ export const GLOSSARY_TERMS: GlossaryDefinition<TermCategory>[] = [
       'Scheduled runs start automatically each day. Manual runs are started by a user, onboarding runs build the first report, and imported runs preserve historical data.',
   },
   {
-    id: 'sample',
-    title: 'Sample',
-    category: 'Collection and scoring',
-    definition:
-      'One independent attempt to collect an answer for the same prompt and AI surface.',
-    details:
-      'Multiple samples reduce the influence of any single non-deterministic answer. Metrics average samples within each prompt and surface before combining them.',
-  },
-  {
     id: 'collection-unit',
     title: 'Collection unit',
     category: 'Collection and scoring',
-    definition:
-      'One result for a specific prompt, AI surface, and sample within a run.',
+    definition: 'One result for a specific prompt and AI surface within a run.',
     details:
       'A successful unit completed provider collection. For Google AI Overviews, a successful unit may still contain no overview because that is a valid outcome.',
   },

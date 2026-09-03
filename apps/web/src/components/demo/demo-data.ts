@@ -114,7 +114,7 @@ export const DEMO_RANGE_ORDER: DemoRange[] = ['7d', '30d', '90d'];
 export const DEMO_RANGE_DATA: Record<DemoRange, DemoRangeData> = {
   '7d': {
     label: 'Last 7 days',
-    answerCount: 700,
+    answerCount: 350,
     runCount: 7,
     tiles: {
       mention: {
@@ -215,7 +215,7 @@ export const DEMO_RANGE_DATA: Record<DemoRange, DemoRangeData> = {
   },
   '30d': {
     label: 'Last 30 days',
-    answerCount: 800,
+    answerCount: 400,
     runCount: 8,
     tiles: {
       mention: {
@@ -325,7 +325,7 @@ export const DEMO_RANGE_DATA: Record<DemoRange, DemoRangeData> = {
   },
   '90d': {
     label: 'Last 90 days',
-    answerCount: 1200,
+    answerCount: 600,
     runCount: 12,
     tiles: {
       mention: {

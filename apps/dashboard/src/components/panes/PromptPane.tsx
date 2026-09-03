@@ -25,7 +25,6 @@ interface LatestRun {
   results: {
     id: number;
     surface: string;
-    sample: number;
     ok: boolean;
     answerPresent: boolean;
     totalUrls: number;
@@ -37,17 +36,15 @@ type ResultRow = LatestRun['results'][number];
 
 const RESULT_PAGE_SIZE = 5;
 const RESULT_COLUMNS: ColumnSpec[] = [
-  { key: 'surface', min: 132, fraction: 0.36 },
-  { key: 'sample', min: 72, fraction: 0.16 },
-  { key: 'status', min: 96, fraction: 0.25 },
-  { key: 'citations', min: 88, fraction: 0.23 },
+  { key: 'surface', min: 132, fraction: 0.44 },
+  { key: 'status', min: 96, fraction: 0.3 },
+  { key: 'citations', min: 88, fraction: 0.26 },
 ];
 const RESULT_SORTS: SortAccessors<ResultRow> = {
   surface: (row) => {
     const index = SURFACE_ORDER.indexOf(row.surface);
     return index === -1 ? SURFACE_ORDER.length : index;
   },
-  sample: (row) => row.sample,
   status: (row) => (row.ok ? (row.answerPresent ? 2 : 1) : 0),
   citations: (row) => row.totalUrls,
 };
@@ -100,14 +97,6 @@ const PromptResultsTable = ({
                 resizer={resizer('surface', 'surface')}
               />
               <Th
-                label="Sample"
-                sortKey="sample"
-                sort={sorted.sort}
-                onToggle={toggleSort}
-                align="right"
-                resizer={resizer('sample', 'sample')}
-              />
-              <Th
                 label="Status"
                 sortKey="status"
                 sort={sorted.sort}
@@ -141,9 +130,6 @@ const PromptResultsTable = ({
                       {surfaceLabel(row.surface)}
                     </span>
                   </span>
-                </td>
-                <td className="h-9 px-2 text-right font-mono tabular-nums">
-                  {row.sample}
                 </td>
                 <td className="h-9 px-2">
                   {row.ok ? (

@@ -2,13 +2,13 @@
 title: "ChatGPT visibility tracker with answer evidence"
 description: "Track when ChatGPT names or cites your brand, which competitors appear first, and the answer evidence behind every visibility metric."
 eyebrow: "ChatGPT tracking"
-answer: "refd tracks a fixed set of buyer questions in web-search-enabled ChatGPT responses, repeats each prompt, and records the returned answer text and source URLs. It measures brand and competitor mentions, citations, first-mention position, sentiment, prominence, and share of voice without treating one answer as a stable ranking."
+answer: "refd tracks a fixed set of buyer questions in web-search-enabled ChatGPT responses on each scheduled run and records the returned answer text and source URLs. It measures brand and competitor mentions, citations, first-mention position, sentiment, prominence, and share of voice without treating one answer as a stable ranking."
 layout: "surface"
 surface:
   key: "chatgpt"
   label: "ChatGPT"
   collection: "Tracked by refd"
-  sampling: "Two independent samples per prompt"
+  sampling: "One sample per prompt and run"
   metrics:
     - label: "Mention rate"
       value: "68.0%"
@@ -20,13 +20,14 @@ surface:
       value: "#2.0"
       detail: "Conditional on a brand mention"
     - label: "Samples per cell"
-      value: "2"
-      detail: "Independent prompt observations"
+      value: "1"
+      detail: "One observation per run"
   samplePrompt: "What is the best smart ring for sleep tracking?"
   sampleSignal: "Mentioned · cited · position 2"
   sampleFinding: "The answer names Ultrahuman as a subscription-free alternative after Oura and links to the brand domain."
   limitation: "ChatGPT can vary its wording, search behavior, sources, and recommendations between otherwise identical prompts."
 publishedAt: 2026-07-30
+updatedAt: 2026-08-02
 author:
   name: "Mohammad Hamza Suhail"
   url: "https://emaitchess.com"
@@ -40,7 +41,7 @@ related:
     description: "Explore the fabricated Ultrahuman workspace, prompt results, citations, competitors, and answer evidence."
   - href: "/methodology"
     title: "Measurement methodology"
-    description: "Review collection, repeated sampling, scoring, aggregation, and the limits of every metric."
+    description: "Review scheduled collection, scoring, aggregation, and the limits of every metric."
   - href: "/perplexity-visibility-tracker"
     title: "Perplexity visibility tracker"
     description: "Measure source-rich Perplexity answers without collapsing mentions and citations into one signal."
@@ -150,10 +151,10 @@ location, product changes, source availability, and collection conditions can
 affect the result. OpenAI also notes that there is no guaranteed placement in
 ChatGPT Search.
 
-refd therefore takes repeated samples and recommends comparing trends across
-completed runs. Two samples make variation visible, but they do not describe
-every answer a person might see. Each result records what refd observed for the
-configured country at that time.
+refd therefore records one observation per prompt and surface in each scheduled
+run and recommends comparing trends across completed runs. One observation does
+not describe every answer a person might see. Each result records what refd
+observed for the configured country at that time.
 
 ## Frequently asked questions
 
@@ -172,8 +173,8 @@ and a brand page can be cited without the visible prose naming the brand.
 ### Can one ChatGPT answer represent overall visibility?
 
 No. One answer is evidence for one prompt, sample, surface, country
-configuration, and collection time. Use a representative prompt set, repeated
-samples, and trends across runs.
+configuration, and collection time. Use a representative prompt set and trends
+across completed runs.
 
 ## Sources reviewed
 

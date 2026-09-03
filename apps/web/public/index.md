@@ -11,8 +11,8 @@ complete platform yourself.
 ## What it does
 
 - **AI surfaces:** Monitor ChatGPT, Perplexity, Gemini, Google AI Mode, and AI
-  Overviews on a schedule. Repeat samples help reveal trends instead of one-off
-  answers.
+  Overviews on a schedule. Completed runs reveal trends instead of treating one
+  answer as permanent.
 - **Buyer questions:** Build a prompt set around the questions buyers ask. Every
   run checks each active prompt across every surface.
 - **Competitive visibility:** Compare your brand with the competitors you track
@@ -27,8 +27,8 @@ complete platform yourself.
 ## How it works
 
 Each workspace tracks a single brand and its competitors. On a daily schedule,
-refd runs your active prompts across every AI answer surface, takes repeat
-samples of each, and scores the results. Because AI answers are
+refd runs your active prompts once across every enabled AI answer surface and
+scores the results. Because AI answers are
 non-deterministic, refd compares trends across runs rather than trusting a single
 answer.
 

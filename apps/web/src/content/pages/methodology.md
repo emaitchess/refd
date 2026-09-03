@@ -4,6 +4,7 @@ description: "How refd collects repeated AI answers, detects mentions and citati
 eyebrow: "Methodology"
 answer: "refd repeatedly runs a fixed set of buyer questions across five AI answer surfaces, scores the visible answer text and source URLs, and aggregates results by prompt and surface. Every metric stays linked to the underlying answer so a change can be inspected instead of taken on faith."
 publishedAt: 2026-07-29
+updatedAt: 2026-08-02
 author:
   name: "Mohammad Hamza Suhail"
   url: "https://emaitchess.com"
@@ -32,7 +33,7 @@ and the implementation is available in the
 | Stage | What refd does | Why it matters |
 | --- | --- | --- |
 | Define | Freeze a brand, competitors, aliases, domains, prompts, and surfaces for each run | Mid-run edits cannot change the comparison set |
-| Collect | Run each prompt across enabled AI answer surfaces with repeated samples | One answer is not treated as a stable ranking |
+| Collect | Run each prompt once across enabled AI answer surfaces on each scheduled run | Trends are built from completed runs rather than extra copies inside one run |
 | Normalize | Extract the visible answer and source URLs from collected results | Surface-specific response shapes do not leak into scoring |
 | Score | Detect mentions, citations, first-mention order, prominence, and sentiment | Each signal keeps a clear definition |
 | Aggregate | Calculate rates per prompt and surface, then roll them up with explicit denominators | Large or noisy prompt groups do not silently dominate |
@@ -60,7 +61,7 @@ comparison, evaluation, and decision stages. refd measures that selected set. It
 does not claim that a small prompt list represents every possible question in a
 market.
 
-## Collect repeated answers across five surfaces
+## Collect scheduled answers across five surfaces
 
 refd currently tracks ChatGPT, Perplexity, Gemini, Google AI Mode, and Google AI
 Overviews as separate surfaces. Collection conditions, geography, session
@@ -68,13 +69,15 @@ state, and product changes can affect the returned answers. refd records the
 result observed at that time; it does not claim to reproduce every answer every
 person could receive.
 
-The hosted deployment currently takes two samples of each prompt and surface
-cell. Samples are collected independently. Identical prompts are never placed
-together in a way that could collapse them into one response.
+The hosted deployment currently takes one sample of each prompt and surface in
+every scheduled run. This keeps daily collection cost bounded while preserving
+the prompt and surface coverage needed for trend reporting.
 
-Two samples do not eliminate uncertainty. They make instability visible and
-reduce the temptation to interpret one answer as a durable rank. Trends across
-completed runs are more meaningful than any single sample.
+One sample does not make an AI answer deterministic. refd therefore treats a
+completed run as one observation and compares trends across runs instead of
+presenting one answer as a durable rank. Focused operator runs can request
+additional samples; the same scoring contract averages them within their prompt
+and surface cell.
 
 ### Missing AI Overviews are observations
 
@@ -267,8 +270,8 @@ for evidence. When a number matters, inspect the answers that produced it.
 
 Use refd with these boundaries in mind:
 
-- **AI output is non-deterministic.** Repeated samples help, but no sample count
-  makes an answer permanent.
+- **AI output is non-deterministic.** Repeated completed runs provide trend
+  context, but no observation makes an answer permanent.
 - **The prompt set is selected.** Results describe the questions, surfaces, and
   tracked entities configured in the workspace.
 - **Collection has a viewpoint.** Results reflect the access path and response

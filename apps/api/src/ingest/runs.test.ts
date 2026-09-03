@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { AppEnv } from '../env';
-import { chunk, promptBatchSize } from './runs';
+import { chunk, promptBatchSize, samplesFor } from './runs';
 
 describe('chunk', () => {
   test('splits into fixed-size batches, last one smaller', () => {
@@ -45,5 +45,22 @@ describe('promptBatchSize', () => {
     expect(promptBatchSize(env('abc'))).toBe(5);
     expect(promptBatchSize(env('0'))).toBe(5);
     expect(promptBatchSize(env('-3'))).toBe(5);
+  });
+});
+
+describe('samplesFor', () => {
+  const env = (value: string | undefined) =>
+    ({ SAMPLES: value }) as unknown as AppEnv;
+
+  test('parses an explicit positive sample count', () => {
+    expect(samplesFor(env('1'))).toBe(1);
+    expect(samplesFor(env('3'))).toBe(3);
+  });
+
+  test('defaults to 1 when missing, invalid, or non-positive', () => {
+    expect(samplesFor(env(undefined))).toBe(1);
+    expect(samplesFor(env('abc'))).toBe(1);
+    expect(samplesFor(env('0'))).toBe(1);
+    expect(samplesFor(env('-3'))).toBe(1);
   });
 });

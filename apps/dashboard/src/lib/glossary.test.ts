@@ -29,7 +29,6 @@ describe('help glossary', () => {
         'Mention',
         'Citation',
         'Run',
-        'Sample',
         'Collection unit',
         'Scoring',
         'Raw answer payload',
