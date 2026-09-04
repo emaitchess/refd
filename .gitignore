@@ -29,6 +29,7 @@ vite.config.ts.timestamp-*
 
 # internal planning docs — kept locally, never published
 /GTM.md
+/KEYWORD-MAP.md
 /docs/plan-agent-native.md
 /docs/plan-three-worker.md
 

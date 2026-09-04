@@ -37,6 +37,19 @@ describe('public page catalog', () => {
     }
   });
 
+  test('includes the published articles in discovery', () => {
+    for (const path of [
+      '/blog',
+      '/blog/what-is-ai-search-monitoring',
+      '/blog/ai-mentions-vs-citations',
+      '/blog/one-answer-is-not-a-measurement',
+      '/blog/how-to-rank-in-ai-overviews',
+    ]) {
+      expect(PUBLIC_PAGE_PATHS).toContain(path);
+      expect(INDEXABLE_PUBLIC_PATHS).toContain(path);
+    }
+  });
+
   test('includes the public policies in discovery', () => {
     expect(PUBLIC_PAGE_PATHS).toContain('/privacy');
     expect(PUBLIC_PAGE_PATHS).toContain('/terms');
