@@ -282,10 +282,19 @@ export interface ChatMessage {
   createdAt: number;
 }
 
+// A chip shows `label` (short, with the number that earns the click) and
+// sends `question` (the same fact in full, so the agent starts from the
+// evidence). `kind` names the family it was ranked from.
+export interface ChatSuggestion {
+  kind: string;
+  label: string;
+  question: string;
+}
+
 export interface ChatSuggestions {
   name: string;
   brand: string | null;
-  suggestions: string[];
+  suggestions: ChatSuggestion[];
 }
 
 export interface RunResultRow {

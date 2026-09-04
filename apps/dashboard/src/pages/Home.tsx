@@ -445,13 +445,14 @@ export const Home = () => {
           <div className="flex flex-wrap justify-center gap-2">
             {suggestionsQ.data?.suggestions.map((s) => (
               <button
-                key={s}
+                key={s.label}
                 type="button"
-                onClick={() => send(s)}
+                onClick={() => send(s.question)}
                 disabled={busy}
-                className="border border-border bg-bg-card px-3 py-1.5 text-[12px] text-secondary transition-colors hover:border-border-strong hover:text-primary"
+                title={s.question}
+                className="border border-border bg-bg-card px-3 py-1.5 text-left text-[12px] text-secondary transition-colors hover:border-border-strong hover:text-primary"
               >
-                {s}
+                {s.label}
               </button>
             ))}
           </div>
