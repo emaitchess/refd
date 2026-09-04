@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import remarkGfm from 'remark-gfm';
 import { DitherIcon } from '@/components/dither/DitherIcon';
 import { Tooltip } from '@/components/dither-kit/tooltip';
+import { DitherLoader } from '@/components/feedback/DitherLoader';
 import { Dots } from '@/components/feedback/Dots';
 import { useToast } from '@/components/feedback/Toast';
 import { ChatPanels } from '@/components/home/ChatPanels';
@@ -561,9 +562,12 @@ export const Home = () => {
                 <Markdown remarkPlugins={[remarkGfm]}>{live.content}</Markdown>
               </div>
             ) : (
-              <p className="font-mono text-[12px] text-muted">
-                working
-                <Dots />
+              <p className="flex items-center gap-2 font-mono text-[12px] text-muted">
+                <DitherLoader />
+                <span>
+                  working
+                  <Dots />
+                </span>
               </p>
             )}
           </div>

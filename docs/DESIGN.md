@@ -620,6 +620,14 @@ Onboarding should feel like the landing page becoming interactive:
   source gap, and attribution. Obvious labels do not need an icon.
 - **Empty state**: state what is happening (`waiting for answers`, `no data`,
   `needs setup`) and offer one relevant next action.
+- **Working state**: an indeterminate wait pairs the `DitherLoader` glyph with
+  a plain-language label. The glyph is a 4x4 block whose cells flip in Bayer
+  order, delayed by the same matrix the charts dither with, so the wave
+  scatters rather than sweeping like a scanline. It modulates opacity in one
+  `currentColor` so it inherits whatever text token it sits beside. Under
+  reduced motion it renders a still half-density dither block, never a frozen
+  blank. Do not add a rotating spinner: the dither block is the house
+  indeterminate indicator.
 
 ### Untrusted answer content
 
