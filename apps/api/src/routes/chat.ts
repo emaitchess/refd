@@ -181,6 +181,21 @@ const decisionPrompt = (hasWebSearch: boolean, remaining: number): string =>
   'question, choose {"action":"answer"}.\n' +
   '- Never repeat a tool call with identical arguments.';
 
+// A decision the model actually expressed. `null` from parseDecision means the
+// model produced nothing we could read — deliberately NOT folded into
+// {"action":"answer"}, because that fallthrough is invisible: it skips the
+// tools the question needed while the trace still reads like a clean run.
+const decisionSchema = z.object({
+  action: z.enum(['tool', 'answer']),
+  tool: z.string().catch(''),
+  args: z.record(z.string(), z.unknown()).catch({}),
+});
+
+export type AgentDecision = z.infer<typeof decisionSchema>;
+
+export const parseDecision = (raw: string): AgentDecision | null =>
+  parseJson(raw, decisionSchema);
+
 const systemPrompt = (withTitle: boolean): string =>
   'You are the refd workspace assistant. refd monitors how AI search surfaces ' +
   '(ChatGPT, Perplexity, Gemini, Google AI Mode, Google AI Overviews) mention, ' +
@@ -327,34 +342,47 @@ const streamExchange = async (
   const hasWebSearch = Boolean(env.EXA_API_KEY);
   const allSources: WebResult[] = [];
   const seenCalls = new Set<string>();
+  const decide = async (remaining: number) =>
+    parseDecision(
+      await runChat(
+        env,
+        [
+          {
+            role: 'system' as const,
+            content: decisionPrompt(hasWebSearch, remaining),
+          },
+          dataMessage,
+          ...tail,
+        ],
+        // No ceiling: the decision is one small JSON object, so the model
+        // stops on its own. A cap only ever truncated it into a decision we
+        // could not read. Replayed over the real digest (n=19-30 per
+        // setting): unreadable decisions 33% at 300 tokens, 28% at 1000, 16%
+        // uncapped; tool-needed questions answered with no tool at all 33% /
+        // 17% / 9%; median latency 4.6s / 4.4s / 2.3s.
+        { maxTokens: null },
+      ),
+    );
+
   for (let used = 0; used < TOOL_CAP; used += 1) {
-    const decisionRaw = await runChat(
-      env,
-      [
-        {
-          role: 'system' as const,
-          content: decisionPrompt(hasWebSearch, TOOL_CAP - used),
-        },
-        dataMessage,
-        ...tail,
-      ],
-      // No ceiling: the decision is one small JSON object, so the model stops
-      // on its own. A cap only ever truncated it into the silent
-      // `.catch('answer')` fallthrough below. Replayed over the real digest
-      // (n=19-30 per setting): unparseable decisions 33% at 300 tokens, 28% at
-      // 1000, 16% uncapped; tool-needed questions answered with no tool at all
-      // 33% / 17% / 9%; median latency 4.6s / 4.4s / 2.3s.
-      { maxTokens: null },
-    );
-    const decision = parseJson(
-      decisionRaw,
-      z.object({
-        action: z.enum(['tool', 'answer']).catch('answer'),
-        tool: z.string().catch(''),
-        args: z.record(z.string(), z.unknown()).catch({}),
-      }),
-    );
-    if (decision?.action !== 'tool' || !decision.tool) {
+    const remaining = TOOL_CAP - used;
+    // Failing to emit one small JSON object is a formatting stumble, not a
+    // verdict, so it earns one retry. If the retry also fails the answer is
+    // still written, but the trace says the plan was lost instead of
+    // implying the model chose to stop gathering.
+    let decision = await decide(remaining);
+    if (decision === null) {
+      decision = await decide(remaining);
+    }
+    if (decision === null) {
+      console.warn('chat: unreadable agent decision after retry');
+      await step(
+        'could not read the plan',
+        'answering from the evidence gathered so far',
+      );
+      break;
+    }
+    if (decision.action !== 'tool' || !decision.tool) {
       break;
     }
     const callKey = `${decision.tool}:${JSON.stringify(decision.args)}`;
