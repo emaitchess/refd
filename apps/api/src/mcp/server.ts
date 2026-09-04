@@ -228,7 +228,7 @@ export const createRefdMcpServer = (
     {
       title: 'Get recent changes',
       description:
-        'Returns material visibility changes derived from the two most recent completed runs over their shared prompt and surface cells.',
+        'Returns material visibility changes derived from seven-day windows of runs over their shared prompt and surface cells. Each event carries a span: "shift" compares the last week with the one before, "drift" reports a slide that held its direction across four weeks.',
       inputSchema: emptyArgsSchema,
       annotations,
     },

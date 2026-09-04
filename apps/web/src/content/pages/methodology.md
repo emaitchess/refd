@@ -235,18 +235,29 @@ classification may remain unclassified.
 
 ## Keep changes comparable
 
-The change engine compares the two most recent completed runs and applies three
-guards:
+The change engine compares seven-day windows of runs, not single runs. One run
+holds about one answer per cell, so a day-to-day comparison mostly measures the
+non-determinism of the answers themselves. Pooling a week multiplies the
+evidence behind every number, which is what lets the thresholds sit low enough
+to catch real movement.
 
-1. Only prompt and surface cells shared by both runs are compared.
+Two spans are reported. A shift compares the last seven days with the seven
+before it. A drift compares the newest week with the oldest of four and fires
+only when every week in between moved the same way, so a slow slide surfaces
+while a bounce does not.
+
+Four guards apply:
+
+1. Only prompt and surface cells answered by every compared window count.
 2. Share-of-voice, position, and competitor events require compatible tracked
-   entity sets.
+   entity sets across the whole span.
 3. Minimum evidence and material-change thresholds suppress noise.
+4. A drift requires a consistent direction, not just a large endpoint gap.
 
-Current material thresholds are 15 percentage points for mention or citation
-rate, 10 points for share of voice, 20 points for sentiment shares, and one full
-position for rank. Position and sentiment changes also require enough eligible
-observations on both sides.
+Current material thresholds are 5 percentage points for mention or citation
+rate, 4 points for share of voice, 5 points for sentiment shares, and a quarter
+of a position for rank. Position and sentiment changes also require enough
+eligible observations in every window compared.
 
 These alerts are designed to direct attention. They do not establish causation.
 The underlying answers show what changed; a user still has to determine why.

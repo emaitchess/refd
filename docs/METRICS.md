@@ -164,21 +164,36 @@ core, aggregation endpoints, alias capture, and historical rescoring.
 
 ## Change alerts
 
-- **Derived on read, never stored.** `detectChanges` in
-  `apps/api/src/routes/changes.ts` compares the two most recent completed runs using
-  the same metric functions as the dashboard. `GET /changes` serves the report,
-  so a rescore corrects it on the next read.
-- **Three honesty guards.** Only prompt and surface cells shared by both runs
-  are compared. Set-relative metrics are suppressed when `entitySetHash`
-  differs or is null. Material thresholds gate every event: 15 percentage
-  points for mention and citation rates, 10 points for SOV, 20 points for
-  sentiment shares, and one full rank for position. Comparisons require at
-  least four shared cells, and position or sentiment require at least three
-  eligible observations on both sides.
+- **Derived on read, never stored.** `detectChanges` and `detectDrift` in
+  `apps/api/src/routes/changes.ts` compare seven-day windows of runs using the
+  same metric functions as the dashboard. `GET /changes` serves the report, so
+  a rescore corrects it on the next read.
+- **The window is the comparison unit.** At `SAMPLES=1` a run holds roughly one
+  answer per cell, so day-over-day deltas are dominated by answer
+  non-determinism: across eleven consecutive production run pairs the largest
+  mention-rate move was 3.4 points, well under any threshold that survives that
+  noise. `WINDOW_DAYS = 7` pools about seven times the answers, which is what
+  makes the current thresholds meaningful rather than unreachable.
+- **Two spans.** A `shift` compares the latest window with the previous one. A
+  `drift` compares the newest of `TREND_WINDOWS` (4) with the oldest and fires
+  only when no step contradicts the overall direction by more than a fifth of
+  the metric's threshold — the slow slide an adjacent pair never breaches. When
+  a metric produces both, `mergeEvents` keeps the larger reading so one metric
+  is one row.
+- **Four honesty guards.** Only prompt and surface cells answered by every
+  compared window count (`cells` for the shift scope, `trendCells` for the
+  narrower drift scope). Set-relative metrics are suppressed when
+  `entitySetHash` differs or is null anywhere in the span, including within a
+  single window. Material thresholds gate every event: 5 percentage points for
+  mention and citation rates, 4 points for SOV, 5 points for sentiment shares,
+  and a quarter rank for position. Comparisons require at least four shared
+  cells, and position or sentiment require at least three eligible observations
+  in every window compared.
 - **Event set.** Brand mention and citation rate moves, overall or per surface
   when the overall delta stayed quiet; SOV swings; position slips; sentiment
-  shifts; and competitor appearances, rises only. Events are severity-sorted
-  and capped at six.
+  shifts; and competitor appearances, rises only. Drift covers overall scope
+  only: a four-week trend read off one surface's cells is a shape found by
+  looking. Events are severity-sorted and capped at six.
 - **Two render surfaces, one engine.** The Overview "What changed" card and
   Home idle chips consume the same events. Every event carries its question,
   and the card's ask action opens Home with the question prefilled.

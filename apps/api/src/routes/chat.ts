@@ -29,6 +29,7 @@ import { configForUser } from '../lib/user-config';
 import { executeTool, toolCatalog } from './agent-tools';
 import { buildChangeReport } from './changes';
 import { buildDigest, DIGEST_PANELS, type DigestPanel } from './digest';
+import { buildSuggestions } from './suggestions';
 
 export const chatRoutes = new Hono<WorkspaceBindings>();
 
@@ -638,47 +639,35 @@ chatRoutes.get('/', async (c) => {
   return c.json({ chats: rows });
 });
 
-// Idle-state fuel: greeting name plus suggestion chips computed from the
-// workspace's actual state — what is worth asking, not canned examples.
+// Idle-state fuel: greeting name plus suggestion chips ranked from the
+// workspace's actual state (routes/suggestions.ts holds the ranking rule).
+// Each chip carries a number and names a thing; the canned starters only
+// fill slots the measured candidates left empty.
+const SUGGESTION_LIMIT = 4;
+
 chatRoutes.get('/suggestions', async (c) => {
   const db = getDb(c.env);
-  const digest = await buildDigest(db, c.get('workspace').id);
+  const ws = c.get('workspace').id;
+  const digest = await buildDigest(db, ws);
   const name = c.get('user').firstName ?? c.get('user').email.split('@')[0];
   if (!digest) {
     return c.json({ name, brand: null, suggestions: [] });
   }
-  const suggestions: string[] = [];
-  const sections = digest.sections as {
-    prompts: { zeroVisibilityCount: number };
-    sources: { gap: unknown[] };
-    competitors: { isBrand: boolean }[];
-    sentiment: { brand: unknown };
-  };
-  // Quantified chips first: material movements between the last two runs,
-  // phrased as the question the agent should be asked about them. The same
-  // engine feeds the Overview "what changed" card.
-  const changes = await buildChangeReport(db, c.get('workspace').id);
-  if (changes?.status === 'ok') {
-    suggestions.push(...changes.events.slice(0, 2).map((e) => e.question));
-  }
-  if (sections.prompts.zeroVisibilityCount > 0) {
-    suggestions.push(`Which prompts have zero visibility for ${digest.brand}?`);
-  }
-  if (sections.sources.gap.length > 0) {
-    suggestions.push(`Where should ${digest.brand} try to get cited?`);
-  }
-  if (sections.competitors.some((e) => !e.isBrand)) {
-    suggestions.push(`How does ${digest.brand} compare to competitors?`);
-  }
-  if (sections.sentiment.brand !== null) {
-    suggestions.push(`How do AI answers portray ${digest.brand}?`);
-  }
-  suggestions.push(`How is ${digest.brand} performing across surfaces?`);
-  suggestions.push(`Which sources cite ${digest.brand} the most?`);
+  const changes = await buildChangeReport(db, ws);
+  const suggestions = buildSuggestions(
+    digest.brand,
+    digest.sections,
+    changes?.status === 'ok' ? changes.events : [],
+    SUGGESTION_LIMIT,
+  );
   return c.json({
     name,
     brand: digest.brand,
-    suggestions: suggestions.slice(0, 4),
+    suggestions: suggestions.map(({ label, question, kind }) => ({
+      label,
+      question,
+      kind,
+    })),
   });
 });
 
