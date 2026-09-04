@@ -654,7 +654,7 @@ chatRoutes.get('/suggestions', async (c) => {
     competitors: { isBrand: boolean }[];
     sentiment: { brand: unknown };
   };
-  // Quantified chips first: material movements between the last two runs,
+  // Quantified chips first: material movements between seven-day windows,
   // phrased as the question the agent should be asked about them. The same
   // engine feeds the Overview "what changed" card.
   const changes = await buildChangeReport(db, c.get('workspace').id);

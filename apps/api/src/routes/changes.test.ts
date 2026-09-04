@@ -2,12 +2,15 @@ import { describe, expect, test } from 'bun:test';
 import { METRIC_INFO } from '@refd/core/metric-copy';
 import {
   detectChanges,
+  detectDrift,
   MIN_CELLS,
+  mergeEvents,
   POSITION_RANKS,
   RATE_PP,
-  type RunSlice,
   SENTIMENT_PP,
   SOV_PP,
+  TREND_WINDOWS,
+  type WindowSlice,
 } from './changes';
 import type { EntityInfo, ScoreRow } from './metrics';
 
@@ -52,16 +55,18 @@ const row = (
   ...over,
 });
 
+// One comparison window. The tests drive detectChanges directly, so a window
+// stands in for whatever span of runs the loader pooled into it.
 const slice = (
   runId: number,
   rows: ScoreRow[],
   hash: string | null = 'h',
-): RunSlice => ({
-  run: {
-    runId,
-    date: runId === 2 ? '2026-07-20' : '2026-07-19',
-    trigger: 'cron',
-    completedAt: runId === 2 ? 1_753_000_000_000 : 1_752_900_000_000,
+): WindowSlice => ({
+  window: {
+    from: runId === 2 ? '2026-07-20' : '2026-07-14',
+    to: runId === 2 ? '2026-07-26' : '2026-07-19',
+    runs: 7,
+    answers: rows.length,
     entitySetHash: hash,
   },
   rows,
@@ -89,17 +94,19 @@ describe('detectChanges', () => {
     expect(event?.delta).toBe(-1);
     expect(event?.headline).toContain('Mention rate');
     expect(event?.question).toContain('100%');
+    expect(event?.span).toBe('shift');
+    expect(event?.question).toContain('7 days');
   });
 
   test('stays silent under the material threshold', () => {
-    const many = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    const many = Array.from({ length: 50 }, (_, i) => i + 1);
     const previous = slice(
       1,
-      many.map((p) => row(1, p, { mentioned: p <= 5 })),
+      many.map((p) => row(1, p, { mentioned: p <= 25 })),
     );
     const latest = slice(
       2,
-      many.map((p) => row(2, p, { mentioned: p <= 4 })),
+      many.map((p) => row(2, p, { mentioned: p <= 24 })),
     );
     const report = detectChanges(latest, previous, entities, brand);
     expect(report.status).toBe('ok');
@@ -350,13 +357,111 @@ describe('detectChanges', () => {
   });
 });
 
+describe('detectDrift', () => {
+  const wide = Array.from({ length: 50 }, (_, i) => i + 1);
+  // Citation rate slides 20% -> 18% -> 14% -> 10%. No adjacent pair clears
+  // the 5-point threshold, so only the trend comparison can see it.
+  const sliding = [10, 9, 7, 5].map((cut, i) =>
+    slice(
+      i,
+      wide.map((p) => row(i, p, { mentioned: true, cited: p <= cut })),
+    ),
+  );
+
+  test('reports a slide no single step would report', () => {
+    const adjacent = detectChanges(
+      sliding[3] as WindowSlice,
+      sliding[2] as WindowSlice,
+      entities,
+      brand,
+    );
+    expect(adjacent.events).toHaveLength(0);
+
+    const { events } = detectDrift(sliding, entities, brand);
+    const drift = events.find((e) => e.type === 'citation_rate');
+    expect(drift?.span).toBe('drift');
+    expect(drift?.direction).toBe('down');
+    expect(drift?.previous).toBeCloseTo(0.2, 5);
+    expect(drift?.current).toBeCloseTo(0.1, 5);
+    expect(drift?.headline).toContain('28 days');
+  });
+
+  test('a bounce is not a trend', () => {
+    const bouncing = [10, 5, 10, 5].map((cut, i) =>
+      slice(
+        i,
+        wide.map((p) => row(i, p, { mentioned: true, cited: p <= cut })),
+      ),
+    );
+    expect(detectDrift(bouncing, entities, brand).events).toHaveLength(0);
+  });
+
+  test('needs the full trend span before it will call anything a trend', () => {
+    expect(detectDrift(sliding.slice(1), entities, brand).events).toHaveLength(
+      0,
+    );
+    expect(TREND_WINDOWS).toBe(4);
+  });
+
+  test('only cells present in every window compare', () => {
+    // The newest window covers only prompts that were never cited in any
+    // window. Comparing raw window rates would read 20% -> 0% and call it a
+    // collapse; over the shared cells nothing moved.
+    const truncated = [
+      ...sliding.slice(0, 3),
+      slice(
+        3,
+        wide.filter((p) => p > 10).map((p) => row(3, p, { mentioned: true })),
+      ),
+    ];
+    const { events } = detectDrift(truncated, entities, brand);
+    expect(events.find((e) => e.type === 'citation_rate')).toBeUndefined();
+  });
+
+  test('an entity-set change anywhere in the span pauses relative metrics', () => {
+    const mixed = sliding.map((w, i) =>
+      i === 1 ? slice(i, w.rows, 'other') : w,
+    );
+    const { events } = detectDrift(mixed, entities, brand);
+    expect(events.every((e) => e.type !== 'sov')).toBe(true);
+    expect(events.some((e) => e.type === 'citation_rate')).toBe(true);
+  });
+});
+
+describe('mergeEvents', () => {
+  const previous = slice(
+    1,
+    prompts.map((p) => row(1, p, { mentioned: true })),
+  );
+  const latest = slice(
+    2,
+    prompts.map((p) => row(2, p)),
+  );
+  const shift = detectChanges(latest, previous, entities, brand).events;
+
+  test('one metric is one story: the wider reading wins', () => {
+    const drift = shift.map((e) => ({
+      ...e,
+      span: 'drift' as const,
+      severity: e.severity + 1,
+    }));
+    const merged = mergeEvents(shift, drift);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.span).toBe('drift');
+  });
+
+  test('a shift the trend never saw survives the merge', () => {
+    expect(mergeEvents(shift, [])).toEqual(shift);
+  });
+});
+
 describe('material-change glossary copy', () => {
   test('states the same thresholds the engine enforces', () => {
     const copy = `${METRIC_INFO.materialChange.definition} ${METRIC_INFO.materialChange.details}`;
     expect(copy).toContain(`${RATE_PP * 100} points`);
     expect(copy).toContain(`${SOV_PP * 100} points`);
     expect(copy).toContain(`${SENTIMENT_PP * 100} points`);
-    expect(POSITION_RANKS).toBe(1);
-    expect(copy).toContain('one full rank');
+    expect(POSITION_RANKS).toBe(0.25);
+    expect(copy).toContain('a quarter of a rank');
   });
 });

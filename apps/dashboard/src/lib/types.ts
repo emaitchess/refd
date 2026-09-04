@@ -77,8 +77,10 @@ export interface OverviewResponse {
   surfaces: SurfaceStat[];
 }
 
-// One material movement between the last two completed runs, composed
-// server-side (routes/changes.ts) so the card and the Home chips share copy.
+// One material movement in the brand's visibility, composed server-side
+// (routes/changes.ts) so the card and the Home chips share copy. `span` says
+// which comparison found it: 'shift' is week against previous week, 'drift'
+// is a slide that held its direction across the whole trend span.
 export interface ChangeEvent {
   type:
     | 'mention_rate'
@@ -87,6 +89,7 @@ export interface ChangeEvent {
     | 'position'
     | 'sentiment'
     | 'competitor';
+  span: 'shift' | 'drift';
   scope: string;
   entity: string;
   direction: 'up' | 'down';
@@ -101,19 +104,23 @@ export interface ChangeEvent {
   question: string;
 }
 
-export interface ChangeRunRef {
-  runId: number;
-  date: string;
-  trigger: string;
-  completedAt: number | null;
+export interface ChangeWindowRef {
+  from: string;
+  to: string;
+  runs: number;
+  answers: number;
+  entitySetHash: string | null;
 }
 
 export interface ChangesResponse {
   needsSetup?: boolean;
   status?: 'ok' | 'needs-runs' | 'thin-overlap';
-  latest?: ChangeRunRef | null;
-  previous?: ChangeRunRef | null;
+  windowDays?: number;
+  latest?: ChangeWindowRef | null;
+  previous?: ChangeWindowRef | null;
+  trend?: ChangeWindowRef[];
   cells?: number;
+  trendCells?: number;
   promptCount?: number;
   surfaceCount?: number;
   entitySetChanged?: boolean;

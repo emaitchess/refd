@@ -2,15 +2,19 @@ import { METRIC_INFO } from '@refd/core/metric-copy';
 import { Link } from 'react-router';
 import { MetricInfo } from '@/components/ui';
 import { useQuery } from '@/lib/api';
-import { pct, position, shortDate, utcClockTime } from '@/lib/format';
-import type { ChangeEvent, ChangeRunRef, ChangesResponse } from '@/lib/types';
+import { pct, position, shortDate } from '@/lib/format';
+import type {
+  ChangeEvent,
+  ChangesResponse,
+  ChangeWindowRef,
+} from '@/lib/types';
 
-// "What changed" card: material movements between the last two completed
-// runs, derived server-side (api/routes/changes.ts holds the honesty
-// guards). Each row links to Home with the event pre-phrased as a question,
-// so the agent picks up the investigation where the card leaves off. Until
-// two comparable runs exist the card renders nothing — but a quiet
-// comparison is worth a line: "no material changes" is itself news.
+// "What changed" card: material movements between seven-day windows of runs,
+// derived server-side (api/routes/changes.ts holds the honesty guards). Each
+// row links to Home with the event pre-phrased as a question, so the agent
+// picks up the investigation where the card leaves off. Until two comparable
+// windows exist the card renders nothing — but a quiet comparison is worth a
+// line: "no material changes" is itself news.
 const value = (event: ChangeEvent, v: number): string =>
   event.unit === 'rank' ? position(v) : pct(v);
 
@@ -37,16 +41,12 @@ export const WhatChanged = () => {
     return null;
   }
   const events = data.events ?? [];
-  // Two runs can share a date (an onboarding pair, or a manual re-run on a
-  // cron day); the completion time is what tells them apart.
-  const withTime =
-    data.latest.date === data.previous.date &&
-    data.latest.completedAt != null &&
-    data.previous.completedAt != null;
-  const runLabel = (run: ChangeRunRef): string =>
-    withTime && run.completedAt != null
-      ? `${shortDate(run.date)} ${utcClockTime(run.completedAt)}`
-      : shortDate(run.date);
+  // A window that lost cron days is shorter than nominal, so both ends are
+  // named: the label states the runs that were actually compared.
+  const windowLabel = (w: ChangeWindowRef): string =>
+    w.from === w.to
+      ? shortDate(w.from)
+      : `${shortDate(w.from)}-${shortDate(w.to)}`;
   return (
     <section
       aria-labelledby="what-changed"
@@ -63,15 +63,15 @@ export const WhatChanged = () => {
           />
         </div>
         <span className="font-mono text-[10px] text-muted uppercase tracking-[0.1em]">
-          {runLabel(data.previous)} → {runLabel(data.latest)} · {data.cells}{' '}
-          cells across {data.promptCount} prompts and {data.surfaceCount}{' '}
-          surfaces
+          {windowLabel(data.previous)} → {windowLabel(data.latest)} ·{' '}
+          {data.cells} cells across {data.promptCount} prompts and{' '}
+          {data.surfaceCount} surfaces
         </span>
       </header>
 
       {events.length === 0 ? (
         <p className="px-5 py-3 text-[13px] text-muted">
-          No material changes between the last two runs.
+          No material changes in the last {data.windowDays ?? 7} days.
         </p>
       ) : (
         <ul>
@@ -88,6 +88,11 @@ export const WhatChanged = () => {
               </span>
               <span className="min-w-0 flex-1 text-[13px] text-primary">
                 {event.subject}
+                {event.span === 'drift' ? (
+                  <span className="ml-2 font-mono text-[10px] text-muted uppercase tracking-[0.1em]">
+                    trend
+                  </span>
+                ) : null}
               </span>
               <span className="font-mono text-[11px] text-secondary">
                 {value(event, event.previous)} → {value(event, event.current)}
@@ -108,10 +113,21 @@ export const WhatChanged = () => {
         </ul>
       )}
 
+      {/* A cell has to survive every window to qualify for a trend, so the
+          scope behind a "trend" row can be narrower than the header's. Say so
+          rather than let the header speak for both. */}
+      {events.some((e) => e.span === 'drift') &&
+      data.trendCells != null &&
+      data.trendCells !== data.cells ? (
+        <p className="border-border border-t px-5 py-2 font-mono text-[10px] text-muted">
+          trend rows compare {data.trendCells} cells held across every window
+        </p>
+      ) : null}
+
       {data.entitySetChanged ? (
         <p className="border-border border-t px-5 py-2 font-mono text-[10px] text-muted">
-          tracked set changed between these runs · share of voice, position, and
-          competitor comparisons paused
+          tracked set changed across these windows · share of voice, position,
+          and competitor comparisons paused
         </p>
       ) : null}
     </section>
