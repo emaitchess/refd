@@ -384,6 +384,24 @@ html:has(.landing-shell) {
 .loading-dots > span {
   animation: loading-dot 1.2s infinite;
 }
+
+/* Hard on/off flips, like dither-flip: the block scatters rather than
+   breathing. Per-cell delay comes from the Bayer threshold, so the wave
+   travels in ordered-dither order. */
+@keyframes dither-loader-cell {
+  0% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dither-loader rect {
+    animation: dither-loader-cell 1.2s steps(1) infinite;
+  }
+}
 .loading-dots > span:nth-child(2) {
   animation-delay: 0.2s;
 }
