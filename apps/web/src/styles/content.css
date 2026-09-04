@@ -237,6 +237,13 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* A page with no table of contents (glossary entries) keeps its prose in the
+   same column as a page that has one, instead of dropping it into the narrow
+   sidebar track. */
+.content-body--solo > .prose {
+  grid-column: 2;
+}
+
 .content-toc {
   position: sticky;
   top: 96px;
@@ -622,6 +629,10 @@
   .content-body {
     grid-template-columns: 1fr;
     gap: 40px;
+  }
+
+  .content-body--solo > .prose {
+    grid-column: 1;
   }
 
   .content-toc {
