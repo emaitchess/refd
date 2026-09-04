@@ -471,6 +471,7 @@ const SurfacesCard = () => {
 interface ConnectedApp {
   id: number;
   clientName: string;
+  callbackTarget: string | null;
   scopes: string[];
   createdAt: number;
   lastUsedAt: number | null;
@@ -574,9 +575,18 @@ const ConnectedAppsCard = () => {
                 key={connection.id}
                 className={cn(CONNECTION_GRID, 'border-border border-t')}
               >
-                <div className="flex min-w-0 items-center px-5 py-3 md:border-border md:border-r">
+                <div className="flex min-w-0 flex-col justify-center px-5 py-3 md:border-border md:border-r">
                   <span className="truncate text-[13px] text-primary">
                     {connection.clientName}
+                  </span>
+                  <span className="font-mono text-[10px] text-error uppercase tracking-[0.08em]">
+                    unverified app
+                  </span>
+                  <span
+                    className="truncate font-mono text-[10px] text-muted"
+                    title={connection.callbackTarget ?? 'Legacy connection'}
+                  >
+                    callback: {connection.callbackTarget ?? 'unavailable'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 border-border border-t px-5 py-2 md:border-t-0 md:border-r md:px-4">

@@ -95,6 +95,7 @@ export const mcpConnections = sqliteTable(
       .references(() => users.id),
     clientId: text('client_id').notNull(),
     clientName: text('client_name').notNull(),
+    callbackTarget: text('callback_target'),
     scopes: text('scopes', { mode: 'json' })
       .$type<string[]>()
       .notNull()

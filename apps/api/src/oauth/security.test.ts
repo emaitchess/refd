@@ -5,10 +5,13 @@ import {
   oauthResourceUrl,
 } from './constants';
 import {
+  callbackTarget,
   createCsrfToken,
   csrfCookie,
   escapeHtml,
   formActionSources,
+  hasSecureRegistrationRedirects,
+  isSecureOAuthRedirect,
   validCsrfToken,
 } from './security';
 
@@ -16,6 +19,7 @@ describe('OAuth protocol policy', () => {
   test('requires S256 PKCE and exposes only the read scope', () => {
     expect(OAUTH_PROTOCOL_OPTIONS.allowImplicitFlow).toBeFalse();
     expect(OAUTH_PROTOCOL_OPTIONS.allowPlainPKCE).toBeFalse();
+    expect(OAUTH_PROTOCOL_OPTIONS.clientIdMetadataDocumentEnabled).toBeTrue();
     expect(OAUTH_PROTOCOL_OPTIONS.scopesSupported).toEqual([MCP_SCOPE]);
   });
 
@@ -65,5 +69,48 @@ describe('OAuth consent security', () => {
     );
     expect(formActionSources('data:text/html,unsafe')).toBe("'self'");
     expect(formActionSources('not a URL')).toBe("'self'");
+  });
+
+  test('requires encrypted remote callbacks while preserving native clients', () => {
+    expect(isSecureOAuthRedirect('https://client.example/callback')).toBeTrue();
+    expect(isSecureOAuthRedirect('http://localhost:58263/callback')).toBeTrue();
+    expect(isSecureOAuthRedirect('http://127.0.0.1:58263/callback')).toBeTrue();
+    expect(isSecureOAuthRedirect('cursor://refd/oauth')).toBeTrue();
+    expect(isSecureOAuthRedirect('http://client.example/callback')).toBeFalse();
+    expect(isSecureOAuthRedirect('ftp://client.example/callback')).toBeFalse();
+    expect(
+      isSecureOAuthRedirect('https://client.example/callback#fragment'),
+    ).toBeFalse();
+    expect(isSecureOAuthRedirect('data:text/html,unsafe')).toBeFalse();
+  });
+
+  test('rejects registrations containing any insecure callback', () => {
+    expect(
+      hasSecureRegistrationRedirects({
+        redirect_uris: [
+          'https://client.example/callback',
+          'http://localhost:58263/callback',
+        ],
+      }),
+    ).toBeTrue();
+    expect(
+      hasSecureRegistrationRedirects({
+        redirect_uris: [
+          'https://client.example/callback',
+          'http://attacker.example/callback',
+        ],
+      }),
+    ).toBeFalse();
+    expect(hasSecureRegistrationRedirects({})).toBeFalse();
+  });
+
+  test('retains only the security-relevant callback target', () => {
+    expect(
+      callbackTarget('https://Client.Example:8443/oauth/callback?code=secret'),
+    ).toBe('https://client.example:8443');
+    expect(callbackTarget('cursor://Refd/oauth/callback')).toBe(
+      'cursor://refd',
+    );
+    expect(callbackTarget('http://attacker.example/callback')).toBeNull();
   });
 });

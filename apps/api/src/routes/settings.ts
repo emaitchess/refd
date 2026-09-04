@@ -92,6 +92,7 @@ settingsRoutes.get('/connections', async (c) => {
       id: mcpConnections.id,
       grantId: mcpConnections.grantId,
       clientName: mcpConnections.clientName,
+      callbackTarget: mcpConnections.callbackTarget,
       scopes: mcpConnections.scopes,
       createdAt: mcpConnections.createdAt,
       lastUsedAt: mcpConnections.lastUsedAt,
