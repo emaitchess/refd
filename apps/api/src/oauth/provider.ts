@@ -18,6 +18,7 @@ import {
   oauthResourceUrl,
 } from './constants';
 import { limitMcpRequest, limitOAuthRequest } from './rate-limit';
+import { hasSecureRegistrationRedirects } from './security';
 
 const persistConnection = async (
   env: AppEnv,
@@ -47,6 +48,7 @@ const persistConnection = async (
         userId: props.data.userId,
         clientId: exchange.clientId,
         clientName: props.data.clientName,
+        callbackTarget: props.data.callbackTarget ?? null,
         scopes: exchange.scope,
       })
       .onConflictDoNothing({ target: mcpConnections.grantId });
@@ -121,6 +123,13 @@ export const createOAuthOptions = (
     authorizeEndpoint: '/oauth/authorize',
     tokenEndpoint: '/oauth/token',
     clientRegistrationEndpoint: '/oauth/register',
+    clientRegistrationCallback: ({ clientMetadata }) =>
+      hasSecureRegistrationRedirects(clientMetadata)
+        ? undefined
+        : {
+            description:
+              'Redirect URIs must use HTTPS, a loopback HTTP address, or an app-specific URI scheme.',
+          },
     ...OAUTH_PROTOCOL_OPTIONS,
     onError: (error) => {
       const current = new URL(request.url);

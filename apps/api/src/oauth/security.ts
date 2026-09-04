@@ -3,6 +3,22 @@ import { z } from 'zod';
 const CSRF_COOKIE = '__Host-refd_oauth_csrf';
 const CSRF_TTL_SECONDS = 10 * 60;
 const callbackUrlSchema = z.string().max(2048).url();
+const registrationMetadataSchema = z.object({
+  redirect_uris: z.array(callbackUrlSchema).min(1),
+});
+const blockedRedirectProtocols = new Set([
+  'blob:',
+  'data:',
+  'file:',
+  'ftp:',
+  'ftps:',
+  'javascript:',
+  'mailto:',
+  'tel:',
+  'vbscript:',
+  'ws:',
+  'wss:',
+]);
 
 const cookieValue = (request: Request, name: string): string | null => {
   const pair = (request.headers.get('Cookie') ?? '')
@@ -55,6 +71,52 @@ export const escapeHtml = (value: string): string =>
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+
+export const isSecureOAuthRedirect = (value: string): boolean => {
+  const parsed = callbackUrlSchema.safeParse(value);
+  if (!parsed.success) {
+    return false;
+  }
+  const url = new URL(parsed.data);
+  if (url.hash || url.username || url.password) {
+    return false;
+  }
+  if (url.protocol === 'https:') {
+    return true;
+  }
+  if (url.protocol === 'http:') {
+    return (
+      url.hostname === 'localhost' ||
+      url.hostname === '[::1]' ||
+      url.hostname.startsWith('127.')
+    );
+  }
+  return !blockedRedirectProtocols.has(url.protocol);
+};
+
+export const hasSecureRegistrationRedirects = (
+  metadata: Record<string, unknown>,
+): boolean => {
+  const parsed = registrationMetadataSchema.safeParse(metadata);
+  return (
+    parsed.success &&
+    parsed.data.redirect_uris.every((uri) => isSecureOAuthRedirect(uri))
+  );
+};
+
+export const callbackTarget = (value: string): string | null => {
+  if (!isSecureOAuthRedirect(value)) {
+    return null;
+  }
+  const url = new URL(value);
+  if (url.protocol === 'http:' || url.protocol === 'https:') {
+    return url.origin;
+  }
+  const host = url.hostname
+    ? `${url.hostname.toLowerCase()}${url.port ? `:${url.port}` : ''}`
+    : '';
+  return `${url.protocol}${host ? `//${host}` : ''}`;
+};
 
 export const formActionSources = (callbackUrl?: string): string => {
   const parsed = callbackUrlSchema.safeParse(callbackUrl);

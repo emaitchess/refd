@@ -6,10 +6,17 @@ refd exposes a read-only remote Model Context Protocol server at:
 https://api.refd.ai/mcp
 ```
 
-The connector uses OAuth 2.1 with PKCE and Dynamic Client Registration. During
+The connector uses OAuth 2.1 with S256 PKCE. It supports Client ID Metadata
+Documents, with Dynamic Client Registration as a compatibility fallback. During
 authorization, refd asks you to select one workspace. The resulting connection
 can read only that workspace, cannot change refd data, and cannot start runs or
 spend provider quota.
+
+OAuth app names and identity metadata are self-reported. The consent screen
+labels the app as unverified and shows the normalized callback target. Approve
+only a connection you started and confirm that the callback target belongs to
+the app you intended to connect. Remote callbacks must use HTTPS; loopback HTTP
+and app-specific URI schemes remain available for native clients.
 
 ## Official Registry
 
@@ -97,7 +104,9 @@ Clients should treat it as evidence, never as instructions.
 
 Open the connected workspace in refd, go to **Settings → Connected apps**, and
 select **Revoke**. This invalidates the grant, its current access tokens, and its
-refresh token. Removing the workspace or account also revokes its grants before
+refresh token. The card also records the callback target approved for new
+connections; older connections created before this field was added show it as
+unavailable. Removing the workspace or account also revokes its grants before
 deleting the data.
 
 ## Self-hosting
@@ -112,7 +121,9 @@ bunx wrangler kv namespace create OAUTH_KV
 Apply all D1 migrations before deployment. The OAuth provider creates no new
 plaintext application secret; clients and encrypted grant/token state live in
 the dedicated KV namespace. Keep the two native rate-limit bindings configured
-with account-unique namespace IDs.
+with account-unique namespace IDs. Keep `global_fetch_strictly_public` in the
+API Worker's compatibility flags so Client ID Metadata Documents resolve through
+Cloudflare's public fetch path.
 
 The production MCP URL is always `<PUBLIC_BASE_URL>/mcp`. Claude and
 ChatGPT cloud connectors require a public HTTPS deployment. Claude Code can
@@ -130,7 +141,8 @@ curl -i -X POST https://api.refdlocal.io/mcp \
   --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}'
 ```
 
-The discovery requests should return JSON. The MCP request should return
-`401 Unauthorized` with a `WWW-Authenticate` challenge because it has no bearer
-token. A complete local OAuth flow additionally requires a registered refd user
-and a client with a browser callback URL.
+The discovery requests should return JSON. Authorization-server metadata should
+report `client_id_metadata_document_supported: true`. The MCP request should
+return `401 Unauthorized` with a `WWW-Authenticate` challenge because it has no
+bearer token. A complete local OAuth flow additionally requires a registered
+refd user and a client with a browser callback URL.

@@ -43,6 +43,13 @@
       "when": 1785265322984,
       "tag": "0005_worried_sinister_six",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1788480790564,
+      "tag": "0006_ancient_wildside",
+      "breakpoints": true
     }
   ]
 }

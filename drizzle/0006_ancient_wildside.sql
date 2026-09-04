@@ -1,0 +1,1 @@
+ALTER TABLE `mcp_connections` ADD `callback_target` text;

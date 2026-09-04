@@ -6,6 +6,7 @@ describe('MCP authorization context', () => {
   test('accepts one validated read-only workspace grant', () => {
     expect(
       parseMcpTokenProps({
+        callbackTarget: 'https://claude.ai',
         clientName: 'Claude',
         connectionId: crypto.randomUUID(),
         scopes: [MCP_SCOPE],
@@ -13,6 +14,7 @@ describe('MCP authorization context', () => {
         workspaceId: 11,
       }),
     ).toMatchObject({
+      callbackTarget: 'https://claude.ai',
       clientName: 'Claude',
       scopes: [MCP_SCOPE],
       userId: 7,
@@ -48,5 +50,17 @@ describe('MCP authorization context', () => {
         workspaceId: -1,
       }),
     ).toBeNull();
+  });
+
+  test('accepts grants created before callback targets were persisted', () => {
+    expect(
+      parseMcpTokenProps({
+        clientName: 'Legacy client',
+        connectionId: crypto.randomUUID(),
+        scopes: [MCP_SCOPE],
+        userId: 7,
+        workspaceId: 11,
+      }),
+    ).not.toBeNull();
   });
 });

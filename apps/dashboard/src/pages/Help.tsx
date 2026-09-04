@@ -437,8 +437,10 @@ claude mcp login refd`}</CodeBlock>
             >
               Settings
             </Link>
-            . The Connected apps card shows each app, its permission, when it
-            connected, and when it was last used.
+            . The Connected apps card shows each app, its unverified identity,
+            callback target, permission, when it connected, and when it was last
+            used. Confirm the callback belongs to the app you intended to
+            connect.
           </p>
           <p className="mt-3 max-w-3xl text-[12px] text-muted leading-relaxed">
             Select <strong className="font-[550] text-primary">Revoke</strong>{' '}

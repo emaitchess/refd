@@ -5,6 +5,7 @@ export const OAUTH_PROTOCOL_OPTIONS = {
   allowImplicitFlow: false,
   allowPlainPKCE: false,
   allowTokenExchangeGrant: false,
+  clientIdMetadataDocumentEnabled: true,
   accessTokenTTL: 60 * 60,
   refreshTokenTTL: 30 * 24 * 60 * 60,
 };
