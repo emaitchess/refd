@@ -13,12 +13,21 @@ interface ChatMessage {
   content: string;
 }
 
+// A ceiling is a circuit breaker, not a length control: the budget is shared
+// with the model's reasoning_content, so a cap that binds truncates the answer
+// rather than shortening it, and bills the full budget for the wreckage. What
+// actually bounds output is the prompt. `maxTokens: null` therefore means "no
+// ceiling" and omits the field entirely; omitting the option keeps the legacy
+// 1500 for callers that never chose a number.
+export const tokenInputs = (maxTokens: number | null | undefined) =>
+  maxTokens === null ? {} : { max_tokens: maxTokens ?? 1500 };
+
 // glm models aren't in wrangler's generated Ai model union, so the binding is
 // called through a loose shape. Returns the raw text response (or '').
 export const runChat = async (
   env: AppEnv,
   messages: ChatMessage[],
-  opts: { model?: string; maxTokens?: number } = {},
+  opts: { model?: string; maxTokens?: number | null } = {},
 ): Promise<string> => {
   const ai = env.AI as unknown as {
     run: (
@@ -31,7 +40,7 @@ export const runChat = async (
   };
   const res = await ai.run(opts.model ?? LLM_MODEL, {
     messages,
-    max_tokens: opts.maxTokens ?? 1500,
+    ...tokenInputs(opts.maxTokens),
   });
   // glm-5.2 answers OpenAI-style (choices[].message.content); other Workers AI
   // chat models use { response }. Accept both.
@@ -50,7 +59,7 @@ export const runChat = async (
 export const runChatStream = async (
   env: AppEnv,
   messages: { role: 'system' | 'user' | 'assistant'; content: string }[],
-  opts: { model?: string; maxTokens?: number } = {},
+  opts: { model?: string; maxTokens?: number | null } = {},
   onDelta?: (text: string) => void | Promise<void>,
 ): Promise<string> => {
   const ai = env.AI as unknown as {
@@ -61,7 +70,7 @@ export const runChatStream = async (
   };
   const stream = await ai.run(opts.model ?? LLM_MODEL, {
     messages,
-    max_tokens: opts.maxTokens ?? 1500,
+    ...tokenInputs(opts.maxTokens),
     stream: true,
   });
   const decoder = new TextDecoder();
@@ -191,8 +200,16 @@ const SENTIMENT_TEXT_MAX = 12000;
 // curation) so the model can never introduce one. Partial output is fine: a
 // missing or malformed entry leaves that entity unclassified (null), never
 // guessed. Returns null when the model answered but produced no parseable
-// JSON — observed at ~20% under a tight token cap (truncated output), so
-// callers treat it as transient and retry rather than acking nulls forever.
+// JSON, which callers treat as transient and retry rather than acking nulls
+// forever.
+//
+// The token budget is shared with the model's reasoning_content, which is
+// generated before any answer text and billed either way, so a cap that is
+// too tight spends the whole budget on reasoning and returns nothing. Replayed
+// over 44 stored answers: 800 tokens parsed 93.2% and covered 93.3% of
+// mentions, 2000 parsed 100% and covered 99.3%. The wider cap also costs less
+// than it looks, since a truncated call bills its full budget for unusable
+// output and then retries.
 export const classifySentiments = async (
   env: AppEnv,
   input: { answerText: string; entities: { id: number; name: string }[] },
@@ -213,7 +230,7 @@ export const classifySentiments = async (
       { role: 'system', content: system },
       { role: 'user', content: user },
     ],
-    { maxTokens: 800 },
+    { maxTokens: 2000 },
   );
   const parsed = parseJson(text, sentimentsSchema);
   if (!parsed) {
