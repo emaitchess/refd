@@ -27,6 +27,7 @@ export const toolCatalog = (hasWebSearch: boolean): string =>
     hasWebSearch
       ? 'search_web {"query": string} — web search (Exa); returns numbered sources with snippets. Use for research beyond workspace data.'
       : null,
+    'list_prompts {} — every tracked prompt with its exact wording. Call this when the user names a prompt you cannot match from the workspace data.',
     'get_prompt_results {"prompt": string} — find a tracked prompt by (partial) text; returns its latest per-surface results, entity mentions, and resultIds.',
     'read_answer {"resultId": number} — the stored AI answer text for one result (from get_prompt_results). Use for quote-level questions.',
     'get_digest {"range": "1d"|"3d"|"7d"|"30d"|"90d"|"all"} — the workspace metrics snapshot over another time window.',
@@ -115,7 +116,7 @@ const runGetPromptResults = async (
     return {
       label: 'looked up a prompt',
       detail: 'no match',
-      result: `No tracked prompt matches "${parsed.data.prompt}". Use the exact wording from the prompts section.`,
+      result: `No tracked prompt matches "${parsed.data.prompt}". Call list_prompts to see the exact wording of every tracked prompt.`,
     };
   }
   const latestRun = (
@@ -197,6 +198,39 @@ const runGetPromptResults = async (
     label: 'looked up prompt results',
     detail: match.text.slice(0, 60),
     result: `Prompt: "${match.text}" (run ${latestRun.date}):\n${lines.join('\n')}${others}`,
+  };
+};
+
+// Enough for any workspace under the hosted ceilings, with retired prompts
+// included: history keeps them, so a question can name one.
+const PROMPT_LIST_MAX = 100;
+
+const runListPrompts = async (
+  db: Db,
+  workspaceId: number,
+): Promise<ToolOutcome> => {
+  const rows = await db
+    .select({ text: prompts.text, active: prompts.active })
+    .from(prompts)
+    .where(eq(prompts.workspaceId, workspaceId))
+    .orderBy(prompts.id)
+    .limit(PROMPT_LIST_MAX);
+  if (rows.length === 0) {
+    return {
+      label: 'listed tracked prompts',
+      detail: 'none tracked',
+      result: 'This workspace has no prompts yet.',
+    };
+  }
+  const active = rows.filter((p) => p.active).length;
+  // Wording is verbatim: get_prompt_results matches on it.
+  const lines = rows
+    .map((p) => `- ${p.active ? 'active' : 'retired'}: "${p.text}"`)
+    .join('\n');
+  return {
+    label: 'listed tracked prompts',
+    detail: `${rows.length} prompts · ${active} active`,
+    result: `Tracked prompts (pass the exact wording to get_prompt_results):\n${lines}`,
   };
 };
 
@@ -309,6 +343,9 @@ export const executeTool = async (
   try {
     if (name === 'search_web') {
       return await runSearchWeb(env, args, sourceOffset);
+    }
+    if (name === 'list_prompts') {
+      return await runListPrompts(db, workspaceId);
     }
     if (name === 'get_prompt_results') {
       return await runGetPromptResults(db, workspaceId, args);
