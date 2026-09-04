@@ -45,6 +45,15 @@ describe('public page catalog', () => {
       '/blog/ai-mentions-vs-citations',
       '/blog/one-answer-is-not-a-measurement',
       '/blog/how-to-rank-in-ai-overviews',
+      '/blog/how-to-build-an-ai-prompt-set',
+      '/blog/how-to-audit-an-ai-visibility-tool',
+      '/blog/ai-visibility-vs-seo-rankings',
+      '/blog/reporting-ai-visibility-to-leadership',
+      '/blog/tracking-brand-visibility-in-chatgpt',
+      '/blog/monitoring-citations-in-perplexity',
+      '/blog/measuring-gemini-brand-mentions',
+      '/blog/google-ai-mode-vs-ai-overviews',
+      '/blog/why-ai-surfaces-disagree',
     ]) {
       expect(PUBLIC_PAGE_PATHS).toContain(path);
       expect(INDEXABLE_PUBLIC_PATHS).toContain(path);
