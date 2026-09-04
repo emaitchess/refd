@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { GLOSSARY_ENTRY_PATHS } from './glossary-index';
 import { INDEXABLE_PUBLIC_PATHS, PUBLIC_PAGE_PATHS } from './public-pages';
 
 describe('public page catalog', () => {
@@ -44,7 +45,26 @@ describe('public page catalog', () => {
       '/blog/ai-mentions-vs-citations',
       '/blog/one-answer-is-not-a-measurement',
       '/blog/how-to-rank-in-ai-overviews',
+      '/blog/how-to-build-an-ai-prompt-set',
+      '/blog/how-to-audit-an-ai-visibility-tool',
+      '/blog/ai-visibility-vs-seo-rankings',
+      '/blog/reporting-ai-visibility-to-leadership',
+      '/blog/tracking-brand-visibility-in-chatgpt',
+      '/blog/monitoring-citations-in-perplexity',
+      '/blog/measuring-gemini-brand-mentions',
+      '/blog/google-ai-mode-vs-ai-overviews',
+      '/blog/why-ai-surfaces-disagree',
     ]) {
+      expect(PUBLIC_PAGE_PATHS).toContain(path);
+      expect(INDEXABLE_PUBLIC_PATHS).toContain(path);
+    }
+  });
+
+  test('includes the glossary hub and every definition in discovery', () => {
+    expect(PUBLIC_PAGE_PATHS).toContain('/glossary');
+    expect(INDEXABLE_PUBLIC_PATHS).toContain('/glossary');
+    expect(GLOSSARY_ENTRY_PATHS.length).toBeGreaterThan(0);
+    for (const path of GLOSSARY_ENTRY_PATHS) {
       expect(PUBLIC_PAGE_PATHS).toContain(path);
       expect(INDEXABLE_PUBLIC_PATHS).toContain(path);
     }

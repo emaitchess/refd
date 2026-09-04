@@ -6,6 +6,7 @@ const staticLinks = [
   '- [Interactive demo](https://refd.ai/demo): no-signup sample visibility report with answer evidence',
   '- [AI surface trackers](https://refd.ai/trackers): product pages for ChatGPT, Perplexity, Gemini, Google AI Mode, and Google AI Overviews',
   '- [Documentation](https://refd.ai/docs): setup and operating guides',
+  '- [Glossary](https://refd.ai/glossary): every metric and term refd measures, with how each is calculated and where it stops being reliable',
   '- [Research and guides](https://refd.ai/blog): public analysis and field notes',
   '- [Agent access](https://refd.ai/agents): MCP endpoint, permissions, tools, and connection instructions',
   '- [Security](https://refd.ai/security): hosted safeguards, workspace isolation, agent authorization, and private vulnerability reporting',

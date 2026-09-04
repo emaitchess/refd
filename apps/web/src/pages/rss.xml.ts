@@ -4,7 +4,7 @@ import { getPublicContent } from '../lib/public-content';
 
 export const GET: APIRoute = async ({ site }) => {
   const entries = (await getPublicContent()).filter(
-    (entry) => entry.section !== 'Legal',
+    (entry) => entry.section !== 'Legal' && entry.section !== 'Glossary',
   );
 
   return rss({

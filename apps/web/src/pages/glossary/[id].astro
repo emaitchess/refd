@@ -1,0 +1,168 @@
+---
+import {
+  type GlossaryEntry,
+  GLOSSARY_ENTRIES,
+  relatedGlossaryEntries,
+} from '@refd/core/glossary-index';
+import type { GetStaticPaths } from 'astro';
+import ContentCard from '../../components/ContentCard.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import { CREATE_ACCOUNT_URL } from '../../consts';
+import Base from '../../layouts/Base.astro';
+import '../../styles/global.css';
+import '../../styles/content.css';
+
+interface Props {
+  entry: GlossaryEntry;
+}
+
+export const getStaticPaths = (() =>
+  GLOSSARY_ENTRIES.map((entry) => ({
+    params: { id: entry.id },
+    props: { entry },
+  }))) satisfies GetStaticPaths;
+
+const { entry } = Astro.props;
+const related = relatedGlossaryEntries(entry);
+const site = Astro.site ?? new URL('https://refd.ai');
+const description = `${entry.definition} How refd calculates it, and where it stops being reliable.`;
+
+const structuredData = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'DefinedTerm',
+    '@id': new URL(entry.path, site).href,
+    name: entry.title,
+    description: entry.definition,
+    termCode: entry.id,
+    inDefinedTermSet: {
+      '@type': 'DefinedTermSet',
+      '@id': new URL('/glossary#termset', site).href,
+      name: 'refd AI search monitoring glossary',
+      url: new URL('/glossary', site).href,
+    },
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: new URL('/', site).href },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: 'Glossary',
+        item: new URL('/glossary', site).href,
+      },
+      {
+        '@type': 'ListItem',
+        position: 3,
+        name: entry.title,
+        item: new URL(entry.path, site).href,
+      },
+    ],
+  },
+];
+---
+
+<Base
+  title={`${entry.title} | refd glossary`}
+  description={description}
+  path={entry.path}
+  markdownPath={`${entry.path}.md`}
+  structuredData={structuredData}
+>
+  <SiteHeader />
+  <main>
+    <article>
+      <div class="content-rail">
+        <header class="content-hero">
+          <nav class="breadcrumbs" aria-label="Breadcrumb">
+            <ol>
+              <li><a href="/">Home</a></li>
+              <li><a href="/glossary">Glossary</a></li>
+              <li><span aria-current="page">{entry.title}</span></li>
+            </ol>
+          </nav>
+          <p class="section-index">
+            {entry.kind === 'metric' ? 'Metric' : 'Term'} &middot; {entry.category}
+          </p>
+          <h1>{entry.title}</h1>
+        </header>
+
+        <section class="answer-box" aria-labelledby="definition">
+          <p class="eyebrow" id="definition">Definition</p>
+          <p>{entry.definition}</p>
+        </section>
+
+        <div class="content-body">
+          <div class="prose">
+            <h2 id="how-it-is-calculated">How it is calculated</h2>
+            <p>{entry.details}</p>
+
+            <h2 id="where-to-see-it">Where to see it</h2>
+            <p>
+              {
+                entry.kind === 'metric'
+                  ? 'This metric appears in the refd dashboard and in the no-signup demo, and every value links back to the AI answer it was scored from. A number you cannot trace to an answer cannot be checked, so refd keeps the raw response behind each one.'
+                  : 'This term describes part of how refd collects and scores AI answers. The methodology page sets out the full contract, and the demo shows the same concepts against a live sample workspace.'
+              }
+            </p>
+            <p>
+              The definition above is the one the product uses. It is read
+              directly from the same source the dashboard and the MCP server
+              read, so this page cannot drift from the software.
+            </p>
+          </div>
+        </div>
+
+        {
+          related.length > 0 && (
+            <section class="related-content" aria-labelledby="related-title">
+              <p class="section-index">Related</p>
+              <h2 id="related-title">Other {entry.category.toLowerCase()} definitions</h2>
+              <div class="content-card-grid">
+                {related.map((item) => (
+                  <ContentCard
+                    href={item.path}
+                    eyebrow={item.kind === 'metric' ? 'Metric' : 'Term'}
+                    title={item.title}
+                    description={item.definition}
+                  />
+                ))}
+              </div>
+            </section>
+          )
+        }
+
+        <section class="related-content" aria-labelledby="reference-title">
+          <p class="section-index">Keep reading</p>
+          <h2 id="reference-title">Reference</h2>
+          <div class="content-card-grid">
+            <ContentCard
+              href="/glossary"
+              eyebrow="Glossary"
+              title="All definitions"
+              description="Every metric and term refd uses to measure AI search visibility, in one place."
+            />
+            <ContentCard
+              href="/methodology"
+              eyebrow="Methodology"
+              title="How refd measures AI search visibility"
+              description="Collection, sampling, scoring, aggregation, and the limits refd states openly."
+            />
+          </div>
+        </section>
+
+        <section class="content-cta">
+          <div>
+            <p class="section-index">See your evidence</p>
+            <h2>Measure the questions your buyers ask.</h2>
+          </div>
+          <a class="btn btn-primary" href={CREATE_ACCOUNT_URL}>start monitoring</a>
+        </section>
+      </div>
+    </article>
+  </main>
+  <SiteFooter />
+</Base>

@@ -1,0 +1,160 @@
+---
+import {
+  GLOSSARY_ENTRIES,
+  glossaryEntriesByCategory,
+} from '@refd/core/glossary-index';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import Base from '../../layouts/Base.astro';
+import '../../styles/global.css';
+import '../../styles/content.css';
+
+const groups = glossaryEntriesByCategory();
+const site = Astro.site ?? new URL('https://refd.ai');
+const description =
+  'Definitions for every metric and term refd uses to measure AI search visibility, including how each number is calculated and where it stops being reliable.';
+
+const structuredData = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'DefinedTermSet',
+    '@id': new URL('/glossary#termset', site).href,
+    name: 'refd AI search monitoring glossary',
+    description,
+    url: new URL('/glossary', site).href,
+    hasDefinedTerm: GLOSSARY_ENTRIES.map((entry) => ({
+      '@type': 'DefinedTerm',
+      '@id': new URL(entry.path, site).href,
+      name: entry.title,
+      description: entry.definition,
+      inDefinedTermSet: new URL('/glossary#termset', site).href,
+    })),
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      {
+        '@type': 'ListItem',
+        position: 1,
+        name: 'Home',
+        item: new URL('/', site).href,
+      },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: 'Glossary',
+        item: new URL('/glossary', site).href,
+      },
+    ],
+  },
+];
+---
+
+<Base
+  title="AI search monitoring glossary | refd"
+  description={description}
+  path="/glossary"
+  markdownPath="/glossary.md"
+  structuredData={structuredData}
+>
+  <SiteHeader />
+  <main>
+    <div class="content-rail">
+      <header class="content-index-hero">
+        <p class="section-index">Glossary</p>
+        <h1>Every metric and term, defined and calculated.</h1>
+        <p>
+          {GLOSSARY_ENTRIES.length} definitions covering what refd measures, how
+          each number is calculated, and the conditions under which it stops
+          being reliable. These are the same definitions the product uses, not a
+          separate marketing description of them.
+        </p>
+      </header>
+
+      {
+        groups.map((group) => (
+          <section
+            class="content-index-section"
+            aria-labelledby={`group-${group.category.replaceAll(' ', '-').toLowerCase()}`}
+          >
+            <div class="content-section-head">
+              <p class="section-index">
+                {group.entries[0].kind === 'metric' ? 'Metric' : 'Term'}
+              </p>
+              <h2
+                id={`group-${group.category.replaceAll(' ', '-').toLowerCase()}`}
+              >
+                {group.category}
+              </h2>
+            </div>
+            <dl class="glossary-list">
+              {group.entries.map((entry) => (
+                <div class="glossary-list__row">
+                  <dt>
+                    <a href={entry.path}>{entry.title}</a>
+                  </dt>
+                  <dd>{entry.definition}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        ))
+      }
+
+      <section class="content-cta">
+        <div>
+          <p class="section-index">See it applied</p>
+          <h2>Every definition, measured against a real answer.</h2>
+        </div>
+        <a class="btn btn-primary" href="/demo">open the demo</a>
+      </section>
+    </div>
+  </main>
+  <SiteFooter />
+</Base>
+
+<style>
+  .glossary-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .glossary-list__row {
+    display: grid;
+    gap: 4px 32px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  @media (min-width: 720px) {
+    .glossary-list__row {
+      grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+      align-items: baseline;
+    }
+  }
+
+  .glossary-list dt {
+    margin: 0;
+    font-weight: 600;
+  }
+
+  .glossary-list dt a {
+    color: var(--primary);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+  }
+
+  .glossary-list dt a:hover {
+    border-bottom-color: currentColor;
+  }
+
+  .glossary-list dd {
+    margin: 0;
+    color: var(--secondary);
+    max-width: 62ch;
+  }
+</style>
