@@ -1,4 +1,5 @@
 import { getCollection } from 'astro:content';
+import { glossaryEntriesByCategory } from '@refd/core/glossary-index';
 import { contentPath, isPublished } from './content';
 
 export interface PublicContentEntry {
@@ -9,10 +10,35 @@ export interface PublicContentEntry {
   order: number;
   answer: string;
   body: string;
-  section: 'Blog' | 'Documentation' | 'Guides' | 'Legal' | 'Trackers' | 'Trust';
+  section:
+    | 'Blog'
+    | 'Documentation'
+    | 'Glossary'
+    | 'Guides'
+    | 'Legal'
+    | 'Trackers'
+    | 'Trust';
 }
 
 const trustPageIds = new Set(['open-source', 'security', 'support']);
+
+// The glossary is generated from the same structured definitions the dashboard
+// and the MCP server read, so a definition can never drift between them.
+const GLOSSARY_PUBLISHED_AT = new Date('2026-09-04T00:00:00.000Z');
+
+const glossaryEntries = (): PublicContentEntry[] =>
+  glossaryEntriesByCategory().flatMap((group) =>
+    group.entries.map((entry) => ({
+      path: entry.path,
+      title: entry.title,
+      description: entry.definition,
+      publishedAt: GLOSSARY_PUBLISHED_AT,
+      order: 500,
+      answer: entry.definition,
+      body: `## How it is calculated\n\n${entry.details}\n\n## Category\n\n${entry.kind === 'metric' ? 'Metric' : 'Term'} in ${group.category}.`,
+      section: 'Glossary' as const,
+    })),
+  );
 
 export const getPublicContent = async (): Promise<PublicContentEntry[]> => {
   const pages = (await getCollection('pages')).filter(isPublished).map(
@@ -59,7 +85,7 @@ export const getPublicContent = async (): Promise<PublicContentEntry[]> => {
     }),
   );
 
-  return [...pages, ...docs, ...blog].sort(
+  return [...pages, ...docs, ...blog, ...glossaryEntries()].sort(
     (left, right) =>
       left.order - right.order ||
       right.publishedAt.getTime() - left.publishedAt.getTime(),

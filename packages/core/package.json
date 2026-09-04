@@ -13,6 +13,7 @@
     "./blocks": "./src/blocks.ts",
     "./metric-copy": "./src/metric-copy.ts",
     "./glossary": "./src/glossary.ts",
+    "./glossary-index": "./src/glossary-index.ts",
     "./public-pages": "./src/public-pages.ts"
   },
   "scripts": {

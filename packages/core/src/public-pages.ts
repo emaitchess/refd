@@ -1,3 +1,5 @@
+import { GLOSSARY_ENTRY_PATHS } from './glossary-index';
+
 export const PUBLIC_SITE_ORIGIN = 'https://refd.ai';
 
 export const PUBLIC_PAGE_PATHS = [
@@ -11,6 +13,7 @@ export const PUBLIC_PAGE_PATHS = [
   '/demo',
   '/docs',
   '/docs/getting-started',
+  '/glossary',
   '/methodology',
   '/open-source',
   '/privacy',
@@ -23,6 +26,7 @@ export const PUBLIC_PAGE_PATHS = [
   '/gemini-visibility-tracker',
   '/google-ai-mode-tracker',
   '/google-ai-overview-tracker',
+  ...GLOSSARY_ENTRY_PATHS,
 ];
 
 export const INDEXABLE_PUBLIC_PATHS = [...PUBLIC_PAGE_PATHS];

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { GLOSSARY_ENTRY_PATHS } from './glossary-index';
 import { INDEXABLE_PUBLIC_PATHS, PUBLIC_PAGE_PATHS } from './public-pages';
 
 describe('public page catalog', () => {
@@ -45,6 +46,16 @@ describe('public page catalog', () => {
       '/blog/one-answer-is-not-a-measurement',
       '/blog/how-to-rank-in-ai-overviews',
     ]) {
+      expect(PUBLIC_PAGE_PATHS).toContain(path);
+      expect(INDEXABLE_PUBLIC_PATHS).toContain(path);
+    }
+  });
+
+  test('includes the glossary hub and every definition in discovery', () => {
+    expect(PUBLIC_PAGE_PATHS).toContain('/glossary');
+    expect(INDEXABLE_PUBLIC_PATHS).toContain('/glossary');
+    expect(GLOSSARY_ENTRY_PATHS.length).toBeGreaterThan(0);
+    for (const path of GLOSSARY_ENTRY_PATHS) {
       expect(PUBLIC_PAGE_PATHS).toContain(path);
       expect(INDEXABLE_PUBLIC_PATHS).toContain(path);
     }
