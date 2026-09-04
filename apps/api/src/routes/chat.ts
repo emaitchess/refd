@@ -338,7 +338,13 @@ const streamExchange = async (
         dataMessage,
         ...tail,
       ],
-      { maxTokens: 300 },
+      // No ceiling: the decision is one small JSON object, so the model stops
+      // on its own. A cap only ever truncated it into the silent
+      // `.catch('answer')` fallthrough below. Replayed over the real digest
+      // (n=19-30 per setting): unparseable decisions 33% at 300 tokens, 28% at
+      // 1000, 16% uncapped; tool-needed questions answered with no tool at all
+      // 33% / 17% / 9%; median latency 4.6s / 4.4s / 2.3s.
+      { maxTokens: null },
     );
     const decision = parseJson(
       decisionRaw,
@@ -401,7 +407,12 @@ const streamExchange = async (
       await emit({ type: 'delta', text });
     }
   };
-  await runChatStream(env, messages, { maxTokens: 1100 }, async (delta) => {
+  // Headroom, not a working limit: the "2 to 5 sentences" rule in the system
+  // prompt is what keeps answers short (measured mean 349 completion tokens
+  // uncapped). This ceiling only exists so an unbounded request cannot run to
+  // 30s on a user-facing stream, and must stay clear of prose + the trailer,
+  // which is lost wholesale if the cap lands mid-JSON.
+  await runChatStream(env, messages, { maxTokens: 2000 }, async (delta) => {
     if (inMeta) {
       metaBuf += delta;
       return;
