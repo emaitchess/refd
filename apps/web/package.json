@@ -28,6 +28,7 @@
     "// check": "astro check needs the TS 6.x compiler API (repo pins TS 7); astro build validates .astro instead.",
     "check": "wrangler types && tsc --noEmit -p tsconfig.worker.json",
     "types": "wrangler types",
-    "deploy": "wrangler deploy"
+    "deploy": "bun run ../../scripts/deploy-web.ts",
+    "indexnow": "bun run ../../scripts/submit-indexnow.ts"
   }
 }
