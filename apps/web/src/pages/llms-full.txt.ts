@@ -1,25 +1,62 @@
 import type { APIRoute } from 'astro';
-import { getPublicContent } from '../lib/public-content';
+import {
+  getPublicContent,
+  type PublicContentEntry,
+} from '../lib/public-content';
+
+const ORIGIN = 'https://refd.ai';
+
+const SECTION_ORDER: PublicContentEntry['section'][] = [
+  'Guides',
+  'Documentation',
+  'Trackers',
+  'Blog',
+  'Glossary',
+  'Trust',
+  'Legal',
+];
+
+// Each document is inlined under an H2, so its own headings drop one level and
+// the file keeps a single readable outline. Fenced blocks are left alone: a
+// shell comment inside one is not a heading.
+const demoteHeadings = (body: string): string => {
+  let fenced = false;
+  return body
+    .split('\n')
+    .map((line) => {
+      if (/^\s*(```|~~~)/.test(line)) {
+        fenced = !fenced;
+        return line;
+      }
+      return !fenced && /^#{1,5} /.test(line) ? `#${line}` : line;
+    })
+    .join('\n');
+};
+
+const document = (entry: PublicContentEntry): string =>
+  `## ${entry.title}
+
+- Canonical URL: ${ORIGIN}${entry.path}
+- Markdown URL: ${ORIGIN}${entry.path}.md
+- Published: ${entry.publishedAt.toISOString().slice(0, 10)}
+
+> ${entry.answer}
+
+${demoteHeadings(entry.body.trim())}`;
 
 export const GET: APIRoute = async () => {
   const entries = await getPublicContent();
-  const publishedContent = entries
-    .map(
-      (entry) => `## ${entry.title}
-
-Canonical URL: https://refd.ai${entry.path}
-
-${entry.description}
-
-${entry.body}`,
-    )
-    .join('\n\n---\n\n');
+  const ordered = SECTION_ORDER.flatMap((section) =>
+    entries.filter((entry) => entry.section === section),
+  );
 
   const body = `# refd: auditable AI search monitoring
 
 > See where a brand appears in AI answers, who appears instead, and the evidence behind every metric.
 
 refd is an open-source platform for monitoring brand visibility in AI search. It tracks ChatGPT, Perplexity, Gemini, Google AI Mode, and Google AI Overviews. It is available as a hosted product at refd.ai or as an MIT-licensed self-hosted stack.
+
+This file is the expanded companion to ${ORIGIN}/llms.txt. It inlines the full text of every public page rather than linking to it. Read llms.txt instead when a shorter context is enough.
 
 ## What refd measures
 
@@ -54,24 +91,23 @@ The production MCP endpoint is https://api.refd.ai/mcp. It uses OAuth with PKCE,
 
 Hosted registration and sign-in live on https://dash.refd.ai. Self-hosters bring their own infrastructure and collection accounts. A self-hosted deployment sends no analytics to refd: the tracker is only built in when the hosted analytics settings are configured, and it then collects only from refd.ai and dash.refd.ai.
 
-## Published content
+---
 
-${publishedContent}
+${ordered.map(document).join('\n\n---\n\n')}
+
+---
 
 ## Project links
 
-- Homepage: https://refd.ai/
-- Interactive demo: https://refd.ai/demo
-- AI surface trackers: https://refd.ai/trackers
-- Documentation: https://refd.ai/docs
-- Research and guides: https://refd.ai/blog
-- Agent access: https://refd.ai/agents
-- Security: https://refd.ai/security
-- Support: https://refd.ai/support
-- Open source: https://refd.ai/open-source
-- Privacy policy: https://refd.ai/privacy
-- Terms of service: https://refd.ai/terms
-- RSS: https://refd.ai/rss.xml
+- Homepage: ${ORIGIN}/
+- Interactive demo: ${ORIGIN}/demo
+- AI surface trackers: ${ORIGIN}/trackers
+- Documentation: ${ORIGIN}/docs
+- Glossary: ${ORIGIN}/glossary
+- Research and guides: ${ORIGIN}/blog
+- Agent access: ${ORIGIN}/agents
+- Curated index for LLMs: ${ORIGIN}/llms.txt
+- RSS: ${ORIGIN}/rss.xml
 - Source code: https://github.com/emaitchess/refd
 - Create an account: https://dash.refd.ai/auth/create-account
 - Sign in: https://dash.refd.ai/auth/sign-in
