@@ -68,15 +68,23 @@ export const AliasesCard = ({
     if (!value) {
       return;
     }
+    const caseSensitive = caseFlags[entity.id] === true;
+    const key = value.toLowerCase();
     const covered = new Set([
       entity.name.toLowerCase(),
       ...entity.aliases.map((alias) => alias.value.toLowerCase()),
     ]);
-    if (covered.has(value.toLowerCase())) {
+    // An exact-case alias may repeat something already matched loosely: that is
+    // how a brand named after an ordinary word stops matching the word.
+    const narrows =
+      caseSensitive &&
+      !entity.aliases.some(
+        (alias) => alias.value.toLowerCase() === key && alias.caseSensitive,
+      );
+    if (covered.has(key) && !narrows) {
       setError(`"${value}" is already matched for ${entity.name}`);
       return;
     }
-    const caseSensitive = caseFlags[entity.id] === true;
     void run(async () => {
       await save(entity, [
         ...entity.aliases,

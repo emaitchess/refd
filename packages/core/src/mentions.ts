@@ -36,7 +36,7 @@ export const composeAliases = (
   aliases: Alias[] = [],
 ): Alias[] => {
   const out: Alias[] = [];
-  const seen = new Set<string>();
+  const at = new Map<string, number>();
   const all: Alias[] = [
     { value: name },
     ...aliases,
@@ -45,14 +45,24 @@ export const composeAliases = (
   for (const alias of all) {
     const value = alias.value.trim();
     const key = fold(value).folded;
-    if (!key || seen.has(key)) {
+    if (!key) {
       continue;
     }
-    seen.add(key);
-    out.push({
-      value,
-      caseSensitive: alias.caseSensitive === true ? true : undefined,
-    });
+    const caseSensitive = alias.caseSensitive === true ? true : undefined;
+    const seen = at.get(key);
+    if (seen === undefined) {
+      at.set(key, out.length);
+      out.push({ value, caseSensitive });
+      continue;
+    }
+    // The name is composed first and is always case-insensitive, so a brand
+    // named after a dictionary word ("Profound", "Scrunch") could not be
+    // narrowed: a repeat alias was dropped by the earlier first-wins dedupe.
+    // A case-sensitive repeat now narrows what it duplicates.
+    const prior = out[seen];
+    if (caseSensitive && prior?.caseSensitive === undefined) {
+      out[seen] = { value, caseSensitive: true };
+    }
   }
   return out;
 };
