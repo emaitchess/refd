@@ -6,6 +6,7 @@ export const PUBLIC_PAGE_PATHS = [
   '/',
   '/agents',
   '/blog',
+  '/compare/ai-visibility-tools',
   '/blog/what-is-ai-search-monitoring',
   '/blog/ai-mentions-vs-citations',
   '/blog/one-answer-is-not-a-measurement',

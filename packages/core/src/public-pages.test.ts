@@ -70,6 +70,11 @@ describe('public page catalog', () => {
     }
   });
 
+  test('includes the tool comparison in discovery', () => {
+    expect(PUBLIC_PAGE_PATHS).toContain('/compare/ai-visibility-tools');
+    expect(INDEXABLE_PUBLIC_PATHS).toContain('/compare/ai-visibility-tools');
+  });
+
   test('includes the public policies in discovery', () => {
     expect(PUBLIC_PAGE_PATHS).toContain('/privacy');
     expect(PUBLIC_PAGE_PATHS).toContain('/terms');
