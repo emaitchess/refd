@@ -184,3 +184,56 @@ describe('composeAliases', () => {
     );
   });
 });
+
+describe('a brand named after a dictionary word', () => {
+  const composed = () =>
+    composeAliases(
+      'Profound',
+      ['tryprofound.com'],
+      [{ value: 'Profound', caseSensitive: true }],
+    );
+
+  test('lets a case-sensitive repeat narrow the entity name', () => {
+    expect(composed()).toEqual([
+      { value: 'Profound', caseSensitive: true },
+      { value: 'tryprofound.com', caseSensitive: undefined },
+    ]);
+  });
+
+  test('stops the lowercase adjective scoring a mention', () => {
+    expect(
+      findMentionSpans('This is a profound shift in how buyers search.', [
+        { id: 1, aliases: composed() },
+      ]),
+    ).toEqual([]);
+  });
+
+  test('still matches the brand on its own casing', () => {
+    expect(
+      findMentionSpans('Teams often shortlist Profound first.', [
+        { id: 1, aliases: composed() },
+      ]).length,
+    ).toBe(1);
+  });
+
+  test('leaves an entity without the repeat matching case-insensitively', () => {
+    expect(
+      findMentionSpans('a profound shift', [
+        { id: 1, aliases: composeAliases('Profound', ['tryprofound.com']) },
+      ]).length,
+    ).toBe(1);
+  });
+
+  test('does not let a case-insensitive repeat widen a narrowed alias', () => {
+    expect(
+      composeAliases(
+        'Acme',
+        ['acme.com'],
+        [{ value: 'Acme', caseSensitive: true }, { value: 'acme' }],
+      ),
+    ).toEqual([
+      { value: 'Acme', caseSensitive: true },
+      { value: 'acme.com', caseSensitive: undefined },
+    ]);
+  });
+});
