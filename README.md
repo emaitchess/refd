@@ -4,7 +4,7 @@
 
 Open-source AI search monitoring — track how AI answers talk about any brand: visibility, mentions, citations, and rank across ChatGPT, Perplexity, Gemini, Google AI Mode, and Google AI Overviews. Use the hosted app at [refd.ai](https://refd.ai) or self-host the whole stack.
 
-A Bun-workspace monorepo of three independently deployed Cloudflare Workers: **`apps/api`** (`api.refd.ai`) — the Hono API, OAuth, remote MCP, daily cron, and queue consumer, holding every binding; **`apps/dashboard`** (`dash.refd.ai`) — the React SPA as an assets-only Worker; **`apps/web`** (`refd.ai`) — the static Astro marketing site. Shared runtime-neutral code lives in **`packages/core`**. Data via BrightData (dataset scrapers + SERP API), stored in D1 (Drizzle) with gzipped raw payloads in R2.
+A Bun-workspace monorepo of three independently deployed Cloudflare Workers: **`apps/api`** (`api.refd.ai`) — the Hono API, OAuth, remote MCP, daily cron, and queue consumer, holding every binding; **`apps/dashboard`** (`dash.refd.ai`) — the React SPA as an assets-only Worker; **`apps/web`** (`refd.ai`) — the static Astro public site. Shared runtime-neutral code lives in **`packages/core`**. Data via BrightData (dataset scrapers + SERP API), stored in D1 (Drizzle) with gzipped raw payloads in R2.
 
 refd also exposes the same workspace intelligence to AI agents through a
 read-only, OAuth-protected remote MCP connector. See the
@@ -50,6 +50,7 @@ bun run deploy
 
 - AI answers are non-deterministic: hosted scheduled runs use `SAMPLES=1` per prompt and surface; read trends across completed runs, not one sample. Operators can request additional samples for focused manual runs.
 - Each standard full run is capped at 25 active prompts × 3 enabled surfaces × samples (25 × 3 × 1 = 75 records at the default). Quota scales with the number of workspaces eligible for scheduled monitoring.
+- The public site is built to be read by agents as well as people: every page is also served as markdown at the same path with `.md` appended, `/llms.txt` follows the [llmstxt.org](https://llmstxt.org/) format and links those markdown versions, and `/llms-full.txt` inlines them all. Self-hosted deployments get this for free.
 - Design system: `docs/DESIGN.md`. Scoring/metrics contract: `docs/METRICS.md`. Remote MCP + OAuth: `docs/mcp.md`.
 
 ## Contributing
