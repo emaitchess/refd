@@ -92,9 +92,10 @@ None of them say so on the pages we read. For a category built on
 non-deterministic inputs, that is a striking gap in what vendors choose to
 promise.
 
-**Published pricing is the exception.** Five of fourteen publish no prices at
-all. Peec AI lists four tiers with no numbers. If a fast, cheap evaluation
-matters to you, this alone narrows the field.
+**Published pricing is the exception.** Six of the fourteen give you no number
+to compare. Five publish nothing at all, and Relixir lists custom pricing only.
+Peec AI is the sharpest case: four named tiers with no figures against any of
+them. If a fast, cheap evaluation matters to you, this alone narrows the field.
 
 **Two products are open source.** Elmo and refd. Everything else is proprietary
 SaaS.
