@@ -231,11 +231,19 @@ export const Competitors = () => {
       setFormError('a competitor can have at most 10 aliases');
       return;
     }
+    const key = value.toLowerCase();
     const covered = new Set([
       name.trim().toLowerCase(),
       ...aliases.map((alias) => alias.value.toLowerCase()),
     ]);
-    if (covered.has(value.toLowerCase())) {
+    // An exact-case alias may repeat something already matched loosely: that is
+    // how a brand named after an ordinary word stops matching the word.
+    const narrows =
+      aliasCaseSensitive &&
+      !aliases.some(
+        (alias) => alias.value.toLowerCase() === key && alias.caseSensitive,
+      );
+    if (covered.has(key) && !narrows) {
       setFormError(`"${value}" is already matched for ${name.trim()}`);
       return;
     }
