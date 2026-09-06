@@ -3,44 +3,21 @@ import { HeroDither } from '../components/landing/HeroDither';
 import SiteFooter from '../components/SiteFooter.astro';
 import SiteHeader from '../components/SiteHeader.astro';
 import { GITHUB_URL } from '../consts';
+import {
+  AGENT_CLIENTS,
+  AGENT_DISCOVERY,
+  AGENT_TOOLS,
+  MCP_ENDPOINT,
+} from '../lib/agent-access';
 import Base from '../layouts/Base.astro';
 import '../styles/global.css';
-
-const MCP_ENDPOINT = 'https://api.refd.ai/mcp';
-
-const tools = [
-  ['get_workspace_info', 'The brand, tracked competitors, prompts, and enabled AI surfaces for the workspace.'],
-  ['get_visibility_overview', 'Mention rate, citation rate, position, and share of voice across surfaces.'],
-  ['get_competitor_landscape', 'How the brand ranks against the competitors it tracks.'],
-  ['get_prompt_performance', 'Per-prompt visibility, broken down by AI surface.'],
-  ['get_citation_sources', 'Which domains AI answers cite for the workspace.'],
-  ['get_recent_changes', 'Material moves between the two most recent completed runs.'],
-  ['find_prompt_results', 'Search tracked prompts and their scored results.'],
-  ['read_answer', 'The raw AI answer behind a result, with entity mentions highlighted.'],
-  ['get_digest', 'A 30-day rollup of the workspace, the same one that grounds the dashboard chat.'],
-];
-
-const discovery = [
-  ['MCP endpoint', 'https://api.refd.ai/mcp', 'Streamable HTTP, OAuth-protected'],
-  ['Protected-resource metadata', 'https://api.refd.ai/.well-known/oauth-protected-resource/mcp', 'RFC 9728'],
-  ['Authorization-server metadata', 'https://api.refd.ai/.well-known/oauth-authorization-server', 'RFC 8414'],
-  ['OpenAPI catalog', 'https://refd.ai/openapi.json', 'Public HTTP surface'],
-  ['Agent manifest', 'https://refd.ai/.well-known/agent', 'Discovery pointers'],
-  ['MCP Registry', 'ai.refd/refd', 'registry.modelcontextprotocol.io'],
-  ['llms.txt', 'https://refd.ai/llms.txt', 'Plain-text summary'],
-];
-
-const clients = [
-  ['Claude / Claude Code', 'Add a custom connector (or `claude mcp add --transport http refd https://api.refd.ai/mcp`) and complete the OAuth sign-in.'],
-  ['ChatGPT', 'Settings → Connectors → add a custom MCP server, enter the endpoint, and authorize.'],
-  ['Any MCP client', 'Point a Streamable HTTP MCP client at the endpoint; it discovers auth via the protected-resource metadata.'],
-];
 ---
 
 <Base
   title="Build with refd | agent access"
   description="Connect an AI agent to refd's read-only MCP server over OAuth. Read a brand's AI search visibility, competitors, citations, and answer evidence, scoped to one workspace."
   path="/agents"
+  markdownPath="/agents.md"
 >
   <SiteHeader />
 
@@ -111,7 +88,7 @@ const clients = [
         </div>
         <div class="agent-grid tools-grid">
           {
-            tools.map(([name, desc]) => (
+            AGENT_TOOLS.map(([name, desc]) => (
               <div class="cell">
                 <h3><code>{name}</code></h3>
                 <p>{desc}</p>
@@ -132,7 +109,7 @@ const clients = [
         </div>
         <div class="agent-grid">
           {
-            clients.map(([name, how]) => (
+            AGENT_CLIENTS.map(([name, how]) => (
               <div class="cell">
                 <h3>{name}</h3>
                 <p>{how}</p>
@@ -152,7 +129,7 @@ const clients = [
         </div>
         <div class="agent-grid">
           {
-            discovery.map(([label, value, note]) => (
+            AGENT_DISCOVERY.map(([label, value, note]) => (
               <div class="cell">
                 <p class="k">{label}</p>
                 <h3 style="font-size:14px;word-break:break-all"><code>{value}</code></h3>

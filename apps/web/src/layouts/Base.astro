@@ -82,6 +82,11 @@ const jsonLdText = JSON.stringify(jsonLd).replaceAll('<', '\\u003c');
         />
       )
     }
+    <link
+      rel="describedby"
+      type="text/plain"
+      href={new URL('/llms.txt', site).href}
+    />
     <link rel="sitemap" href="/sitemap.xml" />
     <link
       rel="alternate"
