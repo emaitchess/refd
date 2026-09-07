@@ -12,7 +12,7 @@ import '../../styles/content.css';
 const groups = glossaryEntriesByCategory();
 const site = Astro.site ?? new URL('https://refd.ai');
 const description =
-  'Definitions for every metric and term refd uses to measure AI search visibility, including how each number is calculated and where it stops being reliable.';
+  'Definitions for AI search visibility measurement: every metric and term refd uses, plus the category vocabulary the field argues about. Metrics carry how each number is calculated and where it stops being reliable.';
 
 const structuredData = [
   {
@@ -80,7 +80,13 @@ const structuredData = [
           >
             <div class="content-section-head">
               <p class="section-index">
-                {group.entries[0].kind === 'metric' ? 'Metric' : 'Term'}
+                {
+                  group.entries[0].kind === 'metric'
+                    ? 'Metric'
+                    : group.entries[0].kind === 'concept'
+                      ? 'Concept'
+                      : 'Term'
+                }
               </p>
               <h2
                 id={`group-${group.category.replaceAll(' ', '-').toLowerCase()}`}

@@ -26,7 +26,21 @@ export const getStaticPaths = (() =>
 const { entry } = Astro.props;
 const related = relatedGlossaryEntries(entry);
 const site = Astro.site ?? new URL('https://refd.ai');
-const description = `${entry.definition} How refd calculates it, and where it stops being reliable.`;
+
+// Concepts are category vocabulary rather than refd's own, so they cannot make
+// the "read from the same source the product reads" claim the other two kinds
+// make. Everything below that differs between kinds is derived here.
+const isConcept = entry.kind === 'concept';
+const kindLabel =
+  entry.kind === 'metric' ? 'Metric' : isConcept ? 'Concept' : 'Term';
+const entryLabel = (kind: GlossaryEntry['kind']) =>
+  kind === 'metric' ? 'Metric' : kind === 'concept' ? 'Concept' : 'Term';
+const detailsHeading = isConcept
+  ? 'What it means in practice'
+  : 'How it is calculated';
+const description = isConcept
+  ? `${entry.definition} What it means for measuring AI search visibility, and where the claims around it stop being verifiable.`
+  : `${entry.definition} How refd calculates it, and where it stops being reliable.`;
 
 const structuredData = [
   {
@@ -85,7 +99,7 @@ const structuredData = [
             </ol>
           </nav>
           <p class="section-index">
-            {entry.kind === 'metric' ? 'Metric' : 'Term'} &middot; {entry.category}
+            {kindLabel} &middot; {entry.category}
           </p>
           <h1>{entry.title}</h1>
         </header>
@@ -97,21 +111,27 @@ const structuredData = [
 
         <div class="content-body content-body--solo">
           <div class="prose">
-            <h2 id="how-it-is-calculated">How it is calculated</h2>
+            <h2 id="details">{detailsHeading}</h2>
             <p>{entry.details}</p>
 
-            <h2 id="where-to-see-it">Where to see it</h2>
+            <h2 id="where-to-see-it">
+              {isConcept ? 'How refd treats it' : 'Where to see it'}
+            </h2>
             <p>
               {
                 entry.kind === 'metric'
                   ? 'This metric appears in the refd dashboard and in the no-signup demo, and every value links back to the AI answer it was scored from. A number you cannot trace to an answer cannot be checked, so refd keeps the raw response behind each one.'
-                  : 'This term describes part of how refd collects and scores AI answers. The methodology page sets out the full contract, and the demo shows the same concepts against a live sample workspace.'
+                  : entry.kind === 'concept'
+                    ? 'This is category vocabulary, not a refd metric. refd measures what AI answers actually said across repeated runs, and publishes the raw answer behind every number. Where a term above carries a claim about what causes visibility, refd treats that claim as a hypothesis to test rather than a setting to configure.'
+                    : 'This term describes part of how refd collects and scores AI answers. The methodology page sets out the full contract, and the demo shows the same concepts against a live sample workspace.'
               }
             </p>
             <p>
-              The definition above is the one the product uses. It is read
-              directly from the same source the dashboard and the MCP server
-              read, so this page cannot drift from the software.
+              {
+                isConcept
+                  ? 'This definition is editorial. It describes how the term is used across the field rather than something the software computes, so unlike the metric pages it is not generated from the product.'
+                  : 'The definition above is the one the product uses. It is read directly from the same source the dashboard and the MCP server read, so this page cannot drift from the software.'
+              }
             </p>
           </div>
         </div>
@@ -125,7 +145,7 @@ const structuredData = [
                 {related.map((item) => (
                   <ContentCard
                     href={item.path}
-                    eyebrow={item.kind === 'metric' ? 'Metric' : 'Term'}
+                    eyebrow={entryLabel(item.kind)}
                     title={item.title}
                     description={item.definition}
                   />

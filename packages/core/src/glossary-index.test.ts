@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { CONCEPT_CATEGORIES, CONCEPT_TERMS } from './concepts';
 import { GLOSSARY_TERMS } from './glossary';
 import {
   findGlossaryEntry,
@@ -10,13 +11,30 @@ import {
 import { METRIC_INFO } from './metric-copy';
 
 describe('glossary index', () => {
-  test('merges every metric and term exactly once', () => {
+  test('merges every metric, term and concept exactly once', () => {
     expect(GLOSSARY_ENTRIES.length).toBe(
-      Object.keys(METRIC_INFO).length + GLOSSARY_TERMS.length,
+      Object.keys(METRIC_INFO).length +
+        GLOSSARY_TERMS.length +
+        CONCEPT_TERMS.length,
     );
     expect(new Set(GLOSSARY_ENTRIES.map((entry) => entry.id)).size).toBe(
       GLOSSARY_ENTRIES.length,
     );
+  });
+
+  // The dashboard Help glossary renders GLOSSARY_TERMS directly, so category
+  // vocabulary leaking into that list would put "what is GEO" in the product.
+  test('keeps category vocabulary out of the in-product term list', () => {
+    const termIds = new Set(GLOSSARY_TERMS.map((term) => term.id));
+    for (const concept of CONCEPT_TERMS) {
+      expect(termIds.has(concept.id)).toBe(false);
+    }
+    const conceptCategories = new Set<string>(CONCEPT_CATEGORIES);
+    for (const entry of GLOSSARY_ENTRIES) {
+      if (conceptCategories.has(entry.category)) {
+        expect(entry.kind).toBe('concept');
+      }
+    }
   });
 
   test('gives every entry a canonical path under one namespace', () => {

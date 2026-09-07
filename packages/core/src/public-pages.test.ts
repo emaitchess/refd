@@ -75,6 +75,11 @@ describe('public page catalog', () => {
     expect(INDEXABLE_PUBLIC_PATHS).toContain('/compare/ai-visibility-tools');
   });
 
+  test('includes the visibility checker in discovery', () => {
+    expect(PUBLIC_PAGE_PATHS).toContain('/ai-visibility-checker');
+    expect(INDEXABLE_PUBLIC_PATHS).toContain('/ai-visibility-checker');
+  });
+
   test('includes the public policies in discovery', () => {
     expect(PUBLIC_PAGE_PATHS).toContain('/privacy');
     expect(PUBLIC_PAGE_PATHS).toContain('/terms');

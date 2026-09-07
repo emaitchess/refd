@@ -22,9 +22,17 @@ export interface PublicContentEntry {
 
 const trustPageIds = new Set(['open-source', 'security', 'support']);
 
-// The glossary is generated from the same structured definitions the dashboard
-// and the MCP server read, so a definition can never drift between them.
+// Metric and term definitions are generated from the same structured source the
+// dashboard and the MCP server read, so they can never drift between them.
+// Concepts are editorial category vocabulary and say so, because an agent
+// reading this markdown cannot otherwise tell the two apart.
 const GLOSSARY_PUBLISHED_AT = new Date('2026-09-04T00:00:00.000Z');
+
+const KIND_LABELS = {
+  metric: 'Metric',
+  term: 'Term',
+  concept: 'Concept',
+} as const;
 
 const glossaryEntries = (): PublicContentEntry[] =>
   glossaryEntriesByCategory().flatMap((group) =>
@@ -35,7 +43,18 @@ const glossaryEntries = (): PublicContentEntry[] =>
       publishedAt: GLOSSARY_PUBLISHED_AT,
       order: 500,
       answer: entry.definition,
-      body: `## How it is calculated\n\n${entry.details}\n\n## Category\n\n${entry.kind === 'metric' ? 'Metric' : 'Term'} in ${group.category}.`,
+      body: [
+        `## ${entry.kind === 'concept' ? 'What it means in practice' : 'How it is calculated'}`,
+        '',
+        entry.details,
+        '',
+        '## Category',
+        '',
+        `${KIND_LABELS[entry.kind]} in ${group.category}.`,
+        entry.kind === 'concept'
+          ? 'This definition is editorial category vocabulary, not a metric refd computes.'
+          : 'This definition is read from the same source the refd product reads.',
+      ].join('\n'),
       section: 'Glossary' as const,
     })),
   );
