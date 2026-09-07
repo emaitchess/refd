@@ -119,23 +119,77 @@ export const runChatStream = async (
   return full;
 };
 
-// Locate the first balanced JSON object in a model response (models wrap JSON in
-// prose or code fences often enough that a strict whole-string parse is too
-// brittle) and validate it against a Zod schema. Returns null if there's no JSON
-// or it fails validation — every caller degrades gracefully.
+// How many `{`-rooted candidates to try before giving up. Real output carries
+// one object plus at most a little surrounding noise; the bound stops a wall of
+// braces from turning a parse into a scan of the whole response.
+const MAX_JSON_CANDIDATES = 6;
+
+/**
+ * Every balanced `{...}` span in the text, outermost first. Slicing from the
+ * first `{` to the *last* `}` (the previous approach) breaks on the two shapes
+ * models actually produce: two objects in a row, and one object followed by a
+ * sentence containing a brace. Both yielded an unparseable span and looked
+ * identical to "the model said nothing".
+ */
+const objectCandidates = (raw: string): string[] => {
+  const found: string[] = [];
+  for (let i = 0; i < raw.length; i += 1) {
+    if (raw[i] !== '{') {
+      continue;
+    }
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let j = i; j < raw.length; j += 1) {
+      const ch = raw[j];
+      if (escaped) {
+        escaped = false;
+      } else if (inString) {
+        if (ch === '\\') {
+          escaped = true;
+        } else if (ch === '"') {
+          inString = false;
+        }
+      } else if (ch === '"') {
+        inString = true;
+      } else if (ch === '{') {
+        depth += 1;
+      } else if (ch === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          found.push(raw.slice(i, j + 1));
+          i = j;
+          break;
+        }
+      }
+    }
+    if (found.length >= MAX_JSON_CANDIDATES) {
+      break;
+    }
+  }
+  return found;
+};
+
+// Locate a JSON object in a model response (models wrap JSON in prose or code
+// fences often enough that a strict whole-string parse is too brittle) and
+// validate it against a Zod schema. Candidates are tried in order and the first
+// that both parses and validates wins, so a stray brace earlier in the prose no
+// longer discards the real object. Returns null if nothing validates — every
+// caller degrades gracefully.
 export const parseJson = <T>(raw: string, schema: z.ZodType<T>): T | null => {
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start < 0 || end <= start) {
-    return null;
+  for (const candidate of objectCandidates(raw)) {
+    let value: unknown;
+    try {
+      value = JSON.parse(candidate);
+    } catch {
+      continue;
+    }
+    const validated = validate(value, schema);
+    if (validated !== null) {
+      return validated;
+    }
   }
-  let value: unknown;
-  try {
-    value = JSON.parse(raw.slice(start, end + 1));
-  } catch {
-    return null;
-  }
-  return validate(value, schema);
+  return null;
 };
 
 // LLM output is untrusted: cap length by truncating (transform) rather than
