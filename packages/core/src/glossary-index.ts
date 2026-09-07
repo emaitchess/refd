@@ -1,4 +1,9 @@
 import {
+  CONCEPT_CATEGORIES,
+  CONCEPT_TERMS,
+  type ConceptCategory,
+} from './concepts';
+import {
   GLOSSARY_TERMS,
   type GlossaryDefinition,
   TERM_CATEGORIES,
@@ -10,9 +15,9 @@ import {
   type MetricCategory,
 } from './metric-copy';
 
-export type GlossaryKind = 'metric' | 'term';
+export type GlossaryKind = 'metric' | 'term' | 'concept';
 
-export type GlossaryCategory = MetricCategory | TermCategory;
+export type GlossaryCategory = MetricCategory | TermCategory | ConceptCategory;
 
 export interface GlossaryEntry extends GlossaryDefinition<GlossaryCategory> {
   kind: GlossaryKind;
@@ -30,18 +35,22 @@ const withKind = (
   }));
 
 /**
- * Metric definitions carry the measured contract, so they lead. Both sets share
- * one URL namespace because a reader searching "share of voice" does not know
- * or care which of the two files it happens to live in.
+ * Metric definitions carry the measured contract, so they lead, then refd's own
+ * vocabulary, then the category terms that describe the wider field. All three
+ * share one URL namespace because a reader searching "share of voice" does not
+ * know or care which of the three files it happens to live in. Only the first
+ * two are read by the product; see `concepts.ts`.
  */
 export const GLOSSARY_ENTRIES: GlossaryEntry[] = [
   ...withKind(Object.values(METRIC_INFO), 'metric'),
   ...withKind(GLOSSARY_TERMS, 'term'),
+  ...withKind(CONCEPT_TERMS, 'concept'),
 ];
 
 export const GLOSSARY_CATEGORIES: GlossaryCategory[] = [
   ...METRIC_CATEGORIES,
   ...TERM_CATEGORIES,
+  ...CONCEPT_CATEGORIES,
 ];
 
 export const GLOSSARY_ENTRY_PATHS: string[] = GLOSSARY_ENTRIES.map(

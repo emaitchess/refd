@@ -84,7 +84,7 @@ ${section('Glossary', [
   item(
     'Glossary',
     `${ORIGIN}/glossary.md`,
-    'Every metric and term refd measures, read from the same definitions the product reads.',
+    'Every metric and term refd measures, read from the same definitions the product reads, plus the category vocabulary of AI search visibility.',
   ),
   ...inSection('Glossary'),
 ])}
