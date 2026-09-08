@@ -1,4 +1,5 @@
 import { scheduledMonitoringEligible } from '@refd/core/workspaces';
+import { ChatExchange } from './chat/exchange-do';
 import { getDb } from './db/client';
 import { workspaces } from './db/schema';
 import type { AppEnv } from './env';
@@ -6,6 +7,9 @@ import { handleIngestBatch } from './ingest/consumer';
 import type { IngestMessage } from './ingest/messages';
 import { createRun } from './ingest/runs';
 import { oauthFetch } from './oauth/provider';
+
+// Durable Object classes must be exported from the Worker entrypoint.
+export { ChatExchange };
 
 export default {
   // API-only Worker (api.refd.ai): API, OAuth, and MCP. The SPA and the public
