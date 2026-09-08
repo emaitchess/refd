@@ -52,6 +52,22 @@
     // Daily snapshot run, 06:00 UTC.
     "crons": ["0 6 * * *"]
   },
+  "durable_objects": {
+    // One instance per chat (idFromName(chatId)): owns the running exchange,
+    // the live event fan-out, and the serialized writes for that chat.
+    "bindings": [
+      {
+        "name": "CHAT_EXCHANGE",
+        "class_name": "ChatExchange"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ChatExchange"]
+    }
+  ],
   "d1_databases": [
     {
       "binding": "DB",

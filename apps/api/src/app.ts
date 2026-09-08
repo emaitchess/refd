@@ -35,7 +35,11 @@ export const app = new Hono<AppBindings>();
 app.use('/*', dashboardCors);
 app.use('/*', async (c, next) => {
   await next();
-  applyApiResponseHeaders(c.res.headers);
+  // A 101 upgrade response (the chat exchange watcher) carries immutable
+  // headers that must pass through untouched.
+  if (c.res.status !== 101) {
+    applyApiResponseHeaders(c.res.headers);
+  }
 });
 // BrightData's callback is public but shared-secret verified. Mount it before
 // the JSON mutation guard and the origin check so the secret is always the

@@ -68,54 +68,72 @@ export const api = async <T>(path: string, init?: RequestInit): Promise<T> => {
   return body as T;
 };
 
-// Consume a server-sent-event POST: each `data:` frame parses into one event
-// for the callback. Non-2xx responses surface as ApiError before any event.
-export const apiStream = async (
+// WebSocket transport for a chat exchange. The POST starts it (creating the
+// chat when needed), then the socket watches it: everything that has already
+// happened replays first (steps, prose so far, or the terminal done/error),
+// then live events arrive until the exchange ends. Same event shapes the old
+// SSE frames carried, so rendering is unchanged.
+export const apiExchange = async (
   path: string,
-  init: RequestInit,
+  body: unknown,
   onEvent: (event: Record<string, unknown>) => void,
 ): Promise<void> => {
-  const response = await fetch(apiPath(path), {
-    credentials: 'include',
-    ...init,
-    headers: {
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-      ...init.headers,
-    },
+  const started = await api<{ chatId: number }>(path, {
+    method: 'POST',
+    body: JSON.stringify(body),
   });
-  if (!response.ok || !response.body) {
-    const body = (await response.json().catch(() => ({}))) as {
-      error?: string;
-    };
-    throw new ApiError(
-      response.status,
-      body.error ?? `request failed (${response.status})`,
-    );
-  }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffered = '';
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-    buffered += decoder.decode(value, { stream: true });
-    const frames = buffered.split('\n\n');
-    buffered = frames.pop() ?? '';
-    for (const frame of frames) {
-      for (const line of frame.split('\n')) {
-        if (!line.startsWith('data:')) {
-          continue;
-        }
-        try {
-          onEvent(JSON.parse(line.slice(5).trim()) as Record<string, unknown>);
-        } catch {
-          // malformed frame — skip, the stream continues
-        }
+  // Same-site subdomains, so the session cookie rides the upgrade exactly
+  // like it rides the credentialed POSTs.
+  const target = apiPath(`/chat/${started.chatId}/exchange`);
+  const url = target.startsWith('http')
+    ? target.replace(/^http/, 'ws')
+    : `${window.location.origin.replace(/^http/, 'ws')}${target}`;
+  const socket = new WebSocket(url);
+  return new Promise<void>((resolve, reject) => {
+    // Held in an object because tsc narrows a let to its initial literal
+    // when every write happens inside a closure.
+    const outcome: { failure: string | null; done: boolean; settled: boolean } =
+      { failure: null, done: false, settled: false };
+    const settle = (fn: () => void) => {
+      if (!outcome.settled) {
+        outcome.settled = true;
+        fn();
       }
-    }
-  }
+    };
+    socket.onmessage = (message) => {
+      let event: Record<string, unknown>;
+      try {
+        event = JSON.parse(String(message.data)) as Record<string, unknown>;
+      } catch {
+        return;
+      }
+      onEvent(event);
+      if (event.type === 'done') {
+        outcome.done = true;
+        settle(resolve);
+      } else if (event.type === 'error' && typeof event.message === 'string') {
+        outcome.failure = event.message;
+        settle(() => reject(new ApiError(500, outcome.failure ?? 'failed')));
+      }
+    };
+    socket.onclose = () => {
+      settle(() => {
+        if (outcome.done) {
+          resolve();
+        } else {
+          reject(
+            new ApiError(
+              500,
+              outcome.failure ?? 'the answer stream ended unexpectedly',
+            ),
+          );
+        }
+      });
+    };
+    socket.onerror = () => {
+      // A close event follows; the close handler settles the outcome.
+    };
+  });
 };
 
 export interface Query<T> {

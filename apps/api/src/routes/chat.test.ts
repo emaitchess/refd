@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { parseToolCall } from './chat';
+import { parseToolCall } from '../chat/exchange';
 import { agentTool } from './tool-registry';
 
 const getPromptResults = agentTool('get_prompt_results');

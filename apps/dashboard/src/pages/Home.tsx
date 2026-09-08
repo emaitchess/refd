@@ -11,7 +11,13 @@ import { ChatPanels } from '@/components/home/ChatPanels';
 import { ProposalCard } from '@/components/home/ProposalCard';
 import { EmptyState, SectionLabel } from '@/components/ui';
 import { ANALYTICS_EVENTS, trackEvent } from '@/lib/analytics';
-import { ApiError, api, apiStream, useAsyncAction, useQuery } from '@/lib/api';
+import {
+  ApiError,
+  api,
+  apiExchange,
+  useAsyncAction,
+  useQuery,
+} from '@/lib/api';
 import { clockTime, timestamp } from '@/lib/format';
 import type {
   ChatListItem,
@@ -265,42 +271,35 @@ export const Home = () => {
           messages?: ChatMessage[];
         } | null = null;
         let streamError: string | null = null;
-        await apiStream(
-          path,
-          { method: 'POST', body: JSON.stringify({ message: text }) },
-          (event) => {
-            if (event.type === 'step' && typeof event.label === 'string') {
-              const step: ChatStep = {
-                label: event.label,
-                ...(typeof event.detail === 'string'
-                  ? { detail: event.detail }
-                  : {}),
-              };
-              setLive((cur) =>
-                cur ? { ...cur, steps: [...cur.steps, step] } : cur,
-              );
-            } else if (
-              event.type === 'delta' &&
-              typeof event.text === 'string'
-            ) {
-              const delta = event.text;
-              setLive((cur) =>
-                cur ? { ...cur, content: cur.content + delta } : cur,
-              );
-            } else if (event.type === 'done') {
-              done = event as {
-                chatId?: number;
-                title?: string;
-                messages?: ChatMessage[];
-              };
-            } else if (
-              event.type === 'error' &&
-              typeof event.message === 'string'
-            ) {
-              streamError = event.message;
-            }
-          },
-        );
+        await apiExchange(path, { message: text }, (event) => {
+          if (event.type === 'step' && typeof event.label === 'string') {
+            const step: ChatStep = {
+              label: event.label,
+              ...(typeof event.detail === 'string'
+                ? { detail: event.detail }
+                : {}),
+            };
+            setLive((cur) =>
+              cur ? { ...cur, steps: [...cur.steps, step] } : cur,
+            );
+          } else if (event.type === 'delta' && typeof event.text === 'string') {
+            const delta = event.text;
+            setLive((cur) =>
+              cur ? { ...cur, content: cur.content + delta } : cur,
+            );
+          } else if (event.type === 'done') {
+            done = event as {
+              chatId?: number;
+              title?: string;
+              messages?: ChatMessage[];
+            };
+          } else if (
+            event.type === 'error' &&
+            typeof event.message === 'string'
+          ) {
+            streamError = event.message;
+          }
+        });
         if (streamError !== null) {
           throw new ApiError(500, streamError);
         }
