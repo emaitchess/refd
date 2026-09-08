@@ -195,6 +195,8 @@ export const runChatStream = async (
   messages: { role: 'system' | 'user' | 'assistant'; content: string }[],
   opts: { model?: string; maxTokens?: number | null } = {},
   onDelta?: (text: string) => void | Promise<void>,
+  // Fires with the length of each reasoning chunk, never its text.
+  onReasoning?: (chars: number) => void | Promise<void>,
 ): Promise<string> => {
   const ai = env.AI as unknown as {
     run: (
@@ -236,8 +238,19 @@ export const runChatStream = async (
       }
       const record = parsed as {
         response?: unknown;
-        choices?: { delta?: { content?: unknown } }[];
+        choices?: {
+          delta?: { content?: unknown; reasoning_content?: unknown };
+        }[];
       };
+      // glm-5.3 streams a reasoning pass before its first content token, and
+      // on a large evidence payload that runs 30 to 46 seconds. The text is
+      // the model's private working and is never forwarded, but its arrival
+      // is proof the turn is alive, which is the only honest progress signal
+      // available during that silence.
+      const reasoning = record.choices?.[0]?.delta?.reasoning_content;
+      if (typeof reasoning === 'string' && reasoning.length > 0) {
+        await onReasoning?.(reasoning.length);
+      }
       const delta =
         typeof record.response === 'string'
           ? record.response
