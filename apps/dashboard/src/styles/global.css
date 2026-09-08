@@ -589,6 +589,16 @@ html:has(.landing-shell) {
   .md-body strong {
     @apply font-[550] text-primary;
   }
+  /* Markdown links in model prose: scheme-checked upstream, styled here so
+     they never fall back to the browser's default link blue. */
+  .md-body a {
+    @apply text-primary underline decoration-border-strong underline-offset-2
+      transition-colors hover:decoration-primary;
+  }
+  .md-source-ref {
+    @apply font-mono text-[11px] no-underline decoration-border-strong
+      underline-offset-2 transition-colors hover:underline;
+  }
   .input {
     @apply h-9 w-full bg-bg border border-border px-3 text-[14px] text-primary
       placeholder:text-muted transition-colors duration-150

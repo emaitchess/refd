@@ -72,24 +72,29 @@ export const api = async <T>(path: string, init?: RequestInit): Promise<T> => {
 // chat when needed), then the socket watches it: everything that has already
 // happened replays first (steps, prose so far, or the terminal done/error),
 // then live events arrive until the exchange ends. Same event shapes the old
-// SSE frames carried, so rendering is unchanged.
+// SSE frames carried, so rendering is unchanged. Resolves with the chat id
+// immediately after the POST, so a caller that detaches mid-stream (stop
+// button) still knows which thread to poll. Aborting detaches the watcher
+// only: the server exchange keeps running and stores its pair when done.
 export const apiExchange = async (
   path: string,
   body: unknown,
   onEvent: (event: Record<string, unknown>) => void,
-): Promise<void> => {
+  opts?: { signal?: AbortSignal },
+): Promise<number> => {
   const started = await api<{ chatId: number }>(path, {
     method: 'POST',
     body: JSON.stringify(body),
   });
+  const chatId = started.chatId;
   // Same-site subdomains, so the session cookie rides the upgrade exactly
   // like it rides the credentialed POSTs.
-  const target = apiPath(`/chat/${started.chatId}/exchange`);
+  const target = apiPath(`/chat/${chatId}/exchange`);
   const url = target.startsWith('http')
     ? target.replace(/^http/, 'ws')
     : `${window.location.origin.replace(/^http/, 'ws')}${target}`;
   const socket = new WebSocket(url);
-  return new Promise<void>((resolve, reject) => {
+  return new Promise<number>((resolve, reject) => {
     // Held in an object because tsc narrows a let to its initial literal
     // when every write happens inside a closure.
     const outcome: { failure: string | null; done: boolean; settled: boolean } =
@@ -100,6 +105,15 @@ export const apiExchange = async (
         fn();
       }
     };
+    opts?.signal?.addEventListener(
+      'abort',
+      () => {
+        socket.onclose = null;
+        socket.close();
+        settle(() => resolve(chatId));
+      },
+      { once: true },
+    );
     socket.onmessage = (message) => {
       let event: Record<string, unknown>;
       try {
@@ -110,7 +124,7 @@ export const apiExchange = async (
       onEvent(event);
       if (event.type === 'done') {
         outcome.done = true;
-        settle(resolve);
+        settle(() => resolve(chatId));
       } else if (event.type === 'error' && typeof event.message === 'string') {
         outcome.failure = event.message;
         settle(() => reject(new ApiError(500, outcome.failure ?? 'failed')));
@@ -119,7 +133,7 @@ export const apiExchange = async (
     socket.onclose = () => {
       settle(() => {
         if (outcome.done) {
-          resolve();
+          resolve(chatId);
         } else {
           reject(
             new ApiError(
