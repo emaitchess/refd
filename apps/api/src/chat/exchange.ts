@@ -30,8 +30,8 @@ import { executeTool } from '../routes/agent-tools';
 import { buildDigest, DIGEST_PANELS, type DigestPanel } from '../routes/digest';
 import {
   type AgentTool,
-  agentTool,
   availableTools,
+  offeredTool,
   toolDefinition,
 } from '../routes/tool-registry';
 
@@ -276,7 +276,7 @@ const metaPrompt = (withTitle: boolean, sourceCount: number): string =>
   '[] if none apply.\n' +
   '- proposal: ONLY when the answer drafts prompts or a competitor for the ' +
   'user to confirm, else null. Shape: {"kind":"prompts","items":[{"text":' +
-  `string,"category":one of ${PROMPT_CATEGORIES.join('|')}]}] with 3 to 10 ` +
+  `string,"category":one of ${PROMPT_CATEGORIES.join('|')}}]} with 3 to 10 ` +
   'natural buyer questions (8..500 chars each, most NOT naming the brand), ' +
   'or {"kind":"competitor","name":string,"domains":[apex domains verified ' +
   'in real results],"aliases":[{"value":string,"caseSensitive":boolean}]}. ' +
@@ -465,7 +465,7 @@ export const runExchange = async (
     // Echo the assistant turn verbatim, then answer every call in order.
     toolMessages.push({ role: 'assistant', tool_calls: turn.rawToolCalls });
     for (const call of turn.toolCalls) {
-      const tool = agentTool(call.name);
+      const tool = offeredTool(tools, call.name);
       if (!tool) {
         await step('unknown tool requested', call.name.slice(0, 40));
         toolMessages.push({

@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import {
   AGENT_TOOLS,
+  agentTool,
   availableTools,
+  offeredTool,
   toolDefinition,
   toolParameters,
 } from './tool-registry';
@@ -44,6 +46,23 @@ describe('tool registry', () => {
     expect(definition.function.name).toBe('get_digest');
     expect(definition.function.description).toBe(tool.description);
     expect(definition.function.parameters).toEqual(toolParameters(tool.args));
+  });
+
+  // The gate is only real if resolution respects it. agentTool searches the
+  // whole registry, so resolving a model-named tool through it would hand back
+  // a runnable handler for a tool this request never offered.
+  test('offeredTool never resolves a tool held back from the request', () => {
+    const offered = availableTools(false);
+    expect(offeredTool(offered, 'search_web')).toBeUndefined();
+    expect(agentTool('search_web')).toBeDefined();
+    expect(offeredTool(offered, 'get_digest')?.name).toBe('get_digest');
+    expect(offeredTool(availableTools(true), 'search_web')?.name).toBe(
+      'search_web',
+    );
+  });
+
+  test('offeredTool returns undefined for a name that is not a tool', () => {
+    expect(offeredTool(AGENT_TOOLS, 'delete_everything')).toBeUndefined();
   });
 
   test('a declared schema rejects malformed arguments', () => {
