@@ -290,3 +290,14 @@ export const availableTools = (hasWebSearch: boolean): AgentTool[] =>
 
 export const agentTool = (name: string): AgentTool | undefined =>
   AGENT_TOOLS.find((tool) => tool.name === name);
+
+/**
+ * Resolve a model-named tool against the set actually offered this request.
+ * Never resolve against AGENT_TOOLS: a tool withheld from the request
+ * (search_web without EXA_API_KEY) is not advertised, but a model can still
+ * name it, and the registry would happily hand back a runnable handler.
+ */
+export const offeredTool = (
+  offered: readonly AgentTool[],
+  name: string,
+): AgentTool | undefined => offered.find((tool) => tool.name === name);
