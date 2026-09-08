@@ -18,6 +18,15 @@ const app = () => {
   instance.use('/*', requireDashboardOrigin);
   instance.get('/x', (c) => c.json({ ok: true }));
   instance.post('/x', (c) => c.json({ ok: true }));
+  // A websocket upgrade, whose response headers are immutable.
+  instance.get(
+    '/ws',
+    () =>
+      new Response(null, {
+        status: 101,
+        headers: new Headers({ Upgrade: 'websocket' }),
+      }),
+  );
   return instance;
 };
 
@@ -94,6 +103,19 @@ describe('dashboardCors', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe(DASH);
     expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
+  });
+
+  // Writing CORS headers onto a 101 threw "Can't modify immutable headers",
+  // turning every chat exchange socket into a 500 and leaving the client with
+  // no events at all.
+  test('leaves a websocket upgrade response alone', async () => {
+    const res = await app().request(
+      `${API}/ws`,
+      { headers: { Origin: DASH } },
+      splitEnv,
+    );
+    expect(res.status).toBe(101);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
 
   test('emits no CORS headers for a foreign or same-origin request', async () => {
