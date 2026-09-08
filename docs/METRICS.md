@@ -150,7 +150,7 @@ core, aggregation endpoints, alias capture, and historical rescoring.
   fills `entity_scores.sentiment` with positive, neutral, or negative. Null
   means unclassified and renders "—". Classification failure never delays or
   fails the run.
-- **One model call per answer.** Workers AI glm-5.2 judges every mentioned
+- **One model call per answer.** Workers AI glm-5.3 judges every mentioned
   tracked entity in one call. Entities are referenced by number so the model
   cannot introduce one. Malformed entries remain unclassified rather than
   being guessed. Negative framing affects sentiment but still counts as a
