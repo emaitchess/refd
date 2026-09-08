@@ -6,6 +6,7 @@ import { DitherIcon } from '@/components/dither/DitherIcon';
 import { Tooltip } from '@/components/dither-kit/tooltip';
 import { DitherLoader } from '@/components/feedback/DitherLoader';
 import { Dots } from '@/components/feedback/Dots';
+import { Elapsed } from '@/components/feedback/Elapsed';
 import { useToast } from '@/components/feedback/Toast';
 import { ChatPanels } from '@/components/home/ChatPanels';
 import { ProposalCard } from '@/components/home/ProposalCard';
@@ -176,6 +177,9 @@ export const Home = () => {
   const [live, setLive] = useState<{
     steps: ChatStep[];
     content: string;
+    // When the newest step arrived, so the wait is measured from the last
+    // real event rather than from the start of the whole exchange.
+    since: number;
   } | null>(null);
   const [input, setInput] = useState('');
   const { busy, error, setError, run } = useAsyncAction();
@@ -261,7 +265,7 @@ export const Home = () => {
         createdAt: Date.now(),
       },
     ]);
-    setLive({ steps: [], content: '' });
+    setLive({ steps: [], content: '', since: Date.now() });
     void run(async () => {
       try {
         const path = chatId === null ? '/chat' : `/chat/${chatId}/messages`;
@@ -280,7 +284,9 @@ export const Home = () => {
                 : {}),
             };
             setLive((cur) =>
-              cur ? { ...cur, steps: [...cur.steps, step] } : cur,
+              cur
+                ? { ...cur, steps: [...cur.steps, step], since: Date.now() }
+                : cur,
             );
           } else if (event.type === 'delta' && typeof event.text === 'string') {
             const delta = event.text;
@@ -574,6 +580,7 @@ export const Home = () => {
                   {live.steps.at(-1)?.label ?? 'working'}
                   <Dots />
                 </span>
+                <Elapsed since={live.since} />
               </p>
             )}
           </div>

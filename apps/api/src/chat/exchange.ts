@@ -555,9 +555,22 @@ export const runExchange = async (
         ]),
     ...conversation,
   ];
-  await step('writing the answer', 'grounded to the gathered evidence only');
+  // What the answer is actually built from, in the reader's terms. The model
+  // then goes quiet for 30 to 46 seconds on a large payload, so this line has
+  // to carry the weight of that wait rather than say nothing.
+  await step(
+    'reading the evidence',
+    evidence.length === 0
+      ? 'the workspace snapshot only'
+      : `the snapshot and ${evidence.length} ${
+          evidence.length === 1 ? 'lookup' : 'lookups'
+        }`,
+  );
 
   let prose = '';
+  // One step when the reasoning pass starts, not one per chunk: the point is
+  // to replace a frozen line with a true statement about what is happening.
+  const reasoning = { announced: false };
   await runChatStream(
     env,
     messages,
@@ -566,8 +579,17 @@ export const runExchange = async (
       if (!delta) {
         return;
       }
+      if (prose.length === 0) {
+        await step('writing the answer', 'grounded to the gathered evidence');
+      }
       prose += delta;
       await emit({ type: 'delta', text: delta });
+    },
+    async () => {
+      if (!reasoning.announced) {
+        reasoning.announced = true;
+        await step('working through the evidence', 'before writing anything');
+      }
     },
   );
 
