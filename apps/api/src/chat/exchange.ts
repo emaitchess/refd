@@ -344,8 +344,11 @@ const extractMeta = async (
         },
       ],
       {
+        // Same reasoning-budget hazard as the answer phase, and a cap that
+        // binds here loses the panels and links silently rather than loudly.
+        // The json_schema is what bounds this output, not a token ceiling.
         model: PLANNING_MODEL,
-        maxTokens: 2000,
+        maxTokens: null,
         responseFormat: metaResponseFormat(withTitle),
       },
     );
@@ -549,7 +552,14 @@ export const runExchange = async (
   await step('writing the answer', 'grounded to the gathered evidence only');
 
   let prose = '';
-  await runChatStream(env, messages, { maxTokens: 2000 }, async (delta) => {
+  // No ceiling. glm-5.3 spends a reasoning pass before its first content
+  // token, and that pass is billed against the same completion budget, so a
+  // cap does not shorten the answer: it truncates or erases it. Measured on a
+  // real 87-row evidence payload, 2000 finished with reason "length" after
+  // ~6,200 characters of reasoning, and a heavier payload emitted no content
+  // at all and fell back. Length is bounded by the "2 to 5 sentences" rule in
+  // the prompt, which is what was holding it all along.
+  await runChatStream(env, messages, { maxTokens: null }, async (delta) => {
     if (!delta) {
       return;
     }
