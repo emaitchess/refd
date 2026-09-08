@@ -2,11 +2,11 @@ import { z } from 'zod';
 import type { AppEnv } from '../env';
 import { validate } from './validate';
 
-// One model for every LLM task. Smaller/newer Workers AI models were A/B'd for
-// the extraction steps and measured much slower at equal quality —
-// glm-4.7-flash ~2x, gemma-4-26b-a4b-it ~4x — because glm-5.2 is a fast,
-// well-provisioned endpoint there. runChat still takes per-call opts (maxTokens).
-export const LLM_MODEL = '@cf/zai-org/glm-5.2';
+export const LLM_MODEL = '@cf/zai-org/glm-5.3';
+
+// The planning loop only has to pick a tool, and it runs many times per
+// exchange. Flash is ~9x cheaper at the same context window.
+export const PLANNING_MODEL = '@cf/zai-org/glm-5.3-flash';
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -14,20 +14,26 @@ interface ChatMessage {
 }
 
 // A ceiling is a circuit breaker, not a length control: the budget is shared
-// with the model's reasoning_content, so a cap that binds truncates the answer
-// rather than shortening it, and bills the full budget for the wreckage. What
-// actually bounds output is the prompt. `maxTokens: null` therefore means "no
-// ceiling" and omits the field entirely; omitting the option keeps the legacy
-// 1500 for callers that never chose a number.
+// with the model's private reasoning pass, so a cap that binds truncates the
+// answer rather than shortening it, and bills the full budget for the wreckage.
+// What actually bounds output is the prompt. `maxTokens: null` therefore means
+// "no ceiling" and omits the field entirely; omitting the option keeps the
+// legacy 1500 for callers that never chose a number. glm-5.3 renamed the
+// ceiling parameter; the old name is deprecated on it.
 export const tokenInputs = (maxTokens: number | null | undefined) =>
-  maxTokens === null ? {} : { max_tokens: maxTokens ?? 1500 };
+  maxTokens === null ? {} : { max_completion_tokens: maxTokens ?? 1500 };
 
 // glm models aren't in wrangler's generated Ai model union, so the binding is
 // called through a loose shape. Returns the raw text response (or '').
+// `responseFormat` passes a response_format through for structured-output calls.
 export const runChat = async (
   env: AppEnv,
   messages: ChatMessage[],
-  opts: { model?: string; maxTokens?: number | null } = {},
+  opts: {
+    model?: string;
+    maxTokens?: number | null;
+    responseFormat?: unknown;
+  } = {},
 ): Promise<string> => {
   const ai = env.AI as unknown as {
     run: (
@@ -41,15 +47,121 @@ export const runChat = async (
   const res = await ai.run(opts.model ?? LLM_MODEL, {
     messages,
     ...tokenInputs(opts.maxTokens),
+    ...(opts.responseFormat !== undefined
+      ? { response_format: opts.responseFormat }
+      : {}),
   });
-  // glm-5.2 answers OpenAI-style (choices[].message.content); other Workers AI
-  // chat models use { response }. Accept both.
+  // glm models answer OpenAI-style (choices[].message.content); other Workers
+  // AI chat models use { response }. Accept both.
   const content = res?.choices?.[0]?.message?.content;
   if (typeof content === 'string' && content) {
     return content;
   }
   const out = res?.response;
   return typeof out === 'string' ? out : out == null ? '' : JSON.stringify(out);
+};
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  // Unparsed: arguments are model output and stay a string until the caller
+  // JSON-parses and validates them against the tool's schema.
+  rawArguments: string;
+}
+
+export interface ChatTurn {
+  content: string | null;
+  toolCalls: ToolCall[];
+  finishReason: string;
+  // The tool_calls array exactly as received, so the caller can echo the
+  // assistant turn back verbatim (the protocol requires it).
+  rawToolCalls: unknown;
+}
+
+// Lenient envelope: one unreadable field must degrade to a default, never
+// discard the response. The per-call view fills defaults for malformed
+// entries rather than dropping them, so every echoed call gets a matching
+// tool message. The model's private reasoning stream is deliberately not
+// part of this schema and must never be forwarded to a user.
+const toolCallView = z.object({
+  id: z.string().catch(''),
+  function: z
+    .object({ name: z.string().catch(''), arguments: z.string().catch('') })
+    .catch({ name: '', arguments: '' }),
+});
+const emptyToolCall = { id: '', function: { name: '', arguments: '' } };
+
+const chatTurnShape = z.object({
+  choices: z
+    .array(
+      z
+        .object({
+          finish_reason: z.string().catch('stop'),
+          message: z
+            .object({
+              content: z.string().nullish().catch(null),
+              tool_calls: z.array(z.unknown()).nullish().catch([]),
+            })
+            .nullish()
+            .catch(null),
+        })
+        .nullish()
+        .catch(null),
+    )
+    .nullish()
+    .catch([]),
+});
+
+// Non-streaming tool-calling turn (glm-5.3 native function calling, OpenAI
+// shape). A planning turn needs the complete tool_calls array before it can
+// act, so streaming buys nothing here. On any unreadable response the caller
+// gets a no-tool-calls stop turn and degrades to answering.
+export const runChatWithTools = async (
+  env: AppEnv,
+  messages: unknown[],
+  tools: unknown[],
+  opts: { model?: string; maxTokens?: number | null } = {},
+): Promise<ChatTurn> => {
+  const unreadable: ChatTurn = {
+    content: null,
+    toolCalls: [],
+    finishReason: 'stop',
+    rawToolCalls: [],
+  };
+  const ai = env.AI as unknown as {
+    run: (model: string, inputs: Record<string, unknown>) => Promise<unknown>;
+  };
+  let res: unknown;
+  try {
+    res = await ai.run(opts.model ?? LLM_MODEL, {
+      messages,
+      tools,
+      ...tokenInputs(opts.maxTokens),
+    });
+  } catch (error) {
+    console.error('chat tools: model call failed', error);
+    return unreadable;
+  }
+  const parsed = validate(res, chatTurnShape);
+  const choice = parsed?.choices?.[0];
+  if (!choice) {
+    return unreadable;
+  }
+  const rawToolCalls = choice.message?.tool_calls ?? [];
+  const toolCalls = rawToolCalls.map((raw) => {
+    const view = validate(raw, toolCallView) ?? emptyToolCall;
+    return {
+      id: view.id,
+      name: view.function.name,
+      rawArguments: view.function.arguments,
+    };
+  });
+  return {
+    content: choice.message?.content ?? null,
+    toolCalls,
+    finishReason: choice.finish_reason,
+    rawToolCalls,
+  };
 };
 
 // Streaming variant: Workers AI returns SSE bytes; each `data:` line carries
@@ -257,8 +369,8 @@ const SENTIMENT_TEXT_MAX = 12000;
 // JSON, which callers treat as transient and retry rather than acking nulls
 // forever.
 //
-// The token budget is shared with the model's reasoning_content, which is
-// generated before any answer text and billed either way, so a cap that is
+// The token budget is shared with the model's private reasoning pass, which
+// is generated before any answer text and billed either way, so a cap that is
 // too tight spends the whole budget on reasoning and returns nothing. Replayed
 // over 44 stored answers: 800 tokens parsed 93.2% and covered 93.3% of
 // mentions, 2000 parsed 100% and covered 99.3%. The wider cap also costs less
