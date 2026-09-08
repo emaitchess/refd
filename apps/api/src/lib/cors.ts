@@ -103,6 +103,13 @@ export const dashboardCors = createMiddleware<{ Bindings: AppEnv }>(
       return preflightResponse(origin);
     }
     await next();
+    // A 101 upgrade response carries immutable headers, and writing to them
+    // throws and turns the whole request into a 500. A WebSocket handshake
+    // does not use CORS response headers anyway: it is guarded by the route's
+    // own workspace check plus the Origin validation above.
+    if (c.res.status === 101) {
+      return;
+    }
     c.res.headers.set('Access-Control-Allow-Origin', origin);
     c.res.headers.set('Access-Control-Allow-Credentials', 'true');
     appendVary(c.res.headers, 'Origin');
