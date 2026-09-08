@@ -74,16 +74,16 @@ const tryStaticFile = async (
   }
 };
 
-// Render the homepage to markdown via the Browser Rendering markdown Quick Action
+// Render any URL to markdown via the Browser Rendering markdown Quick Action
 // (a binding call — no API token). Handles JS/SPA sites a plain fetch can't.
 // Best-effort — returns null on any failure.
-const renderMarkdown = async (
+export const fetchPageMarkdown = async (
   env: AppEnv,
-  domain: string,
+  url: string,
 ): Promise<string | null> => {
   try {
     const res = await env.BROWSER.quickAction('markdown', {
-      url: `https://${domain}/`,
+      url,
       gotoOptions: { waitUntil: 'networkidle0' },
     });
     const body = validate(await res.json(), markdownResponseSchema);
@@ -96,6 +96,11 @@ const renderMarkdown = async (
     return null;
   }
 };
+
+const renderMarkdown = async (
+  env: AppEnv,
+  domain: string,
+): Promise<string | null> => fetchPageMarkdown(env, `https://${domain}/`);
 
 export interface SiteText {
   text: string;

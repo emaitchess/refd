@@ -110,6 +110,17 @@ const chatTurnShape = z.object({
     )
     .nullish()
     .catch([]),
+  // Reported per call; tracked while transcripts grow to see whether
+  // context caching is actually engaging.
+  usage: z
+    .object({
+      prompt_tokens: z.number().optional(),
+      completion_tokens: z.number().optional(),
+      prompt_tokens_details: z
+        .object({ cached_tokens: z.number().optional() })
+        .optional(),
+    })
+    .optional(),
 });
 
 // Non-streaming tool-calling turn (glm-5.3 native function calling, OpenAI
@@ -144,6 +155,17 @@ export const runChatWithTools = async (
   }
   const parsed = validate(res, chatTurnShape);
   const choice = parsed?.choices?.[0];
+  if (parsed?.usage) {
+    console.log(
+      'chat tools usage',
+      JSON.stringify({
+        model: opts.model ?? LLM_MODEL,
+        promptTokens: parsed.usage.prompt_tokens ?? null,
+        completionTokens: parsed.usage.completion_tokens ?? null,
+        cachedTokens: parsed.usage.prompt_tokens_details?.cached_tokens ?? null,
+      }),
+    );
+  }
   if (!choice) {
     return unreadable;
   }
