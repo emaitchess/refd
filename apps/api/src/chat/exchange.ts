@@ -258,6 +258,36 @@ const MAX_PLANNING_ROUNDS = 20;
 // with reason "length" while 8000 and above finished clean. Uncapped also
 // works but leaves nothing bounding a runaway turn on a user-facing stream.
 const ANSWER_TOKEN_CEILING = 16000;
+// Wall-clock bound on one answer draw. glm-5.3 normally writes this payload
+// in under 10 seconds, but a bad draw can reason for minutes without emitting
+// a token, and in prod one consumed the object's whole 5-minute alarm. Two
+// attempts still finish comfortably inside it.
+const EVIDENCE_PREFIX = 'Evidence gathered for this question:';
+const ANSWER_DEADLINE_MS = 75_000;
+// Evidence lines kept for the retry. Measured on the same payload: the full
+// 87 rows and a 30-row slice both answer, the slice faster.
+const RETRY_EVIDENCE_LINES = 30;
+
+/**
+ * Shorten the gathered-evidence message for a retry, leaving every other
+ * message untouched. The answer stays grounded in the same evidence, just
+ * less of it.
+ */
+const trimEvidence = <T extends { role: string; content: string }>(
+  messages: T[],
+): T[] =>
+  messages.map((message) => {
+    if (!message.content.startsWith(EVIDENCE_PREFIX)) {
+      return message;
+    }
+    const lines = message.content.split('\n');
+    return lines.length <= RETRY_EVIDENCE_LINES
+      ? message
+      : {
+          ...message,
+          content: `${lines.slice(0, RETRY_EVIDENCE_LINES).join('\n')}\n(evidence trimmed for a retry)`,
+        };
+  });
 // Shown when the answer phase produces no prose at all.
 const ANSWER_FALLBACK =
   'I could not put together a grounded answer for that. Try rephrasing the question, or open Overview for the numbers directly.';
@@ -550,7 +580,7 @@ export const runExchange = async (
       : [
           {
             role: 'system' as const,
-            content: `Evidence gathered for this question:\n${evidence.join('\n\n')}`,
+            content: `${EVIDENCE_PREFIX}\n${evidence.join('\n\n')}`,
           },
         ]),
     ...conversation,
@@ -571,27 +601,55 @@ export const runExchange = async (
   // One step when the reasoning pass starts, not one per chunk: the point is
   // to replace a frozen line with a true statement about what is happening.
   const reasoning = { announced: false };
-  await runChatStream(
+  const onDelta = async (delta: string) => {
+    if (!delta) {
+      return;
+    }
+    if (prose.length === 0) {
+      await step('writing the answer', 'grounded to the gathered evidence');
+    }
+    prose += delta;
+    await emit({ type: 'delta', text: delta });
+  };
+  const onReasoning = async () => {
+    if (!reasoning.announced) {
+      reasoning.announced = true;
+      await step('working through the evidence', 'before writing anything');
+    }
+  };
+  const answerStartedAt = Date.now();
+  const first = await runChatStream(
     env,
     messages,
-    { maxTokens: ANSWER_TOKEN_CEILING },
-    async (delta) => {
-      if (!delta) {
-        return;
-      }
-      if (prose.length === 0) {
-        await step('writing the answer', 'grounded to the gathered evidence');
-      }
-      prose += delta;
-      await emit({ type: 'delta', text: delta });
-    },
-    async () => {
-      if (!reasoning.announced) {
-        reasoning.announced = true;
-        await step('working through the evidence', 'before writing anything');
-      }
-    },
+    { maxTokens: ANSWER_TOKEN_CEILING, deadlineMs: ANSWER_DEADLINE_MS },
+    onDelta,
+    onReasoning,
   );
+  console.log('chat answer', {
+    ms: Date.now() - answerStartedAt,
+    chars: prose.length,
+    timedOut: first.timedOut,
+  });
+  // A draw that reasons past the deadline without writing anything is retried
+  // once on a trimmed payload: fewer evidence lines measurably shortens the
+  // reasoning pass, and a second attempt still lands far inside the object's
+  // alarm. A partial answer is kept as it is rather than redrawn.
+  if (first.timedOut && prose.length === 0) {
+    await step('the first draft stalled', 'retrying on a tighter brief');
+    const retryStartedAt = Date.now();
+    const retry = await runChatStream(
+      env,
+      trimEvidence(messages),
+      { maxTokens: ANSWER_TOKEN_CEILING, deadlineMs: ANSWER_DEADLINE_MS },
+      onDelta,
+      onReasoning,
+    );
+    console.log('chat answer retry', {
+      ms: Date.now() - retryStartedAt,
+      chars: prose.length,
+      timedOut: retry.timedOut,
+    });
+  }
 
   const meta = await extractMeta(
     env,

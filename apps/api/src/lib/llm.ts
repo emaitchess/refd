@@ -193,11 +193,18 @@ export const runChatWithTools = async (
 export const runChatStream = async (
   env: AppEnv,
   messages: { role: 'system' | 'user' | 'assistant'; content: string }[],
-  opts: { model?: string; maxTokens?: number | null } = {},
+  opts: {
+    model?: string;
+    maxTokens?: number | null;
+    // Wall-clock bound on how long this stream may be read. Reaching it stops
+    // the read and returns whatever arrived; it does not shorten the answer
+    // the model was asked for.
+    deadlineMs?: number;
+  } = {},
   onDelta?: (text: string) => void | Promise<void>,
   // Fires with the length of each reasoning chunk, never its text.
   onReasoning?: (chars: number) => void | Promise<void>,
-): Promise<string> => {
+): Promise<{ text: string; timedOut: boolean }> => {
   const ai = env.AI as unknown as {
     run: (
       model: string,
@@ -213,7 +220,20 @@ export const runChatStream = async (
   let buffered = '';
   let full = '';
   const reader = stream.getReader();
+  const startedAt = Date.now();
+  let timedOut = false;
   for (;;) {
+    // The model can enter a reasoning loop that emits nothing for minutes. The
+    // read is abandoned at the deadline so one bad draw cannot consume the
+    // whole exchange; whatever prose arrived is kept.
+    if (
+      opts.deadlineMs !== undefined &&
+      Date.now() - startedAt > opts.deadlineMs
+    ) {
+      timedOut = true;
+      await reader.cancel().catch(() => {});
+      break;
+    }
     const { done, value } = await reader.read();
     if (done) {
       break;
@@ -263,7 +283,7 @@ export const runChatStream = async (
       }
     }
   }
-  return full;
+  return { text: full, timedOut };
 };
 
 // How many `{`-rooted candidates to try before giving up. Real output carries
