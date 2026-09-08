@@ -227,8 +227,10 @@ const systemPrompt = (): string =>
   '- Write 2 to 5 sentences of plain markdown prose, no headings and no JSON ' +
   'in the prose. Do not recite whole tables; the app renders the supporting ' +
   'data panels alongside your answer.\n' +
-  '- If you used a numbered web result from the evidence, cite it in prose ' +
-  'like (S2). Only numbers that exist.\n' +
+  '- Web results in the evidence are numbered S1, S2, ...: cite one in prose ' +
+  'like (S2) only if you actually used it. The other numbered items are tool ' +
+  'results, never citations; when there are no web results, use no citation ' +
+  'markers.\n' +
   '- Never mention tools, traces, or metadata in the prose.';
 
 // Model-written titles arrive with stray quotes and whitespace often enough
@@ -289,8 +291,10 @@ const metaPrompt = (withTitle: boolean, sourceCount: number): string =>
   'in real results],"aliases":[{"value":string,"caseSensitive":boolean}]}. ' +
   'The app shows proposals for human confirmation; never claim anything ' +
   'was added.\n' +
-  `- webSources: the numbers (1..${sourceCount}) of the web results the ` +
-  'answer cited or used; [] if none.';
+  (sourceCount > 0
+    ? `- webSources: the numbers (1..${sourceCount}) of the web results the ` +
+      'answer cited or used; [] if none.'
+    : '- webSources: the answer had no web results, so this is always [].');
 
 const metaResponseFormat = (withTitle: boolean) => ({
   type: 'json_schema' as const,
