@@ -2,7 +2,7 @@
 // the planning loop, the answer phase, and the D1 persistence of the finished
 // rows. The DO owns the live transport; this file owns what it streams.
 // Deliberately free of durable-object types so the engine stays portable.
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Db } from '../db/client';
 import {
@@ -252,6 +252,12 @@ const TOOL_BUDGET = 30;
 // Hard bound on planning round trips, so a misbehaving model cannot spin
 // forever even if every call it makes is free.
 const MAX_PLANNING_ROUNDS = 20;
+// Generous but bounded. glm-5.3 bills its reasoning pass against the same
+// completion budget, so a tight ceiling truncates or erases the answer rather
+// than shortening it: measured on an 87-row evidence payload, 2000 finished
+// with reason "length" while 8000 and above finished clean. Uncapped also
+// works but leaves nothing bounding a runaway turn on a user-facing stream.
+const ANSWER_TOKEN_CEILING = 16000;
 // Shown when the answer phase produces no prose at all.
 const ANSWER_FALLBACK =
   'I could not put together a grounded answer for that. Try rephrasing the question, or open Overview for the numbers directly.';
@@ -552,20 +558,18 @@ export const runExchange = async (
   await step('writing the answer', 'grounded to the gathered evidence only');
 
   let prose = '';
-  // No ceiling. glm-5.3 spends a reasoning pass before its first content
-  // token, and that pass is billed against the same completion budget, so a
-  // cap does not shorten the answer: it truncates or erases it. Measured on a
-  // real 87-row evidence payload, 2000 finished with reason "length" after
-  // ~6,200 characters of reasoning, and a heavier payload emitted no content
-  // at all and fell back. Length is bounded by the "2 to 5 sentences" rule in
-  // the prompt, which is what was holding it all along.
-  await runChatStream(env, messages, { maxTokens: null }, async (delta) => {
-    if (!delta) {
-      return;
-    }
-    prose += delta;
-    await emit({ type: 'delta', text: delta });
-  });
+  await runChatStream(
+    env,
+    messages,
+    { maxTokens: ANSWER_TOKEN_CEILING },
+    async (delta) => {
+      if (!delta) {
+        return;
+      }
+      prose += delta;
+      await emit({ type: 'delta', text: delta });
+    },
+  );
 
   const meta = await extractMeta(
     env,
@@ -637,33 +641,97 @@ export const messageShape = {
   createdAt: chatMessages.createdAt,
 };
 
-export const storeExchange = async (
+/**
+ * The question lands in D1 before the model runs. It used to be written with
+ * the finished exchange, so a slow or failed run left the chat completely
+ * empty: the user's own question was lost, navigating away lost the thread,
+ * and a timeout was indistinguishable from a chat that never existed.
+ */
+export const storeQuestion = async (
   db: Db,
   chatId: number,
   question: string,
-  exchange: Exchange,
-  // Both rows insert after the model answers, so the user row carries the
-  // request-arrival time explicitly: sent time, not completion time.
   receivedAt: number,
+) => {
+  const inserted = (
+    await db
+      .insert(chatMessages)
+      .values({
+        chatId,
+        role: 'user',
+        content: question,
+        createdAt: receivedAt,
+      })
+      .returning(messageShape)
+  )[0];
+  await db
+    .update(chats)
+    .set({ updatedAt: receivedAt })
+    .where(eq(chats.id, chatId));
+  return inserted;
+};
+
+/**
+ * Inserts the answer and returns the question with it. The `done` event has
+ * always carried both rows, and the client replaces the thread with them, so
+ * returning the answer alone would drop the question the user just sent.
+ */
+export const storeAnswer = async (
+  db: Db,
+  chatId: number,
+  exchange: Exchange,
+) => {
+  await db.insert(chatMessages).values({
+    chatId,
+    role: 'assistant',
+    content: exchange.content,
+    panels: exchange.panels,
+    panelData: exchange.panelData,
+    links: exchange.links,
+    steps: exchange.steps,
+    durationMs: exchange.durationMs,
+    proposal: exchange.proposal,
+    sources: exchange.sources.length > 0 ? exchange.sources : null,
+    createdAt: Date.now(),
+  });
+  await db
+    .update(chats)
+    .set({ updatedAt: Date.now() })
+    .where(eq(chats.id, chatId));
+  return (
+    await db
+      .select(messageShape)
+      .from(chatMessages)
+      .where(eq(chatMessages.chatId, chatId))
+      .orderBy(desc(chatMessages.id))
+      .limit(2)
+  ).reverse();
+};
+
+/**
+ * A failed or timed-out exchange still owes the reader an answer row. Without
+ * one the thread ends on the question and the UI cannot tell "still running"
+ * from "died", which is exactly what a wedged exchange looked like in prod.
+ */
+export const storeFailure = async (
+  db: Db,
+  chatId: number,
+  message: string,
+  steps: ChatStep[],
+  durationMs: number,
 ) => {
   const inserted = await db
     .insert(chatMessages)
-    .values([
-      { chatId, role: 'user', content: question, createdAt: receivedAt },
-      {
-        chatId,
-        role: 'assistant',
-        content: exchange.content,
-        panels: exchange.panels,
-        panelData: exchange.panelData,
-        links: exchange.links,
-        steps: exchange.steps,
-        durationMs: exchange.durationMs,
-        proposal: exchange.proposal,
-        sources: exchange.sources.length > 0 ? exchange.sources : null,
-        createdAt: Date.now(),
-      },
-    ])
+    .values({
+      chatId,
+      role: 'assistant',
+      content: message,
+      panels: [],
+      links: [],
+      steps,
+      durationMs,
+      createdAt: Date.now(),
+    })
     .returning(messageShape);
   await db
     .update(chats)

@@ -15,7 +15,8 @@ import {
   type Exchange,
   runExchange,
   type StreamEvent,
-  storeExchange,
+  storeAnswer,
+  storeFailure,
 } from './exchange';
 
 // Wall-clock ceiling on one exchange. The alarm is the insurance for a wedged
@@ -233,13 +234,9 @@ export class ChatExchange {
       if (current?.status !== 'running') {
         return;
       }
-      const messages = await storeExchange(
-        db,
-        meta.chatId,
-        meta.question,
-        exchange,
-        meta.receivedAt,
-      );
+      // The question row was written when the request was accepted, so only
+      // the answer is inserted here.
+      const messages = await storeAnswer(db, meta.chatId, exchange);
       // Same title rule the synchronous flow had: the model-named title wins,
       // the truncated first question stays as the fallback.
       let title: string | null = null;
@@ -278,10 +275,10 @@ export class ChatExchange {
   };
 
   private fail = async (message: string): Promise<void> => {
-    await this.enqueueTask(async () => {
+    const failed = await this.enqueueTask(async () => {
       const meta = await this.state.storage.get<ExchangeMeta>('meta');
       if (meta?.status !== 'running') {
-        return;
+        return null;
       }
       await this.state.storage.put('meta', { ...meta, status: 'failed' });
       await this.state.storage.put('result', {
@@ -289,7 +286,28 @@ export class ChatExchange {
         message,
       } satisfies StreamEvent);
       await this.state.storage.deleteAlarm();
+      return meta;
     });
+    // The failure belongs in D1, not only in this object's storage. Without a
+    // row the thread ends on the question, and a reader who reconnects after
+    // the sockets closed cannot tell a dead exchange from a running one.
+    if (failed) {
+      const steps =
+        (await this.state.storage.get<{ label: string; detail?: string }[]>(
+          'steps',
+        )) ?? [];
+      try {
+        await storeFailure(
+          getDb(this.env),
+          failed.chatId,
+          message,
+          steps,
+          Date.now() - failed.startedAt,
+        );
+      } catch (error) {
+        console.error('chat exchange: could not store the failure', error);
+      }
+    }
     this.broadcast({ type: 'error', message });
     this.closeAll();
   };
