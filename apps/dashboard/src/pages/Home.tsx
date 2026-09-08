@@ -475,8 +475,15 @@ export const Home = () => {
                     <span className="truncate text-[13px] text-primary">
                       {chat.title}
                     </span>
-                    <span className="shrink-0 font-mono text-[10px] text-muted">
-                      {timestamp(chat.updatedAt)}
+                    <span className="flex shrink-0 items-center gap-1.5 font-mono text-[10px] text-muted">
+                      {chat.running ? (
+                        <>
+                          <DitherLoader size={10} />
+                          <span>working</span>
+                        </>
+                      ) : (
+                        timestamp(chat.updatedAt)
+                      )}
                     </span>
                   </button>
                   <button
@@ -564,7 +571,7 @@ export const Home = () => {
               <p className="flex items-center gap-2 font-mono text-[12px] text-muted">
                 <DitherLoader />
                 <span>
-                  working
+                  {live.steps.at(-1)?.label ?? 'working'}
                   <Dots />
                 </span>
               </p>

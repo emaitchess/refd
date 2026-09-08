@@ -1,8 +1,12 @@
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { WorkspaceBindings } from '../auth/middleware';
-import { HISTORY_MESSAGES, messageShape } from '../chat/exchange';
+import {
+  HISTORY_MESSAGES,
+  messageShape,
+  storeQuestion,
+} from '../chat/exchange';
 import { startExchange } from '../chat/exchange-do';
 import { type Db, getDb } from '../db/client';
 import { type ChatProposal, chatMessages, chats, entities } from '../db/schema';
@@ -19,6 +23,9 @@ export const chatRoutes = new Hono<WorkspaceBindings>();
 // Model calls cost neurons; an owner-only surface still deserves a ceiling.
 const MESSAGES_PER_HOUR = 30;
 const TITLE_MAX = 80;
+// How long an unanswered question may still read as running. Comfortably past
+// the object's own 5-minute alarm, which writes a failure row of its own.
+const RUNNING_MAX_MS = 10 * 60 * 1000;
 
 const messageSchema = z.object({ message: multiLineText(1, 1000) });
 
@@ -50,12 +57,50 @@ const ownedChat = async (db: Db, id: number, workspaceId: number) =>
 chatRoutes.get('/', async (c) => {
   const db = getDb(c.env);
   const rows = await db
-    .select({ id: chats.id, title: chats.title, updatedAt: chats.updatedAt })
+    .select({
+      id: chats.id,
+      title: chats.title,
+      updatedAt: chats.updatedAt,
+    })
     .from(chats)
     .where(eq(chats.workspaceId, c.get('workspace').id))
     .orderBy(desc(chats.updatedAt))
     .limit(50);
-  return c.json({ chats: rows });
+  // Every finished exchange writes exactly one question and one answer, so a
+  // chat with more questions than answers still has one in flight. Counted in
+  // a grouped query rather than a correlated subquery, which Drizzle's sql
+  // template does not correlate the way raw SQL does.
+  const counts =
+    rows.length === 0
+      ? []
+      : await db
+          .select({
+            chatId: chatMessages.chatId,
+            questions: sql<number>`sum(case when ${chatMessages.role} = 'user' then 1 else 0 end)`,
+            answers: sql<number>`sum(case when ${chatMessages.role} = 'assistant' then 1 else 0 end)`,
+          })
+          .from(chatMessages)
+          .where(
+            inArray(
+              chatMessages.chatId,
+              rows.map((chat) => chat.id),
+            ),
+          )
+          .groupBy(chatMessages.chatId);
+  const unanswered = new Map(
+    counts.map((row) => [row.chatId, row.questions - row.answers]),
+  );
+  // An exchange that died without writing anything (an evicted object, say)
+  // would otherwise spin forever. The alarm writes a failure row well inside
+  // this window, so past it an unanswered question is stalled, not running.
+  const stallCutoff = Date.now() - RUNNING_MAX_MS;
+  return c.json({
+    chats: rows.map((chat) => ({
+      ...chat,
+      running:
+        (unanswered.get(chat.id) ?? 0) > 0 && chat.updatedAt > stallCutoff,
+    })),
+  });
 });
 
 // Idle-state fuel: greeting name plus suggestion chips ranked from the
@@ -110,18 +155,20 @@ chatRoutes.post('/', async (c) => {
   if (!chat) {
     return c.json({ error: 'could not create chat' }, 500);
   }
-  // The user message row is written with the finished exchange (both insert
-  // after the model answers, carrying sent time explicitly), exactly as the
-  // synchronous flow did.
+  // The question is persisted before the model runs, so the chat exists the
+  // moment it is sent: navigating away keeps it, and a run that dies leaves a
+  // thread that still shows what was asked.
+  const receivedAt = Date.now();
+  const question = await storeQuestion(db, chat.id, data.message, receivedAt);
   await startExchange(c.env, {
     chatId: chat.id,
     workspaceId: ws,
     history: [],
     question: data.message,
     withTitle: true,
-    receivedAt: Date.now(),
+    receivedAt,
   });
-  return c.json({ chatId: chat.id, title: chat.title });
+  return c.json({ chatId: chat.id, title: chat.title, question });
 });
 
 // Watch a chat's exchange: every event so far replays (steps, prose so far,
@@ -184,15 +231,17 @@ chatRoutes.post('/:id/messages', async (c) => {
       .orderBy(desc(chatMessages.id))
       .limit(HISTORY_MESSAGES)
   ).reverse();
+  const receivedAt = Date.now();
+  const question = await storeQuestion(db, id, data.message, receivedAt);
   await startExchange(c.env, {
     chatId: id,
     workspaceId: ws,
     history,
     question: data.message,
     withTitle: false,
-    receivedAt: Date.now(),
+    receivedAt,
   });
-  return c.json({ ok: true });
+  return c.json({ ok: true, question });
 });
 
 // Confirmation gate for agent write proposals. Applying re-validates

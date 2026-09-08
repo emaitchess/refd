@@ -235,6 +235,9 @@ export interface ChatListItem {
   id: number;
   title: string;
   updatedAt: number;
+  // No answer row yet: the exchange is still running, or it died without
+  // writing one. Either way the thread is not finished.
+  running: boolean;
 }
 
 export interface ChatStep {
