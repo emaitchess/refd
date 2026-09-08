@@ -32,6 +32,8 @@ Local secrets go in `apps/api/.dev.vars` (gitignored): `JWT_SECRET`, `BRIGHTDATA
 - `bun run check` — typecheck (all workspaces) · `bun run lint` / `lint:fix` — Biome · `bun test` — unit tests
 - `bun run build` — build all three Workers · `bun run deploy` — build, migrate D1, then deploy all three
 
+Git worktrees are supported out of the box with [`wt`](https://github.com/emaitchess/wt): `wt create <name>` runs the checked-in `.wt/setup.sh`, which installs dependencies and copies local secrets and wrangler state, so a fresh worktree behaves like your main checkout.
+
 ## Self-host
 
 ```bash
