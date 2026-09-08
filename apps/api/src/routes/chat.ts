@@ -178,6 +178,8 @@ const systemPlanning =
   'resultId it returned.\n' +
   '- If the question needs information from the public web (other companies, ' +
   'reviews, trends, research for drafting), call search_web.\n' +
+  '- For questions spanning many prompts, surfaces, or dates, prefer one ' +
+  'query_results or aggregate call over repeated get_prompt_results calls.\n' +
   '- Never repeat a call with identical arguments.\n' +
   '- When the gathered information is enough, stop calling tools and reply ' +
   'with one short plain-text sentence; the real answer is written ' +
