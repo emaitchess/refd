@@ -1,17 +1,18 @@
-// The Home agent's tool registry. Read/research only — every tool is a
+// The Home agent's tool handlers. Read/research only — every tool is a
 // query; writes exist solely as human-confirmed proposals (see chat.ts).
 // Each execution returns a step line for the live trace, a compact result
 // string for the model transcript, and any web sources it surfaced.
+// Schemas, descriptions, and costs live in tool-registry.ts.
 import { and, desc, eq, sql } from 'drizzle-orm';
-import { z } from 'zod';
 import { type Db, getDb } from '../db/client';
 import { entities, entityScores, prompts, results, runs } from '../db/schema';
 import type { AppEnv } from '../env';
 import { answerTextFromRaw } from '../ingest/rescore';
 import { gunzipJson } from '../ingest/storage';
 import { searchWeb, type WebResult } from '../lib/exa';
-import { rangeLabel, rangeSchema } from '../lib/range';
+import { rangeLabel } from '../lib/range';
 import { buildDigest } from './digest';
+import { digestArgs, promptArgs, readArgs, searchArgs } from './tool-registry';
 
 export interface ToolOutcome {
   label: string;
@@ -19,26 +20,6 @@ export interface ToolOutcome {
   result: string;
   sources?: WebResult[];
 }
-
-// Rendered into the decision prompt. Kept terse: every token here is paid on
-// every loop iteration.
-export const toolCatalog = (hasWebSearch: boolean): string =>
-  [
-    hasWebSearch
-      ? 'search_web {"query": string} — web search (Exa); returns numbered sources with snippets. Use for research beyond workspace data.'
-      : null,
-    'list_prompts {} — every tracked prompt with its exact wording. Call this when the user names a prompt you cannot match from the workspace data.',
-    'get_prompt_results {"prompt": string} — find a tracked prompt by (partial) text; returns its latest per-surface results, entity mentions, and resultIds.',
-    'read_answer {"resultId": number} — the stored AI answer text for one result (from get_prompt_results). Use for quote-level questions.',
-    'get_digest {"range": "1d"|"3d"|"7d"|"30d"|"90d"|"all"} — the workspace metrics snapshot over another time window.',
-  ]
-    .filter((line): line is string => line !== null)
-    .join('\n');
-
-const searchArgs = z.object({ query: z.string().min(2).max(200) });
-const promptArgs = z.object({ prompt: z.string().min(2).max(500) });
-const readArgs = z.object({ resultId: z.number().int().positive() });
-const digestArgs = z.object({ range: rangeSchema });
 
 const invalid = (name: string, expected: string): ToolOutcome => ({
   label: `${name} skipped`,

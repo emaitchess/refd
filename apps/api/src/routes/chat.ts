@@ -17,19 +17,27 @@ import type { WebResult } from '../lib/exa';
 import { parseBody, parseId } from '../lib/http';
 import {
   llmText,
+  PLANNING_MODEL,
   PROMPT_CATEGORIES,
   parseJson,
   runChat,
   runChatStream,
+  runChatWithTools,
 } from '../lib/llm';
 import { insertActivePrompt } from '../lib/prompt-limit';
 import { detectRange } from '../lib/range';
 import { domainField, multiLineText, singleLineText } from '../lib/sanitize';
 import { configForUser } from '../lib/user-config';
-import { executeTool, toolCatalog } from './agent-tools';
+import { executeTool } from './agent-tools';
 import { buildChangeReport } from './changes';
 import { buildDigest, DIGEST_PANELS, type DigestPanel } from './digest';
 import { buildSuggestions } from './suggestions';
+import {
+  type AgentTool,
+  agentTool,
+  availableTools,
+  toolDefinition,
+} from './tool-registry';
 
 export const chatRoutes = new Hono<WorkspaceBindings>();
 
@@ -55,12 +63,6 @@ const validLink = (to: string): boolean =>
   LINK_PREFIXES.some(
     (p) => to === p || to.startsWith(`${p}/`) || to.startsWith(`${p}?`),
   );
-
-// Streaming protocol: the model writes plain markdown prose first (streamed
-// to the client as it arrives), then a single trailer line
-// `@@META@@ {json}` carrying the structured extras. The trailer never
-// reaches the client raw — it is cut server-side and parsed leniently.
-const META_SENTINEL = '@@META@@';
 
 const metaSchema = z.object({
   // Only requested on a conversation's first exchange; absent otherwise.
@@ -159,85 +161,62 @@ const toProposal = (
     : null;
 };
 
-// Planning phase: JSON-only decisions over the conversation plus the calls
-// already made. The gathered evidence carries over to the answer phase, but
-// these JSON turns deliberately do not.
-const decisionPrompt = (hasWebSearch: boolean, remaining: number): string =>
-  'You are the refd workspace agent, in the planning phase. refd monitors ' +
-  'how AI search surfaces mention, cite, and rank the workspace brand.\n' +
-  `Tools:\n${toolCatalog(hasWebSearch)}\n` +
-  `You may call at most ${remaining} more tools this turn.\n` +
-  'Reply with ONLY one JSON object, nothing else:\n' +
-  '{"action":"tool","tool":"<name>","args":{...}} to gather information, or\n' +
-  '{"action":"answer"} when ready to answer.\n' +
+// Planning phase: the model picks tools natively, and tool calls and prose
+// arrive in different fields of the response, so a tool call can never be
+// mistaken for an answer. The planning model's own final prose is discarded;
+// what the user sees is written by the answer phase.
+const systemPlanning =
+  'You are the refd workspace agent, in the information-gathering phase. ' +
+  'refd monitors how AI search surfaces (ChatGPT, Perplexity, Gemini, ' +
+  'Google AI Mode, Google AI Overviews) mention, cite, and rank the ' +
+  'workspace brand.\n' +
+  'The workspace data JSON is provided; call tools for anything it does not ' +
+  'already cover.\n' +
   'Rules:\n' +
   '- If the user asks what a specific AI answer said, or about one tracked ' +
-  "prompt's results, you MUST call get_prompt_results first (then " +
-  'read_answer with a resultId it returned).\n' +
+  "prompt's results, call get_prompt_results first, then read_answer with a " +
+  'resultId it returned.\n' +
   '- If the question needs information from the public web (other companies, ' +
   'reviews, trends, research for drafting), call search_web.\n' +
-  '- If the user asks to add or draft prompts or competitors, research with ' +
-  'the tools first, then choose {"action":"answer"} — drafting happens in ' +
-  'the answer phase.\n' +
-  '- Otherwise, when the provided workspace data already covers the ' +
-  'question, choose {"action":"answer"}.\n' +
-  '- Never repeat a tool call with identical arguments.';
+  '- Never repeat a call with identical arguments.\n' +
+  '- When the gathered information is enough, stop calling tools and reply ' +
+  'with one short plain-text sentence; the real answer is written ' +
+  'afterwards from the evidence you gathered.';
 
-// A decision the model actually expressed. `null` from parseDecision means the
-// model produced nothing we could read — deliberately NOT folded into
-// {"action":"answer"}, because that fallthrough is invisible: it skips the
-// tools the question needed while the trace still reads like a clean run.
-const decisionShape = z.object({
-  action: z.enum(['tool', 'answer']),
-  tool: z.string().catch(''),
-  args: z.record(z.string(), z.unknown()).catch({}),
-});
+export type ParsedToolCall =
+  | { ok: true; args: unknown }
+  | { ok: false; error: string };
 
-/**
- * A bare `{"tool":"list_prompts","args":{}}` is an unambiguous tool call with
- * the wrapper omitted, and dropping it cost a whole exchange's gathering. Only
- * `tool` infers an action: a missing action with no tool stays unreadable,
- * because inferring "answer" there would reintroduce the invisible fallthrough
- * this schema exists to prevent.
- */
-const withInferredAction = (value: unknown): unknown => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return value;
+// A tool call's arguments are model output: JSON.parse in a try/catch, then
+// the registry schema. Unknown keys are stripped (the z.object default), so
+// an over-eager extra argument is harmless rather than fatal.
+export const parseToolCall = (
+  tool: AgentTool,
+  rawArguments: string,
+): ParsedToolCall => {
+  let value: unknown;
+  try {
+    value = JSON.parse(rawArguments);
+  } catch {
+    return { ok: false, error: 'arguments were not valid JSON' };
   }
-  const obj = value as Record<string, unknown>;
-  if ('action' in obj) {
-    return obj;
+  const parsed = tool.args.safeParse(value);
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map(
+        (issue) => `${issue.path.join('.') || 'arguments'}: ${issue.message}`,
+      )
+      .join('; ');
+    return { ok: false, error: `arguments failed validation (${issues})` };
   }
-  return typeof obj.tool === 'string' && obj.tool.length > 0
-    ? { ...obj, action: 'tool' }
-    : obj;
+  return { ok: true, args: parsed.data };
 };
 
-const decisionSchema = z.preprocess(withInferredAction, decisionShape);
-
-export type AgentDecision = z.infer<typeof decisionShape>;
-
-export const parseDecision = (raw: string): AgentDecision | null =>
-  parseJson(raw, decisionSchema);
-
-/**
- * True when the answer phase handed back a planning decision instead of an
- * answer. It happened because the planning JSON used to be replayed as
- * assistant turns in the answer request, which taught the model that this
- * assistant speaks JSON; the transcript is separated now, and this stays as
- * the guard that keeps protocol output off the user's screen.
- *
- * Anchored to the opening brace, so prose that merely quotes JSON later on is
- * never mistaken for a plan.
- */
-export const isLeakedPlan = (text: string): boolean =>
-  text.trimStart().startsWith('{') && parseDecision(text.trim()) !== null;
-
-const systemPrompt = (withTitle: boolean): string =>
+const systemPrompt = (): string =>
   'You are the refd workspace assistant. refd monitors how AI search surfaces ' +
   '(ChatGPT, Perplexity, Gemini, Google AI Mode, Google AI Overviews) mention, ' +
   'cite, and rank the workspace brand against tracked competitors.\n' +
-  'Answer the user using ONLY the workspace data JSON provided. Rules:\n' +
+  'Answer the user using the workspace data and the gathered evidence. Rules:\n' +
   '- Never invent numbers, brands, or facts absent from the data. If the data ' +
   'cannot answer, say so plainly and name what it can answer instead.\n' +
   '- Rates are 0..1 fractions; write them as percentages. null means "no data ' +
@@ -245,33 +224,14 @@ const systemPrompt = (withTitle: boolean): string =>
   '- "Mentioned" (named in answer text) and "cited" (own domain in sources) ' +
   'are independent signals. A missing Google AI Overview is normal. Sentiment ' +
   'values are shares of classified mentions only.\n' +
-  '- Write your answer as 2 to 5 sentences of plain markdown prose, no ' +
-  'headings and no JSON in the prose. Do not recite whole tables; the app ' +
-  'renders the data panels you select.\n' +
-  `After the prose, end your output with one final line, exactly:\n${META_SENTINEL} ` +
-  (withTitle
-    ? '{"title": string, "panels": string[], "links": [...], "proposal": object|null, "webSources": number[]}\n'
-    : '{"panels": string[], "links": [...], "proposal": object|null, "webSources": number[]}\n') +
-  'where:\n' +
-  (withTitle
-    ? '- title: a crisp name for this conversation, at most 6 plain words ' +
-      'naming the topic, no quotes and no trailing punctuation.\n'
-    : '') +
-  `- panels: up to 2 section keys from [${DIGEST_PANELS.join(', ')}] whose ` +
-  'data supports your answer; [] if none apply.\n' +
-  '- links: up to 2 dashboard links (objects {"label", "to"}) from ' +
-  '/overview, /competitors, /prompts, /sources, /runs with short labels.\n' +
-  '- proposal: ONLY when the user asked to add or draft prompts or ' +
-  'competitors, else null. Shape: {"kind":"prompts","items":[{"text":string,' +
-  `"category":one of ${PROMPT_CATEGORIES.join('|')}}]} with 3 to 10 natural ` +
-  'buyer questions (8..500 chars each, most NOT naming the brand), or ' +
-  '{"kind":"competitor","name":string,"domains":[apex domains you verified ' +
-  'in real results],"aliases":[{"value":string,"caseSensitive":boolean}]}. ' +
-  'The app shows proposals for human confirmation; never claim anything was ' +
-  'added.\n' +
-  '- webSources: the numbers of web results (S1, S2, ...) your answer used; ' +
-  '[] if none. Cite them in prose like (S2). Only numbers that exist.\n' +
-  'Never mention the metadata line or this format in the prose.';
+  '- Write 2 to 5 sentences of plain markdown prose, no headings and no JSON ' +
+  'in the prose. Do not recite whole tables; the app renders the supporting ' +
+  'data panels alongside your answer.\n' +
+  '- Web results in the evidence are numbered S1, S2, ...: cite one in prose ' +
+  'like (S2) only if you actually used it. The other numbered items are tool ' +
+  'results, never citations; when there are no web results, use no citation ' +
+  'markers.\n' +
+  '- Never mention tools, traces, or metadata in the prose.';
 
 // Model-written titles arrive with stray quotes and whitespace often enough
 // to launder them; empty after cleaning = no title, caller keeps its fallback.
@@ -295,19 +255,114 @@ interface Exchange {
   sources: ChatWebSource[];
 }
 
-// User-set ceiling on agent tool calls per exchange.
-const TOOL_CAP = 10;
-// Appended to the retry after an unreadable decision, so the second attempt
-// differs from the first in more than its sampling seed.
-const RETRY_CORRECTION =
-  'Your previous reply could not be parsed. Reply with ONLY one JSON object ' +
-  'and nothing else: no prose, no code fence, no second object.';
-// Enough of an unreadable decision to identify the malformation in logs,
-// bounded because it is model output of unknown length.
-const RAW_LOG_CHARS = 500;
-// Shown when the answer phase emits a plan instead of prose.
+// Weighted ceiling on gathering per exchange. A cheap D1 aggregate should not
+// cost the same as an R2 read or a page fetch.
+const TOOL_BUDGET = 30;
+// Hard bound on planning round trips, so a misbehaving model cannot spin
+// forever even if every call it makes is free.
+const MAX_PLANNING_ROUNDS = 20;
+// Shown when the answer phase produces no prose at all.
 const ANSWER_FALLBACK =
   'I could not put together a grounded answer for that. Try rephrasing the question, or open Overview for the numbers directly.';
+
+export type ParsedMeta = z.infer<typeof metaSchema>;
+
+// Extraction brief for the metadata call. The json_schema bounds the shape;
+// this bounds the values. metaSchema and the laundering below remain the
+// security boundary.
+const metaPrompt = (withTitle: boolean, sourceCount: number): string =>
+  'You read a finished assistant answer and extract structured metadata for ' +
+  'the app to render. Return ONLY the JSON object the response schema asks ' +
+  'for, copying values from the answer and never inventing them.\n' +
+  (withTitle
+    ? '- title: a crisp name for this conversation, at most 6 plain words ' +
+      'naming the topic, no quotes and no trailing punctuation.\n'
+    : '') +
+  `- panels: up to 2 section keys from [${DIGEST_PANELS.join(', ')}] whose ` +
+  'data supports the answer; [] if none apply.\n' +
+  '- links: up to 2 dashboard links (objects {"label", "to"}) from ' +
+  '/overview, /competitors, /prompts, /sources, /runs with short labels; ' +
+  '[] if none apply.\n' +
+  '- proposal: ONLY when the answer drafts prompts or a competitor for the ' +
+  'user to confirm, else null. Shape: {"kind":"prompts","items":[{"text":' +
+  `string,"category":one of ${PROMPT_CATEGORIES.join('|')}]}] with 3 to 10 ` +
+  'natural buyer questions (8..500 chars each, most NOT naming the brand), ' +
+  'or {"kind":"competitor","name":string,"domains":[apex domains verified ' +
+  'in real results],"aliases":[{"value":string,"caseSensitive":boolean}]}. ' +
+  'The app shows proposals for human confirmation; never claim anything ' +
+  'was added.\n' +
+  (sourceCount > 0
+    ? `- webSources: the numbers (1..${sourceCount}) of the web results the ` +
+      'answer cited or used; [] if none.'
+    : '- webSources: the answer had no web results, so this is always [].');
+
+const metaResponseFormat = (withTitle: boolean) => ({
+  type: 'json_schema' as const,
+  json_schema: {
+    name: 'meta',
+    schema: {
+      type: 'object',
+      properties: {
+        ...(withTitle ? { title: { type: 'string' } } : {}),
+        panels: { type: 'array', items: { type: 'string' } },
+        links: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: { label: { type: 'string' }, to: { type: 'string' } },
+            required: ['label', 'to'],
+            additionalProperties: false,
+          },
+        },
+        proposal: { type: ['object', 'null'] },
+        webSources: { type: 'array', items: { type: 'number' } },
+      },
+      required: [
+        ...(withTitle ? ['title'] : []),
+        'panels',
+        'links',
+        'proposal',
+        'webSources',
+      ],
+      additionalProperties: false,
+    },
+  },
+});
+
+// Structured extras arrive from a separate, small, non-streamed call after the
+// prose: the answer model streams pure prose, so protocol output can never
+// leak into it. Any failure degrades to no metadata, never to a lost answer.
+const extractMeta = async (
+  env: AppEnv,
+  question: string,
+  prose: string,
+  withTitle: boolean,
+  sourceCount: number,
+): Promise<ParsedMeta | null> => {
+  try {
+    const raw = await runChat(
+      env,
+      [
+        {
+          role: 'system' as const,
+          content: metaPrompt(withTitle, sourceCount),
+        },
+        {
+          role: 'user' as const,
+          content: `Question:\n${question}\n\nAnswer:\n${prose.slice(0, 5000)}`,
+        },
+      ],
+      {
+        model: PLANNING_MODEL,
+        maxTokens: 2000,
+        responseFormat: metaResponseFormat(withTitle),
+      },
+    );
+    return parseJson(raw, metaSchema);
+  } catch {
+    return null;
+  }
+};
 
 type StreamEvent =
   | { type: 'step'; label: string; detail?: string }
@@ -325,8 +380,8 @@ type Emit = (event: StreamEvent) => Promise<void>;
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)}s`;
 
 // Run one grounded exchange, streaming honest progress: real pipeline stages
-// with real counts, prose deltas as the model writes them, and the trailer
-// cut before it ever reaches the client.
+// with real counts, prose deltas as the model writes them, and structured
+// metadata extracted by a separate call so it can never leak into the prose.
 const streamExchange = async (
   env: AppEnv,
   db: Db,
@@ -387,127 +442,108 @@ const streamExchange = async (
     ...history.slice(-HISTORY_MESSAGES),
     { role: 'user' as const, content: question },
   ];
-  // Planning turns only: the decision model needs to see the calls it already
-  // made, in the shape it made them. These never reach the answer phase.
-  const planTurns: { role: 'user' | 'assistant'; content: string }[] = [];
   const evidence: string[] = [];
   const hasWebSearch = Boolean(env.EXA_API_KEY);
+  const tools = availableTools(hasWebSearch);
+  const toolDefs = tools.map(toolDefinition);
   const allSources: WebResult[] = [];
   const seenCalls = new Set<string>();
-  const decide = async (
-    remaining: number,
-    correction?: string,
-  ): Promise<{ decision: AgentDecision | null; raw: string }> => {
-    const raw = await runChat(
+  const toolMessages: unknown[] = [];
+  let spent = 0;
+  let rounds = 0;
+  const toolsUsed = () =>
+    `${evidence.length} ${evidence.length === 1 ? 'tool' : 'tools'} used`;
+
+  for (;;) {
+    const turn = await runChatWithTools(
       env,
       [
-        {
-          role: 'system' as const,
-          content: decisionPrompt(hasWebSearch, remaining),
-        },
+        { role: 'system' as const, content: systemPlanning },
         dataMessage,
         ...conversation,
-        ...planTurns,
-        ...(correction === undefined
-          ? []
-          : [{ role: 'user' as const, content: correction }]),
+        ...toolMessages,
       ],
-      // No ceiling: the decision is one small JSON object, so the model
-      // stops on its own. A cap only ever truncated it into a decision we
-      // could not read. Replayed over the real digest (n=19-30 per
-      // setting): unreadable decisions 33% at 300 tokens, 28% at 1000, 16%
-      // uncapped; tool-needed questions answered with no tool at all 33% /
-      // 17% / 9%; median latency 4.6s / 4.4s / 2.3s.
-      { maxTokens: null },
+      toolDefs,
+      // No ceiling: a cap only ever truncates the reasoning the turn needs.
+      { model: PLANNING_MODEL, maxTokens: null },
     );
-    return { decision: parseDecision(raw), raw };
-  };
-
-  // Why gathering stopped. Every exit says so in the trace: a silent break
-  // read exactly like a clean handoff, which is how a lost plan and a
-  // deliberate stop became indistinguishable after the fact.
-  let stopped: 'answer' | 'unreadable' | null = null;
-  for (let used = 0; used < TOOL_CAP; used += 1) {
-    const remaining = TOOL_CAP - used;
-    // Failing to emit one small JSON object is a formatting stumble, not a
-    // verdict, so it earns one retry. The retry must differ from the attempt
-    // that failed: re-rolling identical inputs reproduces a deterministic
-    // malformation, which is why the first version's retry rarely helped.
-    let attempt = await decide(remaining);
-    if (attempt.decision === null) {
-      attempt = await decide(remaining, RETRY_CORRECTION);
-    }
-    if (attempt.decision === null) {
-      // The raw text is the only way to tell which malformation happened.
-      console.warn('chat: unreadable agent decision after retry', {
-        raw: attempt.raw.slice(0, RAW_LOG_CHARS),
-      });
-      await step(
-        'could not read the plan',
-        'answering from the evidence gathered so far',
-      );
-      stopped = 'unreadable';
+    if (turn.finishReason !== 'tool_calls' || turn.toolCalls.length === 0) {
+      await step('finished gathering', toolsUsed());
       break;
     }
-    const decision = attempt.decision;
-    if (decision.action !== 'tool' || !decision.tool) {
-      await step(
-        'finished gathering',
-        `${evidence.length} ${evidence.length === 1 ? 'tool' : 'tools'} used`,
+    // Echo the assistant turn verbatim, then answer every call in order.
+    toolMessages.push({ role: 'assistant', tool_calls: turn.rawToolCalls });
+    for (const call of turn.toolCalls) {
+      const tool = agentTool(call.name);
+      if (!tool) {
+        await step('unknown tool requested', call.name.slice(0, 40));
+        toolMessages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: `Unknown tool "${call.name}". Available tools: ${tools
+            .map((t) => t.name)
+            .join(', ')}.`,
+        });
+        continue;
+      }
+      const parsed = parseToolCall(tool, call.rawArguments);
+      if (!parsed.ok) {
+        await step(`${tool.name} skipped`, 'invalid arguments');
+        toolMessages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: `Tool ${tool.name} was not run: ${parsed.error}. Correct the arguments and try again, or use a different tool.`,
+        });
+        continue;
+      }
+      const callKey = `${tool.name}:${JSON.stringify(parsed.args)}`;
+      if (seenCalls.has(callKey)) {
+        await step('skipped a repeated lookup', tool.name);
+        toolMessages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: `You already ran ${tool.name} with these exact arguments. Choose a different call, or stop calling tools when you have enough.`,
+        });
+        continue;
+      }
+      seenCalls.add(callKey);
+      const outcome = await executeTool(
+        env,
+        workspaceId,
+        tool.name,
+        parsed.args,
+        allSources.length,
       );
-      stopped = 'answer';
+      if (outcome.sources) {
+        allSources.push(...outcome.sources);
+      }
+      await step(outcome.label, outcome.detail);
+      toolMessages.push({
+        role: 'tool',
+        tool_call_id: call.id,
+        content: outcome.result,
+      });
+      evidence.push(
+        `${evidence.length + 1}. ${tool.name}(${JSON.stringify(parsed.args)})\n${outcome.result}`,
+      );
+      spent += tool.cost;
+    }
+    if (spent >= TOOL_BUDGET) {
+      await step('reached the tool budget', toolsUsed());
       break;
     }
-    const callKey = `${decision.tool}:${JSON.stringify(decision.args)}`;
-    // A repeat is a stumble, not a decision to stop. Say so and let the model
-    // spend the remaining budget on something else; the loop bound still caps
-    // how long it can go round.
-    if (seenCalls.has(callKey)) {
-      await step('skipped a repeated lookup', decision.tool);
-      planTurns.push({
-        role: 'user',
-        content: `You already called ${decision.tool} with identical arguments. Choose a different call or {"action":"answer"}.`,
-      });
-      continue;
+    rounds += 1;
+    if (rounds >= MAX_PLANNING_ROUNDS) {
+      await step('reached the planning round limit', toolsUsed());
+      break;
     }
-    seenCalls.add(callKey);
-    const outcome = await executeTool(
-      env,
-      workspaceId,
-      decision.tool,
-      decision.args,
-      allSources.length,
-    );
-    if (outcome.sources) {
-      allSources.push(...outcome.sources);
-    }
-    await step(outcome.label, outcome.detail);
-    planTurns.push({
-      role: 'assistant',
-      content: JSON.stringify({
-        action: 'tool',
-        tool: decision.tool,
-        args: decision.args,
-      }),
-    });
-    planTurns.push({
-      role: 'user',
-      content: `TOOL RESULT ${decision.tool}:\n${outcome.result}`,
-    });
-    evidence.push(
-      `${evidence.length + 1}. ${decision.tool}(${JSON.stringify(decision.args)})\n${outcome.result}`,
-    );
-  }
-
-  if (stopped === null) {
-    await step('reached the tool limit', `${evidence.length} tools used`);
   }
 
   // The answer phase sees the evidence as data, never as assistant turns.
-  // Replaying the planning JSON here taught the model that this assistant
+  // Replaying planning turns here taught the model that this assistant
   // speaks JSON, and it obligingly emitted another tool call as its answer.
   const messages = [
-    { role: 'system' as const, content: systemPrompt(opts.withTitle === true) },
+    { role: 'system' as const, content: systemPrompt() },
     dataMessage,
     ...(evidence.length === 0
       ? []
@@ -521,82 +557,22 @@ const streamExchange = async (
   ];
   await step('writing the answer', 'grounded to the gathered evidence only');
 
-  // Forward prose deltas but never the trailer: hold back a sentinel-length
-  // tail (it may span deltas); once the sentinel appears, everything after
-  // it accumulates as metadata.
   let prose = '';
-  let held = '';
-  let metaBuf = '';
-  let inMeta = false;
-  // A delta cannot be unsent, so nothing reaches the client until the opening
-  // character proves this is prose. An answer that starts with `{` is held
-  // whole and checked after the stream: if it turns out to be a plan, the
-  // exchange falls back instead of showing the user raw protocol JSON.
-  // Held in an object because tsc narrows a `let` to its initial literal when
-  // every write happens inside this closure.
-  const gate: { state: 'unknown' | 'open' | 'suspect' } = { state: 'unknown' };
-  const forward = async (text: string) => {
-    if (text.length === 0) {
-      return;
-    }
-    prose += text;
-    if (gate.state === 'suspect') {
-      return;
-    }
-    if (gate.state === 'open') {
-      await emit({ type: 'delta', text });
-      return;
-    }
-    const opening = prose.trimStart();
-    if (opening.length === 0) {
-      return;
-    }
-    gate.state = opening.startsWith('{') ? 'suspect' : 'open';
-    if (gate.state === 'open') {
-      await emit({ type: 'delta', text: prose });
-    }
-  };
-  // Headroom, not a working limit: the "2 to 5 sentences" rule in the system
-  // prompt is what keeps answers short (measured mean 349 completion tokens
-  // uncapped). This ceiling only exists so an unbounded request cannot run to
-  // 30s on a user-facing stream, and must stay clear of prose + the trailer,
-  // which is lost wholesale if the cap lands mid-JSON.
   await runChatStream(env, messages, { maxTokens: 2000 }, async (delta) => {
-    if (inMeta) {
-      metaBuf += delta;
+    if (!delta) {
       return;
     }
-    held += delta;
-    const idx = held.indexOf(META_SENTINEL);
-    if (idx >= 0) {
-      await forward(held.slice(0, idx));
-      metaBuf = held.slice(idx + META_SENTINEL.length);
-      held = '';
-      inMeta = true;
-      return;
-    }
-    if (held.length > META_SENTINEL.length) {
-      const cut = held.length - META_SENTINEL.length;
-      await forward(held.slice(0, cut));
-      held = held.slice(cut);
-    }
+    prose += delta;
+    await emit({ type: 'delta', text: delta });
   });
-  if (!inMeta) {
-    await forward(held);
-  }
 
-  const leakedPlan = gate.state === 'suspect' && isLeakedPlan(prose);
-  if (leakedPlan) {
-    console.warn('chat: answer phase returned a plan, not prose', {
-      raw: prose.trim().slice(0, RAW_LOG_CHARS),
-    });
-    await step(
-      'the answer came back as a plan',
-      'discarded it rather than show protocol output',
-    );
-  }
-
-  const meta = metaBuf.length > 0 ? parseJson(metaBuf, metaSchema) : null;
+  const meta = await extractMeta(
+    env,
+    question,
+    prose,
+    opts.withTitle === true,
+    allSources.length,
+  );
   // Only web results the answer says it used become cited sources.
   const sources: ChatWebSource[] = [...new Set(meta?.webSources ?? [])]
     .filter((n) => n >= 1 && n <= allSources.length)
@@ -624,14 +600,7 @@ const streamExchange = async (
     `${seconds(durationMs)}${sources.length > 0 ? ` · ${sources.length} web sources cited` : ''}`,
   );
 
-  let content = leakedPlan ? '' : prose.trim().slice(0, 4000);
-  if (content.length === 0) {
-    content = ANSWER_FALLBACK;
-  }
-  // Anything the gate held back is still unsent, so it ships here in one piece.
-  if (gate.state !== 'open') {
-    await emit({ type: 'delta', text: content });
-  }
+  const content = prose.trim().slice(0, 4000) || ANSWER_FALLBACK;
   return {
     content,
     title: opts.withTitle === true ? cleanTitle(meta?.title ?? '') : null,
