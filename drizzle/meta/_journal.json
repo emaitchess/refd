@@ -57,6 +57,13 @@
       "when": 1788815108640,
       "tag": "0007_hard_wildside",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1788991900797,
+      "tag": "0008_grey_xorn",
+      "breakpoints": true
     }
   ]
 }

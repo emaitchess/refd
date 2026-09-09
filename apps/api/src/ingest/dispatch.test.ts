@@ -30,6 +30,7 @@ const MIGRATIONS = [
   '0005_worried_sinister_six.sql',
   '0006_ancient_wildside.sql',
   '0007_hard_wildside.sql',
+  '0008_grey_xorn.sql',
 ];
 
 interface Fixture {

@@ -21,28 +21,42 @@ export const REGEN_LIMIT = 1;
 
 export const regenBody = z.object({ regenerate: z.boolean().optional() });
 
+// Optimistic concurrency: every draft mutation carries the version it was read
+// at. A stale version returns the structured conflict with the current state.
+export const expectedVersionField = z.number().int().nonnegative();
+
+export const brandRequestSchema = z.object({
+  name: singleLineText(1, 100),
+  domains: z.array(domainField()).min(1).max(10),
+  // Plain values from the wizard input; the Settings editor is where
+  // caseSensitive flags get managed.
+  aliases: z.array(singleLineText(1, 60)).max(10).default([]),
+  expectedVersion: expectedVersionField,
+});
+export type BrandInput = z.infer<typeof brandRequestSchema>;
+
+export const generationRequestSchema = regenBody.extend({
+  expectedVersion: expectedVersionField,
+  idempotencyKey: z.string().uuid().optional(),
+});
+
 export const aliasSchema = z.object({
   value: singleLineText(1, 60),
   caseSensitive: z.boolean().optional(),
 });
 export type AliasDraft = z.infer<typeof aliasSchema>;
 
-export const brandSchema = z.object({
-  name: singleLineText(1, 100),
-  domains: z.array(domainField()).min(1).max(10),
-  // Plain values from the wizard input; the Settings editor is where
-  // caseSensitive flags get managed.
-  aliases: z.array(singleLineText(1, 60)).max(10).default([]),
-});
-export type BrandInput = z.infer<typeof brandSchema>;
+const draftIdField = z.string().min(8).max(64);
 
 export const competitorDraft = z.object({
+  draftId: draftIdField.optional(),
   name: singleLineText(1, 100),
   domains: z.array(domainField()).min(1).max(5),
   aliases: z.array(aliasSchema).max(8).default([]),
 });
 
 export const promptDraft = z.object({
+  draftId: draftIdField.optional(),
   text: multiLineText(8, 500),
   category: singleLineText(1, 40),
 });
@@ -51,7 +65,8 @@ export const promptDraft = z.object({
 // no product-level prompt limit.
 export const MAX_PROMPTS_PER_REQUEST = 1000;
 
-export const patchSchema = z.object({
+export const patchRequestSchema = z.object({
+  expectedVersion: expectedVersionField,
   step: z.enum(STEPS).optional(),
   description: multiLineText(0, 800).optional(),
   summary: multiLineText(0, 1500).optional(),
@@ -60,9 +75,36 @@ export const patchSchema = z.object({
   competitors: z.array(competitorDraft).max(10).optional(),
   prompts: z.array(promptDraft).max(MAX_PROMPTS_PER_REQUEST).optional(),
 });
-export type UpdateDraftInput = z.infer<typeof patchSchema>;
+export type UpdateDraftInput = z.infer<typeof patchRequestSchema>;
 
-export type OnboardingFailure = { error: string; status: 400 | 409 | 429 };
+export const commitRequestSchema = z.object({
+  expectedVersion: expectedVersionField,
+});
+
+export const confirmRequestSchema = z.object({
+  expectedVersion: expectedVersionField,
+  configurationHash: z.string().regex(/^[0-9a-f]{64}$/),
+  idempotencyKey: z.string().uuid(),
+});
+
+export type OnboardingErrorBody =
+  | string
+  | {
+      code: 'draft_version_conflict';
+      message: string;
+      currentVersion: number;
+      state: OnboardingState;
+    }
+  | {
+      code: 'setup_budget_exhausted';
+      message: string;
+      retryAfterSeconds: number;
+    };
+
+export type OnboardingFailure = {
+  error: OnboardingErrorBody;
+  status: 400 | 404 | 409 | 429;
+};
 
 // The resumable wizard state: the committed brand entity + the profile draft
 // (description/competitors/prompts) + the completion flag. Competitors and
@@ -71,6 +113,8 @@ export interface OnboardingState {
   onboardingCompleted: boolean;
   committed: boolean;
   step: OnboardingStep;
+  // Optimistic-concurrency version; every mutation echoes the fresh value.
+  version: number;
   surfaces: Surface[];
   brand: {
     id: number;
@@ -84,8 +128,13 @@ export interface OnboardingState {
     targetMarket: string;
     logoUrl: string;
     siteMetadata: SiteMetadata | null;
-    competitors: { name: string; domains: string[]; aliases: AliasDraft[] }[];
-    prompts: { text: string; category: string }[];
+    competitors: {
+      draftId: string;
+      name: string;
+      domains: string[];
+      aliases: AliasDraft[];
+    }[];
+    prompts: { draftId: string; text: string; category: string }[];
   };
   regenLimit: number;
   regen: { describe: number; competitors: number; prompts: number };

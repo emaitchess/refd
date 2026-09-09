@@ -3,18 +3,22 @@ import type { WorkspaceBindings } from '../auth/middleware';
 import { getDb } from '../db/client';
 import { parseBody } from '../lib/http';
 import {
-  brandSchema,
+  brandRequestSchema,
+  commitRequestSchema,
+  confirmRequestSchema,
+  generationRequestSchema,
   type OnboardingFailure,
-  patchSchema,
-  regenBody,
+  patchRequestSchema,
 } from '../onboarding/contracts';
 import {
   commitOnboarding,
   completeOnboarding,
+  confirmSetup,
   draftDescription,
   fetchSiteMetadataState,
   loadOnboardingState,
   type OnboardingContext,
+  previewSetup,
   saveBrand,
   suggestCompetitors,
   suggestPrompts,
@@ -28,6 +32,7 @@ const context = (c: Context<WorkspaceBindings>): OnboardingContext => ({
   env: c.env,
   workspaceId: c.get('workspace').id,
   workspaceName: c.get('workspace').name,
+  userId: c.get('user').id,
   userEmail: c.get('user').email,
   adminEmails: c.env.ADMIN_EMAILS,
 });
@@ -52,32 +57,42 @@ onboardingRoutes.get('/site-metadata', async (c) => {
 });
 
 onboardingRoutes.post('/brand', async (c) => {
-  const data = await parseBody(c, brandSchema);
-  return c.json(await saveBrand(context(c), data));
+  const data = await parseBody(c, brandRequestSchema);
+  return respond(c, await saveBrand(context(c), data));
 });
 
 onboardingRoutes.post('/extract', async (c) => {
-  const { regenerate } = await parseBody(c, regenBody);
-  return respond(c, await draftDescription(context(c), { regenerate }));
+  const data = await parseBody(c, generationRequestSchema);
+  return respond(c, await draftDescription(context(c), data));
 });
 
 onboardingRoutes.post('/competitors', async (c) => {
-  const { regenerate } = await parseBody(c, regenBody);
-  return respond(c, await suggestCompetitors(context(c), { regenerate }));
+  const data = await parseBody(c, generationRequestSchema);
+  return respond(c, await suggestCompetitors(context(c), data));
 });
 
 onboardingRoutes.post('/prompts', async (c) => {
-  const { regenerate } = await parseBody(c, regenBody);
-  return respond(c, await suggestPrompts(context(c), { regenerate }));
+  const data = await parseBody(c, generationRequestSchema);
+  return respond(c, await suggestPrompts(context(c), data));
 });
 
 onboardingRoutes.patch('/', async (c) => {
-  const data = await parseBody(c, patchSchema);
+  const data = await parseBody(c, patchRequestSchema);
   return respond(c, await updateDraft(context(c), data));
 });
 
+onboardingRoutes.post('/preview', async (c) => {
+  return respond(c, await previewSetup(context(c)));
+});
+
 onboardingRoutes.post('/commit', async (c) => {
-  return respond(c, await commitOnboarding(context(c)));
+  const data = await parseBody(c, commitRequestSchema);
+  return respond(c, await commitOnboarding(context(c), data));
+});
+
+onboardingRoutes.post('/confirm', async (c) => {
+  const data = await parseBody(c, confirmRequestSchema);
+  return respond(c, await confirmSetup(context(c), data));
 });
 
 onboardingRoutes.post('/complete', async (c) => {
