@@ -1,6 +1,6 @@
 # Remote MCP connector
 
-refd exposes a read-only remote Model Context Protocol server at:
+refd exposes a remote Model Context Protocol server at:
 
 ```text
 https://api.refd.ai/mcp
@@ -8,9 +8,24 @@ https://api.refd.ai/mcp
 
 The connector uses OAuth 2.1 with S256 PKCE. It supports Client ID Metadata
 Documents, with Dynamic Client Registration as a compatibility fallback. During
-authorization, refd asks you to select one workspace. The resulting connection
-can read only that workspace, cannot change refd data, and cannot start runs or
-spend provider quota.
+authorization, refd asks you to select one workspace (or, with the write scope,
+to provision a new one). The resulting connection can act only on that
+workspace.
+
+Two scopes exist:
+
+- `data:read` (default): the analytics and evidence tools. Cannot change data
+  or spend provider quota.
+- `data:write`: adds the setup tools. The agent can draft, edit, and preview
+  the workspace setup, and `confirm_setup` starts exactly one provider-backed
+  onboarding report. No other provider run is reachable over MCP. The scope is
+  phase-gated server-side (`MCP_SETUP_TOOLS_ENABLED`) and the consent screen
+  discloses what write access allows before approval.
+
+Write integrity does not rest on the token: setup mutations carry an
+optimistic-concurrency version, and `confirm_setup` verifies a canonical
+configuration hash recomputed server-side. Draft edits from the dashboard and
+an agent collide loudly instead of overwriting one another.
 
 OAuth app names and identity metadata are self-reported. The consent screen
 labels the app as unverified and shows the normalized callback target. Approve
@@ -38,7 +53,7 @@ individual plan, select **+ → Add custom connector**. On Team and Enterprise
 plans, an Owner first adds it from **Organization settings → Connectors → Add →
 Custom → Web**. Enter `https://api.refd.ai/mcp`; no client ID or secret is
 needed. Select **Connect**, sign in to refd, choose a workspace, and approve the
-read-only permission.
+requested scopes.
 
 Enable refd for a conversation from the **+ → Connectors** menu. Claude reaches
 remote connectors from Anthropic's cloud, so a self-hosted endpoint must be

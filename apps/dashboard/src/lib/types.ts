@@ -195,14 +195,78 @@ export interface RunRow {
 }
 
 export interface OnboardingCompetitor {
+  draftId?: string;
   name: string;
   domains: string[];
   aliases: EntityAlias[];
 }
 
 export interface OnboardingPrompt {
+  draftId?: string;
   text: string;
   category: string;
+}
+
+// The pinned setup report served by /onboarding/report/:setupId. Mirrors the
+// shapes the four broad endpoints used to provide, scoped to the setup runs.
+export interface SetupReport {
+  setupId: number;
+  status: 'queued' | 'running' | 'enriching' | 'ready' | 'partial' | 'failed';
+  totals: {
+    expected: number;
+    received: number;
+    succeeded: number;
+    failed: number;
+    sentimentPending: number;
+  };
+  runs: RunRow[];
+  report: {
+    tiles: {
+      current: {
+        mentionRate: number | null;
+        citationRate: number | null;
+        sov: number | null;
+        citationSov: number | null;
+        avgPosition: number | null;
+        firstMentionShare: number | null;
+        answers: number;
+      } | null;
+    };
+    sentiment: { positive: number; neutral: number; negative: number } | null;
+    coverage: {
+      aio: { present: number; total: number } | null;
+      sources: { withSources: number; total: number; surface: string }[];
+    } | null;
+    surfaces: {
+      surface: string;
+      mentionRate: number | null;
+      citationRate: number | null;
+      avgPosition: number | null;
+      answers: number;
+    }[];
+    entities: {
+      id: number;
+      name: string;
+      isBrand: boolean;
+      sortOrder: number;
+      mentionRate: number | null;
+      citationRate: number | null;
+    }[];
+    prompts: {
+      id: number;
+      text: string;
+      tags: string[];
+      sentiment: { positive: number; neutral: number; negative: number } | null;
+      surfaces: {
+        surface: string;
+        answers: number;
+        mentionRate: number | null;
+        citationRate: number | null;
+      }[];
+    }[];
+  } | null;
+  retryAfterSeconds: number | null;
+  reportUrl: string | null;
 }
 
 export type OnboardingStep =
@@ -216,6 +280,9 @@ export type OnboardingStep =
 // editable drafts here until `commit` materialises them as entities/prompts.
 export interface OnboardingState {
   onboardingCompleted: boolean;
+  // Optimistic-concurrency version echoed by every mutation; the client sends
+  // it back as expectedVersion.
+  version: number;
   // The drafts are materialised and the onboard runs fired; the user is on the
   // live report but hasn't left it yet.
   committed: boolean;

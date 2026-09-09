@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useWorkspace } from '../providers/workspace';
 import { ANALYTICS_EVENTS, trackEvent } from './analytics';
-import { api } from './api';
+import { ApiError, api } from './api';
 import {
   PROMPT_CATEGORIES,
   PROMPT_CATEGORY_EXPLAINERS,
@@ -58,6 +58,8 @@ export const useOnboardingFlow = () => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [justCommitted, setJustCommitted] = useState(false);
+  // The setup commit the report step is pinned to (set by commit).
+  const [setupId, setSetupId] = useState<number | null>(null);
 
   useEffect(() => {
     if (!current) {
@@ -103,6 +105,19 @@ export const useOnboardingFlow = () => {
       try {
         return await fn();
       } catch (e) {
+        // A concurrent edit (dashboard + agent) lands as a structured conflict
+        // carrying the fresh state; adopt it and tell the user what happened.
+        if (e instanceof ApiError && e.status === 409) {
+          const body = e.body as
+            | { error?: { code?: string; state?: OnboardingState } }
+            | undefined;
+          if (
+            body?.error?.code === 'draft_version_conflict' &&
+            body.error.state
+          ) {
+            setState(body.error.state);
+          }
+        }
         setError(e instanceof Error ? e.message : 'something went wrong');
         return null;
       } finally {
@@ -111,13 +126,23 @@ export const useOnboardingFlow = () => {
     },
     [],
   );
+  // Latest version without re-creating every callback on each state change.
+  const versionRef = useRef(0);
+  versionRef.current = state?.version ?? 0;
+  const withVersion = useCallback(
+    (body: Record<string, unknown>) => ({
+      ...body,
+      expectedVersion: versionRef.current,
+    }),
+    [],
+  );
 
   const saveBrand = useCallback(
     (name: string, domains: string[], aliases: string[]) =>
       call(async () => {
         const next = await api<OnboardingState>('/onboarding/brand', {
           method: 'POST',
-          body: JSON.stringify({ name, domains, aliases }),
+          body: JSON.stringify(withVersion({ name, domains, aliases })),
         });
         setState(next);
         if (current) {
@@ -125,7 +150,7 @@ export const useOnboardingFlow = () => {
         }
         return next;
       }),
-    [call, current, markBranded],
+    [call, current, markBranded, withVersion],
   );
 
   // Persist a subset of the draft; pass `step` to advance/retreat at the same time.
@@ -134,12 +159,12 @@ export const useOnboardingFlow = () => {
       call(async () => {
         const next = await api<OnboardingState>('/onboarding', {
           method: 'PATCH',
-          body: JSON.stringify(body),
+          body: JSON.stringify(withVersion(body)),
         });
         setState(next);
         return next;
       }),
-    [call],
+    [call, withVersion],
   );
 
   const goTo = useCallback((step: OnboardingStep) => patch({ step }), [patch]);
@@ -167,7 +192,7 @@ export const useOnboardingFlow = () => {
         }
         const res = await api<ExtractResult>(`/onboarding/${path}`, {
           method: 'POST',
-          body: JSON.stringify({ regenerate }),
+          body: JSON.stringify(withVersion({ regenerate })),
         });
         // These steps soft-fail to manual entry, so a broken dependency degrades
         // onboarding silently. `reason` is a fixed server-side enum naming which
@@ -180,7 +205,7 @@ export const useOnboardingFlow = () => {
         setState(res.state);
         return res;
       }),
-    [call],
+    [call, withVersion],
   );
 
   // Fetch the site + draft the description via glm-5.2. Soft-fails (ok:false)
@@ -211,12 +236,16 @@ export const useOnboardingFlow = () => {
   const commit = useCallback(
     () =>
       call(async () => {
-        await api('/onboarding/commit', { method: 'POST', body: '{}' });
+        const result = await api<{ ok: true; setupId: number }>(
+          '/onboarding/commit',
+          { method: 'POST', body: JSON.stringify(withVersion({})) },
+        );
         trackEvent(ANALYTICS_EVENTS.onboardingCommitted);
         setJustCommitted(true);
+        setSetupId(result.setupId);
         return true;
       }),
-    [call],
+    [call, withVersion],
   );
 
   // Leaving the report is what finishes onboarding — the flag flips here, not at
@@ -252,6 +281,7 @@ export const useOnboardingFlow = () => {
     committed,
     commit,
     enterDashboard,
+    setupId,
   };
 };
 

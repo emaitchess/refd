@@ -44,12 +44,10 @@ import type { OnboardingFlow } from '@/lib/onboarding';
 import { promptCategory as categoryFromTags } from '@/lib/prompt-categories';
 import { useTheme } from '@/lib/theme';
 import type {
-  CompetitorsResponse,
   OnboardingState,
-  OverviewResponse,
   PromptRow,
-  RunRow,
   SentimentDist,
+  SetupReport,
 } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/providers/auth';
@@ -175,10 +173,13 @@ export const OnboardingReport = ({
   flow: OnboardingFlow;
   state: OnboardingState;
 }) => {
-  const overviewQ = useQuery<OverviewResponse>('/overview?range=all');
-  const competitorsQ = useQuery<CompetitorsResponse>('/competitors?range=all');
-  const runsQ = useQuery<{ runs: RunRow[] }>('/runs?range=all');
-  const promptsQ = useQuery<{ prompts: PromptRow[] }>('/prompts?range=all');
+  // One pinned accessor instead of four broad endpoints: the report only ever
+  // reads the setup commit's own run group, never workspace history.
+  const reportQ = useQuery<SetupReport>(
+    flow.setupId !== null
+      ? `/onboarding/report/${flow.setupId}`
+      : '/onboarding/report',
+  );
   const metadataQ = useQuery<{ metadata: SiteMetadata | null }>(
     state.brand?.domains[0] && !state.profile.siteMetadata
       ? '/onboarding/site-metadata'
@@ -194,24 +195,15 @@ export const OnboardingReport = ({
     trackEvent(ANALYTICS_EVENTS.firstReportViewed);
   }, []);
 
-  // Progress spans both onboard runs (preliminary + background).
-  const onboardRuns =
-    runsQ.data?.runs.filter((r) => r.trigger === 'onboard') ?? [];
-  const prelim = onboardRuns.find((r) => !r.key.startsWith('onboard-bg'));
-  const okCount = onboardRuns.reduce((s, r) => s + r.okCount, 0);
-  const totalCount = onboardRuns.reduce((s, r) => s + r.totalCount, 0);
-  const prelimDone = prelim
-    ? prelim.status !== 'running' || prelim.dispatchState === 'exhausted'
-    : false;
-  const dispatchFailed = onboardRuns.some(
-    (run) => run.dispatchState === 'exhausted',
-  );
-  const failed = prelim?.status === 'failed' || dispatchFailed;
-  const allDone =
-    onboardRuns.length > 0 &&
-    onboardRuns.every(
-      (run) => run.status !== 'running' || run.dispatchState === 'exhausted',
-    );
+  const report = reportQ.data ?? null;
+  const totals = report?.totals ?? null;
+  const status = report?.status ?? 'queued';
+  const okCount = totals?.succeeded ?? 0;
+  const totalCount = totals?.expected ?? 0;
+  const collecting =
+    status === 'queued' || status === 'running' || status === 'enriching';
+  const failed = status === 'failed';
+  const allDone = report !== null && !collecting;
   const progressPct =
     totalCount > 0 ? Math.round((okCount / totalCount) * 100) : 0;
 
@@ -221,16 +213,8 @@ export const OnboardingReport = ({
   const [gaveUp, setGaveUp] = useState(false);
 
   const refetchAll = useCallback(() => {
-    overviewQ.refetch();
-    competitorsQ.refetch();
-    runsQ.refetch();
-    promptsQ.refetch();
-  }, [
-    overviewQ.refetch,
-    competitorsQ.refetch,
-    runsQ.refetch,
-    promptsQ.refetch,
-  ]);
+    reportQ.refetch();
+  }, [reportQ]);
 
   // Sentiment classification trails each answer by a queue hop, so keep
   // polling a couple of grace cycles after the last answer lands.
@@ -267,7 +251,7 @@ export const OnboardingReport = ({
 
   const surfaceRows = useMemo(
     () =>
-      [...(overviewQ.data?.surfaces ?? [])]
+      [...(report?.report?.surfaces ?? [])]
         .sort(
           (a, b) =>
             SURFACE_ORDER.indexOf(a.surface) - SURFACE_ORDER.indexOf(b.surface),
@@ -277,7 +261,7 @@ export const OnboardingReport = ({
           mentionRate: pct1(s.mentionRate ?? 0),
           citationRate: pct1(s.citationRate ?? 0),
         })),
-    [overviewQ.data],
+    [report],
   );
 
   // One series per entity, not one series over entity-named categories: a bar's
@@ -285,7 +269,7 @@ export const OnboardingReport = ({
   // the brand's green. Keyed by name with seriesColor(sortOrder) — the same
   // mapping behind EntityChip and every dashboard chart, so green is always us.
   const competitors = useMemo(() => {
-    const ordered = [...(competitorsQ.data?.entities ?? [])].sort(
+    const ordered = [...(report?.report?.entities ?? [])].sort(
       (a, b) => a.sortOrder - b.sortOrder,
     );
     return {
@@ -306,10 +290,10 @@ export const OnboardingReport = ({
       ],
       names: ordered.map((e) => e.name),
     };
-  }, [competitorsQ.data]);
+  }, [report]);
 
   const sentimentRows = useMemo(() => {
-    const dist = overviewQ.data?.sentiment;
+    const dist = report?.report?.sentiment;
     if (!dist) {
       return [];
     }
@@ -322,12 +306,12 @@ export const OnboardingReport = ({
       { stance: 'neutral', share: pct1(dist.neutral / total) },
       { stance: 'negative', share: pct1(dist.negative / total) },
     ];
-  }, [overviewQ.data]);
+  }, [report]);
 
   // Per-prompt rollup across surfaces (weighted by ok results).
   const promptRows = useMemo(
     () =>
-      (promptsQ.data?.prompts ?? []).map((p) => {
+      (report?.report?.prompts ?? []).map((p) => {
         const ok = p.surfaces.reduce((s, x) => s + x.answers, 0);
         const weighted = (key: 'mentionRate' | 'citationRate') =>
           ok === 0
@@ -342,10 +326,10 @@ export const OnboardingReport = ({
           mention: weighted('mentionRate'),
           cite: weighted('citationRate'),
           sentiment: p.sentiment,
-          source: p,
+          source: { ...p, active: true, trend: [] } satisfies PromptRow,
         };
       }),
-    [promptsQ.data],
+    [report],
   );
   const answered = promptRows.filter((r) => r.ok > 0).length;
   const promptCategoryOptions = useMemo(
@@ -389,7 +373,7 @@ export const OnboardingReport = ({
     navigate('/auth/sign-in', { replace: true });
   };
 
-  const tiles = overviewQ.data?.tiles.current ?? null;
+  const tiles = report?.report?.tiles.current ?? null;
   const surfaceCount = state.surfaces.length;
 
   // "Waiting" and "there is nothing" look identical if the copy never changes.
@@ -431,7 +415,7 @@ export const OnboardingReport = ({
     },
     {
       label: 'Positive sentiment',
-      value: pct(positiveShare(overviewQ.data?.sentiment ?? null)),
+      value: pct(positiveShare(report?.report?.sentiment ?? null)),
       info: METRIC_INFO.positiveSentiment,
     },
   ];
@@ -440,10 +424,9 @@ export const OnboardingReport = ({
     tiles?.firstMentionShare != null
       ? `named first ${pct(tiles.firstMentionShare)} of the time`
       : null,
-    overviewQ.data?.coverage?.aio
+    report?.report?.coverage?.aio
       ? `AI Overviews appeared on ${pct(
-          overviewQ.data.coverage.aio.present /
-            overviewQ.data.coverage.aio.total,
+          report.report.coverage.aio.present / report.report.coverage.aio.total,
         )} of prompts`
       : null,
     tiles?.citationSov != null
@@ -533,10 +516,10 @@ export const OnboardingReport = ({
                     : 'First report complete'
                   : gaveUp
                     ? 'Checks still running'
-                    : !prelim
+                    : status === 'queued'
                       ? 'Starting your first check'
-                      : prelimDone
-                        ? 'First results in, finishing the rest'
+                      : status === 'enriching'
+                        ? 'First results in, classifying mentions'
                         : 'Checking AI answers'}
                 {!allDone && !gaveUp ? <Dots /> : null}
               </span>
@@ -854,7 +837,7 @@ export const OnboardingReport = ({
                       >
                         {/* Saying "loading" after the fetch resolved is a lie the user
                       can wait on forever. */}
-                        {promptsQ.loading
+                        {reportQ.loading
                           ? 'loading prompts…'
                           : promptRows.length === 0
                             ? 'no prompts yet'
