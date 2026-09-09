@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import {
   entityScores,
@@ -8,7 +8,20 @@ import {
   setupCommits,
 } from '../db/schema';
 import type { AppEnv } from '../env';
-import { loadEntitiesWithBrand } from '../routes/metrics';
+import {
+  answerCount,
+  avgPosition,
+  cellRate,
+  coverageStats,
+  firstMentionShare,
+  loadCoverageRowsForRuns,
+  loadEntitiesWithBrand,
+  loadScoreRowsForRuns,
+  pooledSov,
+  type ScoreRow,
+  sentimentDist,
+  shareOf,
+} from '../routes/metrics';
 
 export type SetupReportStatus =
   | 'queued'
@@ -36,67 +49,79 @@ export interface SetupReport {
     totalCount: number;
     dispatchState: string;
   }[];
+  // Same shapes the dashboard's broad endpoints served, scoped to exactly the
+  // pinned run group — the report step consumes this instead.
   report: {
-    tiles: { mentionRate: number | null; citationRate: number | null };
+    tiles: {
+      current: {
+        mentionRate: number | null;
+        citationRate: number | null;
+        sov: number | null;
+        citationSov: number | null;
+        avgPosition: number | null;
+        firstMentionShare: number | null;
+        answers: number;
+      } | null;
+    };
+    sentiment: { positive: number; neutral: number; negative: number } | null;
+    coverage: {
+      aio: { present: number; total: number } | null;
+      sources: { withSources: number; total: number; surface: string }[];
+    } | null;
     surfaces: {
       surface: string;
       mentionRate: number | null;
       citationRate: number | null;
+      avgPosition: number | null;
+      answers: number;
     }[];
-    competitors: {
+    entities: {
+      id: number;
       name: string;
       isBrand: boolean;
+      sortOrder: number;
       mentionRate: number | null;
       citationRate: number | null;
-      sentiment: 'positive' | 'neutral' | 'negative' | null;
     }[];
     prompts: {
       id: number;
       text: string;
-      category: string;
-      surface: string;
-      sample: number;
-      ok: boolean;
-      answerPresent: boolean;
-      mention: boolean;
-      cite: boolean;
-      sentiment: 'positive' | 'neutral' | 'negative' | null;
+      tags: string[];
+      sentiment: { positive: number; neutral: number; negative: number } | null;
+      surfaces: {
+        surface: string;
+        answers: number;
+        mentionRate: number | null;
+        citationRate: number | null;
+      }[];
     }[];
   } | null;
   retryAfterSeconds: number | null;
   reportUrl: string | null;
 }
 
-const pct = (part: number, whole: number): number | null =>
-  whole > 0 ? part / whole : null;
-
 const statusOf = (
-  runs: {
-    status: string;
-    dispatchState: string;
-    okCount: number;
-    totalCount: number;
-  }[],
+  rows: { status: string; dispatchState: string; okCount: number }[],
   sentimentPending: number,
 ): SetupReportStatus => {
-  if (runs.length === 0) {
+  if (rows.length === 0) {
     return 'queued';
   }
-  const collecting = runs.some(
-    (run) => run.status === 'running' && run.dispatchState !== 'exhausted',
-  );
-  if (collecting) {
+  if (
+    rows.some(
+      (run) => run.status === 'running' && run.dispatchState !== 'exhausted',
+    )
+  ) {
     return 'running';
   }
-  const succeeded = runs.reduce((sum, run) => sum + run.okCount, 0);
+  const succeeded = rows.reduce((sum, run) => sum + run.okCount, 0);
   if (succeeded === 0) {
     return 'failed';
   }
   if (sentimentPending > 0) {
     return 'enriching';
   }
-  const expected = runs.reduce((sum, run) => sum + run.totalCount, 0);
-  return succeeded < expected ? 'partial' : 'ready';
+  return 'ready';
 };
 
 // One report accessor for both surfaces: pinned to the setup commit's run
@@ -162,120 +187,122 @@ export const getSetupReport = async (
         .from(results)
         .where(inArray(results.runId, runIds))
     : [];
-  const scoreRows = runIds.length
+
+  const { entities: tracked, brand } = await loadEntitiesWithBrand(
+    db,
+    workspaceId,
+  );
+  if (!brand) {
+    return null;
+  }
+  const hasCompetitors = tracked.some((e) => !e.isBrand);
+  const scoreRows: ScoreRow[] = await loadScoreRowsForRuns(db, runIds);
+  const coverageRows = await loadCoverageRowsForRuns(db, runIds);
+
+  const allSentiment = sentimentDist(scoreRows, brand.id);
+  // A result is sentiment-pending while any of its mentioned entity rows is
+  // unclassified.
+  const pendingRows = runIds.length
     ? await db
-        .select({
-          resultId: entityScores.resultId,
-          entityId: entityScores.entityId,
-          mentioned: entityScores.mentioned,
-          cited: entityScores.cited,
-          sentiment: entityScores.sentiment,
-        })
+        .select({ resultId: entityScores.resultId })
         .from(entityScores)
         .innerJoin(results, eq(entityScores.resultId, results.id))
-        .where(inArray(results.runId, runIds))
-    : [];
-  const trackedEntities = await loadEntitiesWithBrand(db, workspaceId);
-  const promptRows = resultRows.length
-    ? await db
-        .select({
-          id: prompts.id,
-          text: prompts.text,
-          tags: prompts.tags,
-        })
-        .from(prompts)
         .where(
-          inArray(prompts.id, [
-            ...new Set(resultRows.map((row) => row.promptId)),
-          ]),
+          and(
+            inArray(results.runId, runIds),
+            eq(entityScores.mentioned, true),
+            isNull(entityScores.sentiment),
+          ),
         )
     : [];
+  const sentimentPending = new Set(pendingRows.map((row) => row.resultId)).size;
 
-  const scoreable = resultRows.filter((row) => row.ok && row.answerPresent);
-  const scoreByResult = new Map<number, typeof scoreRows>();
-  for (const score of scoreRows) {
-    scoreByResult.set(score.resultId, [
-      ...(scoreByResult.get(score.resultId) ?? []),
-      score,
-    ]);
-  }
-  const brand = trackedEntities.brand;
-  const brandScores = brand
-    ? scoreRows.filter((score) => score.entityId === brand.id)
+  const tile = (scope: ScoreRow[]) => {
+    if (scope.length === 0) {
+      return null;
+    }
+    return {
+      mentionRate: cellRate(scope, brand.id, 'mentioned'),
+      citationRate: cellRate(scope, brand.id, 'cited'),
+      sov: hasCompetitors
+        ? shareOf(pooledSov(scope, 'mentioned'), brand.id)
+        : null,
+      citationSov: hasCompetitors
+        ? shareOf(pooledSov(scope, 'cited'), brand.id)
+        : null,
+      avgPosition: avgPosition(scope, brand.id),
+      firstMentionShare: shareOf(firstMentionShare(scope), brand.id),
+      answers: answerCount(scope),
+    };
+  };
+
+  const surfaces = [...new Set(scoreRows.map((r) => r.surface))]
+    .sort()
+    .map((surface) => {
+      const scope = scoreRows.filter((r) => r.surface === surface);
+      return {
+        surface,
+        mentionRate: cellRate(scope, brand.id, 'mentioned'),
+        citationRate: cellRate(scope, brand.id, 'cited'),
+        avgPosition: avgPosition(scope, brand.id),
+        answers: answerCount(scope),
+      };
+    });
+
+  const entityReport = tracked.map((entity) => ({
+    id: entity.id,
+    name: entity.name,
+    isBrand: entity.isBrand,
+    sortOrder: entity.sortOrder,
+    mentionRate: cellRate(scoreRows, entity.id, 'mentioned'),
+    citationRate: cellRate(scoreRows, entity.id, 'cited'),
+  }));
+
+  const promptIds = [...new Set(resultRows.map((row) => row.promptId))];
+  const promptRows = promptIds.length
+    ? await db
+        .select({ id: prompts.id, text: prompts.text, tags: prompts.tags })
+        .from(prompts)
+        .where(inArray(prompts.id, promptIds))
     : [];
-  const sentimentPending = [...scoreByResult.values()].filter((scores) =>
-    scores.some((score) => score.mentioned && score.sentiment === null),
-  ).length;
-
-  const surfaceNames = [...new Set(resultRows.map((row) => row.surface))];
-  const surfaces = surfaceNames.map((surface) => {
-    const cells = scoreable.filter((row) => row.surface === surface);
-    const mentioned = cells.filter((row) =>
-      (scoreByResult.get(row.id) ?? []).some(
-        (score) => score.entityId === brand?.id && score.mentioned,
-      ),
-    ).length;
-    const cited = cells.filter((row) =>
-      (scoreByResult.get(row.id) ?? []).some(
-        (score) => score.entityId === brand?.id && score.cited,
-      ),
-    ).length;
-    return {
-      surface,
-      mentionRate: pct(mentioned, cells.length),
-      citationRate: pct(cited, cells.length),
-    };
-  });
-
-  const competitorReport = trackedEntities.entities.map((entity) => {
-    const scores = scoreRows.filter((score) => score.entityId === entity.id);
-    const mentioned = scores.filter((score) => score.mentioned).length;
-    const cited = scores.filter((score) => score.cited).length;
-    const sentiments = scores.map((score) => score.sentiment);
-    const positive = sentiments.filter((s) => s === 'positive').length;
-    const negative = sentiments.filter((s) => s === 'negative').length;
-    return {
-      name: entity.name,
-      isBrand: entity.isBrand,
-      mentionRate: pct(mentioned, scores.length),
-      citationRate: pct(cited, scores.length),
-      sentiment:
-        positive + negative === 0
-          ? null
-          : positive >= negative
-            ? ('positive' as const)
-            : ('negative' as const),
-    };
-  });
-
   const promptReport = promptRows.map((prompt) => {
-    const cells = resultRows.filter((row) => row.promptId === prompt.id);
-    const primary = cells[0];
-    const cellScores = primary ? (scoreByResult.get(primary.id) ?? []) : [];
-    const brandCellScores = brand
-      ? cellScores.filter((score) => score.entityId === brand.id)
-      : [];
+    const surfacesForPrompt = [
+      ...new Set(
+        resultRows
+          .filter((row) => row.promptId === prompt.id)
+          .map((row) => row.surface),
+      ),
+    ].map((surface) => {
+      const scope = scoreRows.filter(
+        (row) => row.promptId === prompt.id && row.surface === surface,
+      );
+      return {
+        surface,
+        answers: scope.length,
+        mentionRate: cellRate(scope, brand.id, 'mentioned'),
+        citationRate: cellRate(scope, brand.id, 'cited'),
+      };
+    });
+    const promptScoreRows = scoreRows.filter(
+      (row) => row.promptId === prompt.id,
+    );
     return {
       id: prompt.id,
       text: prompt.text,
-      category: prompt.tags[0] ?? 'Other',
-      surface: primary?.surface ?? '',
-      sample: primary?.sample ?? 0,
-      ok: cells.some((cell) => cell.ok),
-      answerPresent: cells.some((cell) => cell.ok && cell.answerPresent),
-      mention: brandCellScores.some((score) => score.mentioned),
-      cite: brandCellScores.some((score) => score.cited),
+      tags: prompt.tags,
       sentiment:
-        brandCellScores.find((score) => score.sentiment !== null)?.sentiment ??
-        null,
+        promptScoreRows.length > 0
+          ? sentimentDist(promptScoreRows, brand.id)
+          : null,
+      surfaces: surfacesForPrompt,
     };
   });
 
   const status = statusOf(runRows, sentimentPending);
   const expected = runRows.reduce((sum, run) => sum + run.totalCount, 0);
   const succeeded = runRows.reduce((sum, run) => sum + run.okCount, 0);
-  const reportReady =
-    status === 'ready' || status === 'partial' || status === 'enriching';
+  const collecting =
+    status === 'queued' || status === 'running' || status === 'enriching';
 
   return {
     setupId: commit.id,
@@ -288,27 +315,15 @@ export const getSetupReport = async (
       sentimentPending,
     },
     runs: runRows,
-    report: reportReady
-      ? {
-          tiles: {
-            mentionRate: pct(
-              brandScores.filter((score) => score.mentioned).length,
-              brandScores.length,
-            ),
-            citationRate: pct(
-              brandScores.filter((score) => score.cited).length,
-              brandScores.length,
-            ),
-          },
-          surfaces,
-          competitors: competitorReport,
-          prompts: promptReport,
-        }
-      : null,
-    retryAfterSeconds:
-      status === 'queued' || status === 'running' || status === 'enriching'
-        ? 10
-        : null,
+    report: {
+      tiles: { current: tile(scoreRows) },
+      sentiment: allSentiment,
+      coverage: coverageRows.length > 0 ? coverageStats(coverageRows) : null,
+      surfaces,
+      entities: entityReport,
+      prompts: promptReport,
+    },
+    retryAfterSeconds: collecting ? 10 : null,
     reportUrl: env.DASHBOARD_ORIGIN
       ? `${env.DASHBOARD_ORIGIN}/w/${workspaceId}/onboarding/report/${commit.id}`
       : null,

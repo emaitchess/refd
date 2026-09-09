@@ -4,7 +4,7 @@
 // an empty denominator is null (rendered "—"), never 0.
 
 import type { Alias } from '@refd/core/mentions';
-import { and, eq, gte, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { entities, entityScores, results, runs } from '../db/schema';
 
@@ -122,6 +122,59 @@ export const loadCoverageRows = async (
         eq(runs.workspaceId, workspaceId),
       ),
     );
+
+// Run-scoped variants for the pinned setup report: exactly the given run
+// group, never a date window that could blend in other same-day runs.
+export const loadScoreRowsForRuns = async (
+  db: Db,
+  runIds: number[],
+): Promise<ScoreRow[]> => {
+  if (runIds.length === 0) {
+    return [];
+  }
+  return db
+    .select({
+      runId: results.runId,
+      date: runs.date,
+      entitySetHash: runs.entitySetHash,
+      promptId: results.promptId,
+      surface: results.surface,
+      sample: results.sample,
+      entityId: entityScores.entityId,
+      mentioned: entityScores.mentioned,
+      cited: entityScores.cited,
+      position: entityScores.position,
+      prominence: entityScores.prominence,
+      sentiment: entityScores.sentiment,
+    })
+    .from(entityScores)
+    .innerJoin(results, eq(entityScores.resultId, results.id))
+    .innerJoin(runs, eq(results.runId, runs.id))
+    .where(
+      and(
+        eq(results.ok, true),
+        eq(results.answerPresent, true),
+        inArray(results.runId, runIds),
+      ),
+    );
+};
+
+export const loadCoverageRowsForRuns = async (
+  db: Db,
+  runIds: number[],
+): Promise<CoverageRow[]> => {
+  if (runIds.length === 0) {
+    return [];
+  }
+  return db
+    .select({
+      surface: results.surface,
+      answerPresent: results.answerPresent,
+      hasSources: sql<boolean>`${results.totalUrls} > 0`,
+    })
+    .from(results)
+    .where(and(eq(results.ok, true), inArray(results.runId, runIds)));
+};
 
 // ---------------------------------------------------------------------------
 // Pure math. `rows` is any scope (a window, one run, one surface) — callers

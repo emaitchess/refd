@@ -29,7 +29,7 @@ const validScopeSet = (scopes: string[]): boolean =>
 const persistConnection = async (
   env: AppEnv,
   exchange: TokenExchangeCallbackOptions,
-): Promise<{ accessTokenProps: unknown } | void> => {
+): Promise<{ accessTokenProps: unknown } | undefined> => {
   const props = connectionPropsSchema.safeParse(exchange.props);
   if (
     !props.success ||

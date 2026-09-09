@@ -63,7 +63,6 @@ export const createOperatorRoutes = (
       return c.json({ error: 'invalid id' }, 400);
     }
     await parseBody(c, reasonSchema);
-    const db = getDb(c.env);
     const commit = await loadCommit(c.env, setupId);
     if (!commit) {
       return c.json({ error: 'not found' }, 404);
