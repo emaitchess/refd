@@ -13,30 +13,39 @@ import { createRefdMcpServer } from '../mcp/server';
 import { connectionPropsSchema } from './connection-props';
 import { handleOAuthDefault } from './consent';
 import {
-  MCP_SCOPE,
+  advertisedScopes,
+  MCP_SCOPES,
   OAUTH_PROTOCOL_OPTIONS,
   oauthResourceUrl,
 } from './constants';
 import { limitMcpRequest, limitOAuthRequest } from './rate-limit';
 import { hasSecureRegistrationRedirects } from './security';
 
+const validScopeSet = (scopes: string[]): boolean =>
+  scopes.length > 0 &&
+  scopes.length <= MCP_SCOPES.length &&
+  scopes.every((scope) => (MCP_SCOPES as readonly string[]).includes(scope));
+
 const persistConnection = async (
   env: AppEnv,
   exchange: TokenExchangeCallbackOptions,
-): Promise<void> => {
+): Promise<{ accessTokenProps: unknown } | undefined> => {
   const props = connectionPropsSchema.safeParse(exchange.props);
   if (
     !props.success ||
     String(props.data.userId) !== exchange.userId ||
-    exchange.scope.length !== 1 ||
-    exchange.scope[0] !== MCP_SCOPE
+    !validScopeSet(exchange.scope)
   ) {
     throw new OAuthError('server_error', {
       description: 'The authorization grant is invalid.',
     });
   }
   if (exchange.grantType !== 'authorization_code') {
-    return;
+    // Refreshes may narrow scope: the token carries only what this exchange
+    // requested, never everything the grant holds.
+    return {
+      accessTokenProps: { ...props.data, scopes: exchange.scope },
+    };
   }
   try {
     await getDb(env)
@@ -58,6 +67,7 @@ const persistConnection = async (
         clientId: exchange.clientId,
         userId: props.data.userId,
         workspaceId: props.data.workspaceId,
+        scopes: exchange.scope,
       }),
     );
   } catch {
@@ -67,6 +77,7 @@ const persistConnection = async (
       headers: { 'Retry-After': '5' },
     });
   }
+  return { accessTokenProps: { ...props.data, scopes: exchange.scope } };
 };
 
 export const createOAuthOptions = (
@@ -131,6 +142,7 @@ export const createOAuthOptions = (
               'Redirect URIs must use HTTPS, a loopback HTTP address, or an app-specific URI scheme.',
           },
     ...OAUTH_PROTOCOL_OPTIONS,
+    scopesSupported: advertisedScopes(env),
     onError: (error) => {
       const current = new URL(request.url);
       const entry = JSON.stringify({
@@ -150,7 +162,7 @@ export const createOAuthOptions = (
     resourceMetadata: {
       resource,
       authorization_servers: [authorizationServer],
-      scopes_supported: [MCP_SCOPE],
+      scopes_supported: advertisedScopes(env),
       bearer_methods_supported: ['header'],
       resource_name: 'refd AI visibility data',
     },

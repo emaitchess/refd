@@ -15,6 +15,7 @@ import {
   getWorkspaceInfo,
   readAnswer,
 } from './data';
+import { registerSetupTools, requiresReadScope } from './setup-tools';
 
 export const emptyArgsSchema = z.object({}).strict();
 export const rangeArgsSchema = z.object({ range: rangeSchema });
@@ -66,6 +67,9 @@ const runTool = async (
   const startedAt = Date.now();
   try {
     const principal = await resolveMcpPrincipal(env, executionContext);
+    // Analytics stay read-scoped: a write-only grant may inspect setup state
+    // and the setup report, but never this data.
+    requiresReadScope(principal);
     const value = await operation(principal);
     console.log(
       JSON.stringify({
@@ -344,6 +348,8 @@ export const createRefdMcpServer = (
       };
     },
   );
+
+  registerSetupTools(server, env, executionContext);
 
   return server;
 };

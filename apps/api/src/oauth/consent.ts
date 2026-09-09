@@ -12,7 +12,13 @@ import { getDb } from '../db/client';
 import { mcpConnections, users, workspaces } from '../db/schema';
 import type { AppEnv } from '../env';
 import { dashboardOriginForRequest } from '../lib/cors';
-import { MCP_SCOPE } from './constants';
+import { provisionWorkspace } from '../lib/workspace-provision';
+import {
+  MCP_SCOPE,
+  MCP_SCOPES,
+  MCP_WRITE_SCOPE,
+  setupToolsEnabled,
+} from './constants';
 import {
   callbackTarget,
   clearCsrfCookie,
@@ -31,9 +37,10 @@ const consentFormSchema = z.object({
   csrfToken: z.string().uuid(),
   decision: z.enum(['approve', 'deny']),
   workspaceId: z
-    .string()
-    .regex(/^[1-9]\d*$/)
+    .union([z.string().regex(/^[1-9]\d*$/), z.literal('create')])
     .optional(),
+  newWorkspaceName: z.string().max(60).optional(),
+  provisioningKey: z.string().uuid().optional(),
 });
 const clientNameSchema = z
   .string()
@@ -232,9 +239,21 @@ const authenticatedUser = async (request: Request, env: AppEnv) => {
   return user && user.tokenVersion === claims.tv ? user : null;
 };
 
-const grantedScopes = (request: AuthRequest): string[] | null => {
+const grantedScopes = (
+  request: AuthRequest,
+  writeEnabled: boolean,
+): string[] | null => {
   const scopes = request.scope.length > 0 ? request.scope : [MCP_SCOPE];
-  return scopes.length === 1 && scopes[0] === MCP_SCOPE ? scopes : null;
+  const unique = [...new Set(scopes)];
+  const known = MCP_SCOPES as readonly string[];
+  if (!unique.every((scope) => known.includes(scope))) {
+    return null;
+  }
+  if (unique.includes(MCP_WRITE_SCOPE) && !writeEnabled) {
+    return null;
+  }
+  // Canonical order; an omitted scope defaults to read-only.
+  return MCP_SCOPES.filter((scope) => unique.includes(scope));
 };
 
 const resourceRequest = (
@@ -306,21 +325,39 @@ const renderConsent = (
   client: ClientInfo,
   ownedWorkspaces: { id: number; name: string }[],
   callbackUrl: string,
+  scopes: string[],
 ): Response => {
   const token = createCsrfToken();
   const nonce = crypto.randomUUID();
   const action = new URL(request.url);
-  const workspaceRows = ownedWorkspaces
-    .map(
+  const writeMode = scopes.includes(MCP_WRITE_SCOPE);
+  const workspaceRows = [
+    ...ownedWorkspaces.map(
       (workspace, index) => `
         <label class="workspace">
-          <input type="radio" name="workspace_id" value="${workspace.id}" ${index === 0 ? 'checked' : ''} required>
+          <input type="radio" name="workspace_id" value="${workspace.id}" ${!writeMode && index === 0 ? 'checked' : ''} required>
           <span><strong>${escapeHtml(workspace.name)}</strong><small>Only this workspace</small></span>
         </label>`,
-    )
-    .join('');
+    ),
+    ...(writeMode
+      ? [
+          `
+        <label class="workspace">
+          <input type="radio" name="workspace_id" value="create" ${ownedWorkspaces.length === 0 ? 'checked' : ''}>
+          <span><strong>Create a new workspace with this agent</strong><small>An empty workspace is provisioned on approval</small></span>
+        </label>`,
+        ]
+      : []),
+  ].join('');
   const name = escapeHtml(clientName(client));
   const target = escapeHtml(callbackTarget(callbackUrl) ?? 'unknown callback');
+  const introCopy = writeMode
+    ? 'Approve access to one workspace. The app can read your monitored AI visibility evidence and set up a new workspace with you: it can configure tracking and start one provider-backed report, nothing more.'
+    : 'Approve read-only access to one workspace. The app receives your monitored AI visibility evidence, never account-wide access.';
+  const permissionRows = writeMode
+    ? `<div class="permission-row"><strong>Read your AI visibility data</strong><small>Visibility, citations, competitors, tracked prompts, changes, and answer evidence.</small></div>
+              <div class="permission-row"><strong>Configure tracking and start one report</strong><small>The app can set up the workspace: brand, competitors, prompts, and surfaces, and start one provider-backed onboarding report. It cannot delete data, manage billing, or start further runs.</small></div>`
+    : `<div class="permission-row"><strong>Read your AI visibility data</strong><small>Visibility, citations, competitors, tracked prompts, changes, and answer evidence. This app cannot change data or start paid runs.</small></div>`;
 
   return new Response(
     `<!doctype html>
@@ -333,7 +370,9 @@ const renderConsent = (
     <style>
       :root{color-scheme:dark;--bg:#080809;--bg-subtle:#0d0d0f;--surface:#0a0a0c;--card:rgba(255,255,255,.025);--hover:rgba(255,255,255,.05);--primary:#f5f3ef;--secondary:#b7b3b0;--muted:#82808a;--border:rgba(255,255,255,.09);--border-strong:rgba(255,255,255,.18);--accent:#f02b3a;--accent-soft:rgba(240,43,58,.12)}
       :root[data-theme="light"]{color-scheme:light;--bg:#f7f4f0;--bg-subtle:#f0ebe6;--surface:#fffdfa;--card:rgba(39,28,30,.025);--hover:rgba(39,28,30,.05);--primary:#181416;--secondary:#50494c;--muted:#71676b;--border:rgba(39,28,30,.14);--border-strong:rgba(39,28,30,.24);--accent:#c8232f;--accent-soft:rgba(200,35,47,.09)}
-      *{box-sizing:border-box}html,body{min-height:100%;background:var(--bg)}body{margin:0;color:var(--primary);font:14px/1.65 "Inter Variable",Inter,system-ui,sans-serif;overscroll-behavior-y:none}.rail{width:min(1120px,100%);min-height:100svh;margin:0 auto;border-inline:1px solid var(--border);display:flex;flex-direction:column}header{height:68px;display:flex;flex:none;align-items:center;justify-content:space-between;padding:0 32px;border-bottom:1px solid var(--border)}.brand{display:flex;align-items:center;gap:10px}.mark{width:18px;height:18px}.mark .dither{opacity:.35}.wordmark{font:15px "Departure Mono",ui-monospace,monospace}.theme{height:32px;padding:0 12px;border:1px solid var(--border);background:var(--card);color:var(--secondary);font:10px "Departure Mono",ui-monospace,monospace;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;transition:background 150ms,color 150ms,border-color 150ms}.theme:hover{background:var(--hover);color:var(--primary);border-color:var(--border-strong)}.layout{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);flex:1}.intro{padding:96px 48px 96px 32px;border-right:1px solid var(--border)}.eyebrow{font:11px "Departure Mono",ui-monospace,monospace;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}h1{max-width:430px;margin:22px 0 0;font-size:42px;line-height:1.05;font-weight:500;letter-spacing:-.04em;text-wrap:balance}.intro p{max-width:430px;margin:24px 0 0;color:var(--secondary);font-size:15px;line-height:1.7}.safety{margin-top:40px;border-block:1px solid var(--border)}.safety-row{display:grid;grid-template-columns:96px 1fr;gap:16px;padding:14px 0}.safety-row+.safety-row{border-top:1px solid var(--border)}.safety dt{font:10px "Departure Mono",ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}.safety dd{margin:0;color:var(--secondary);font-size:13px}.form-shell{align-self:start;margin:64px 32px;border:1px solid var(--border);background:var(--card)}.app-head,.form-body,.actions{padding:24px 28px}.app-head{border-bottom:1px solid var(--border);background:var(--surface)}.client-label{font:10px "Departure Mono",ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}h2{margin:10px 0 0;font-size:22px;line-height:1.2;font-weight:550;letter-spacing:-.025em}.permission{margin:0;border:1px solid var(--border);background:var(--surface)}.permission-row{padding:16px 18px}.permission strong,.workspace strong{display:block;font-weight:500}.permission small,.workspace small{display:block;margin-top:4px;color:var(--muted);font-size:12px;line-height:1.5}.section-label{margin:24px 0 10px;font:10px "Departure Mono",ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--secondary)}.workspaces{border:1px solid var(--border)}.workspace{display:flex;min-height:58px;align-items:center;gap:13px;padding:11px 14px;background:transparent;cursor:pointer;transition:background 150ms}.workspace+.workspace{border-top:1px solid var(--border)}.workspace:hover,.workspace:has(input:checked){background:var(--hover)}.workspace input{width:14px;height:14px;margin:0;accent-color:var(--primary)}.actions{display:flex;justify-content:flex-end;gap:10px;border-top:1px solid var(--border);background:var(--surface)}button.action{height:40px;border:1px solid var(--border-strong);padding:0 18px;background:var(--card);color:var(--primary);font:500 13px "Inter Variable",Inter,system-ui,sans-serif;cursor:pointer;transition:background 150ms,transform 150ms}.action:hover{background:var(--hover)}.action:active,.theme:active{transform:scale(.98)}.action.primary{border-color:var(--primary);background:var(--primary);color:var(--bg)}button:focus-visible,input:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}.foot{height:56px;display:flex;flex:none;align-items:center;justify-content:space-between;padding:0 32px;border-top:1px solid var(--border);font:10px "Departure Mono",ui-monospace,monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}@media(max-width:820px){header{height:56px;padding:0 20px}.layout{display:block}.intro{padding:64px 20px 40px;border-right:0;border-bottom:1px solid var(--border)}h1{font-size:34px}.safety{margin-top:32px}.form-shell{margin:32px 20px 64px}.foot{padding:0 20px}}@media(max-width:520px){.app-head,.form-body,.actions{padding:20px}.actions{flex-direction:column-reverse}.action{width:100%}.safety-row{grid-template-columns:76px 1fr}}
+      *{box-sizing:border-box}html,body{min-height:100%;background:var(--bg)}body{margin:0;color:var(--primary);font:14px/1.65 "Inter Variable",Inter,system-ui,sans-serif;overscroll-behavior-y:none}.rail{width:min(1120px,100%);min-height:100svh;margin:0 auto;border-inline:1px solid var(--border);display:flex;flex-direction:column}header{height:68px;display:flex;flex:none;align-items:center;justify-content:space-between;padding:0 32px;border-bottom:1px solid var(--border)}.brand{display:flex;align-items:center;gap:10px}.mark{width:18px;height:18px}.mark .dither{opacity:.35}.wordmark{font:15px "Departure Mono",ui-monospace,monospace}.theme{height:32px;padding:0 12px;border:1px solid var(--border);background:var(--card);color:var(--secondary);font:10px "Departure Mono",ui-monospace,monospace;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;transition:background 150ms,color 150ms,border-color 150ms}.theme:hover{background:var(--hover);color:var(--primary);border-color:var(--border-strong)}.layout{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);flex:1}.intro{padding:96px 48px 96px 32px;border-right:1px solid var(--border)}.eyebrow{font:11px "Departure Mono",ui-monospace,monospace;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}h1{max-width:430px;margin:22px 0 0;font-size:42px;line-height:1.05;font-weight:500;letter-spacing:-.04em;text-wrap:balance}.intro p{max-width:430px;margin:24px 0 0;color:var(--secondary);font-size:15px;line-height:1.7}.safety{margin-top:40px;border-block:1px solid var(--border)}.safety-row{display:grid;grid-template-columns:96px 1fr;gap:16px;padding:14px 0}.safety-row+.safety-row{border-top:1px solid var(--border)}.safety dt{font:10px "Departure Mono",ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}.safety dd{margin:0;color:var(--secondary);font-size:13px}.form-shell{align-self:start;margin:64px 32px;border:1px solid var(--border);background:var(--card)}.app-head,.form-body,.actions{padding:24px 28px}.app-head{border-bottom:1px solid var(--border);background:var(--surface)}.client-label{font:10px "Departure Mono",ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}h2{margin:10px 0 0;font-size:22px;line-height:1.2;font-weight:550;letter-spacing:-.025em}.permission{margin:0;border:1px solid var(--border);background:var(--surface)}.permission-row{padding:16px 18px}.permission strong,.workspace strong{display:block;font-weight:500}.permission small,.workspace small{display:block;margin-top:4px;color:var(--muted);font-size:12px;line-height:1.5}.section-label{margin:24px 0 10px;font:10px "Departure Mono",ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--secondary)}.workspaces{border:1px solid var(--border)}.workspace{display:flex;min-height:58px;align-items:center;gap:13px;padding:11px 14px;background:transparent;cursor:pointer;transition:background 150ms}.workspace+.workspace{border-top:1px solid var(--border)}.workspace:hover,.workspace:has(input:checked){background:var(--hover)}
+.new-name{margin-top:12px;width:100%;padding:10px 12px;border:1px solid var(--border);background:var(--card);color:var(--primary);font:inherit}
+.new-name:focus{outline:none;border-color:var(--border-strong)}.workspace input{width:14px;height:14px;margin:0;accent-color:var(--primary)}.actions{display:flex;justify-content:flex-end;gap:10px;border-top:1px solid var(--border);background:var(--surface)}button.action{height:40px;border:1px solid var(--border-strong);padding:0 18px;background:var(--card);color:var(--primary);font:500 13px "Inter Variable",Inter,system-ui,sans-serif;cursor:pointer;transition:background 150ms,transform 150ms}.action:hover{background:var(--hover)}.action:active,.theme:active{transform:scale(.98)}.action.primary{border-color:var(--primary);background:var(--primary);color:var(--bg)}button:focus-visible,input:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}.foot{height:56px;display:flex;flex:none;align-items:center;justify-content:space-between;padding:0 32px;border-top:1px solid var(--border);font:10px "Departure Mono",ui-monospace,monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}@media(max-width:820px){header{height:56px;padding:0 20px}.layout{display:block}.intro{padding:64px 20px 40px;border-right:0;border-bottom:1px solid var(--border)}h1{font-size:34px}.safety{margin-top:32px}.form-shell{margin:32px 20px 64px}.foot{padding:0 20px}}@media(max-width:520px){.app-head,.form-body,.actions{padding:20px}.actions{flex-direction:column-reverse}.action{width:100%}.safety-row{grid-template-columns:76px 1fr}}
       .identity-warning{margin:0 20px;padding:14px 0;border-bottom:1px solid var(--border);color:var(--secondary);font-size:12px}.identity-warning strong{display:block;color:var(--accent);font:10px "Departure Mono",ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase}.identity-warning p{margin:6px 0 0}.identity-warning code{color:var(--primary);font:11px "Departure Mono",ui-monospace,monospace;overflow-wrap:anywhere}
     </style>
   </head>
@@ -347,9 +386,9 @@ const renderConsent = (
         <section class="intro">
           <div class="eyebrow">connected apps</div>
           <h1>Share the right data with the right app.</h1>
-          <p>Approve read-only access to one workspace. The app receives your monitored AI visibility evidence, never account-wide access.</p>
+          <p>${escapeHtml(introCopy)}</p>
           <dl class="safety">
-            <div class="safety-row"><dt>access</dt><dd>Read-only visibility data</dd></div>
+            <div class="safety-row"><dt>access</dt><dd>${writeMode ? 'Read plus bounded setup' : 'Read-only visibility data'}</dd></div>
             <div class="safety-row"><dt>scope</dt><dd>One workspace per connection</dd></div>
             <div class="safety-row"><dt>control</dt><dd>Revoke from Settings at any time</dd></div>
           </dl>
@@ -359,9 +398,11 @@ const renderConsent = (
           <div class="app-head"><div class="client-label">requesting app</div><h2>${name}</h2></div>
           <div class="identity-warning"><strong>unverified app</strong><p>This app identity is self-reported and has not been verified by refd. Continue only if you started this connection. After approval, refd will return you to <code>${target}</code>.</p></div>
           <div class="form-body">
-            <div class="permission"><div class="permission-row"><strong>Read your AI visibility data</strong><small>Visibility, citations, competitors, tracked prompts, changes, and answer evidence. This app cannot change data or start paid runs.</small></div></div>
+            <div class="permission">${permissionRows}</div>
             <div class="section-label">choose a workspace</div>
             <div class="workspaces">${workspaceRows}</div>
+            ${writeMode ? `<input class="new-name" type="text" name="new_workspace_name" maxlength="60" placeholder="Name for the new workspace" autocomplete="off" aria-label="New workspace name">` : ''}
+            <input type="hidden" name="provisioning_key" value="${crypto.randomUUID()}">
           </div>
           <div class="actions">
             <button class="action" type="submit" name="decision" value="deny">Cancel</button>
@@ -405,18 +446,20 @@ const authorize = async (
   if (!resourceRequest(authRequest, resourceUrl)) {
     return errorPage(400, 'The app requested a different protected resource.');
   }
-  if (!grantedScopes(authRequest)) {
+  const writeEnabled = setupToolsEnabled(env);
+  if (!grantedScopes(authRequest, writeEnabled)) {
     return errorPage(400, 'The app requested an unsupported permission.');
   }
 
   const db = getDb(env);
   if (request.method === 'GET') {
+    const scope = grantedScopes(authRequest, writeEnabled);
     const ownedWorkspaces = await db
       .select({ id: workspaces.id, name: workspaces.name })
       .from(workspaces)
       .where(eq(workspaces.ownerUserId, user.id))
       .orderBy(workspaces.id);
-    if (ownedWorkspaces.length === 0) {
+    if (ownedWorkspaces.length === 0 && !scope?.includes(MCP_WRITE_SCOPE)) {
       return errorPage(409, 'Create a workspace before connecting this app.');
     }
     return renderConsent(
@@ -424,6 +467,7 @@ const authorize = async (
       client,
       ownedWorkspaces,
       authRequest.redirectUri,
+      scope ?? [],
     );
   }
 
@@ -453,31 +497,53 @@ const authorize = async (
     );
     return denyRedirect(authRequest);
   }
-  if (!parsed.data.workspaceId) {
-    return errorPage(400, 'Choose a workspace.');
-  }
-
-  const workspaceId = Number(parsed.data.workspaceId);
-  const workspace = (
-    await db
-      .select({ id: workspaces.id })
-      .from(workspaces)
-      .where(
-        and(
-          eq(workspaces.id, workspaceId),
-          eq(workspaces.ownerUserId, user.id),
-        ),
-      )
-      .limit(1)
-  )[0];
-  if (!workspace) {
-    return errorPage(404, 'Workspace not found.');
-  }
-
-  const scope = grantedScopes(authRequest);
+  const scope = grantedScopes(authRequest, writeEnabled);
   const boundRequest = resourceRequest(authRequest, resourceUrl);
   if (!scope || !boundRequest) {
     return errorPage(400, 'The authorization request is invalid.');
+  }
+
+  let workspaceId: number;
+  if (parsed.data.workspaceId === 'create') {
+    if (!scope.includes(MCP_WRITE_SCOPE)) {
+      return errorPage(400, 'This app cannot create a workspace.');
+    }
+    const name = parsed.data.newWorkspaceName?.trim();
+    if (!name) {
+      return errorPage(400, 'Name the new workspace.');
+    }
+    if (!parsed.data.provisioningKey) {
+      return errorPage(400, 'The approval expired. Restart the connection.');
+    }
+    // Workspace creation happens only inside this CSRF-validated approval:
+    // denial, invalid CSRF, a read-only request, or an exhausted entitlement
+    // creates nothing.
+    const provisioned = await provisionWorkspace(
+      env,
+      { id: user.id, email: user.email },
+      name,
+      parsed.data.provisioningKey,
+    );
+    if (!provisioned.ok) {
+      return errorPage(409, provisioned.error);
+    }
+    workspaceId = provisioned.id;
+  } else {
+    if (!parsed.data.workspaceId) {
+      return errorPage(400, 'Choose a workspace.');
+    }
+    const id = Number(parsed.data.workspaceId);
+    const workspace = (
+      await db
+        .select({ id: workspaces.id })
+        .from(workspaces)
+        .where(and(eq(workspaces.id, id), eq(workspaces.ownerUserId, user.id)))
+        .limit(1)
+    )[0];
+    if (!workspace) {
+      return errorPage(404, 'Workspace not found.');
+    }
+    workspaceId = workspace.id;
   }
   const oauthUserId = String(user.id);
   await revokePriorWorkspaceGrants(
@@ -485,7 +551,7 @@ const authorize = async (
     env,
     oauthUserId,
     client.clientId,
-    workspace.id,
+    workspaceId,
   );
 
   const connectionId = crypto.randomUUID();
@@ -493,7 +559,7 @@ const authorize = async (
   const { redirectTo } = await oauth.completeAuthorization({
     request: boundRequest,
     userId: oauthUserId,
-    metadata: { connectionId, workspaceId: workspace.id },
+    metadata: { connectionId, workspaceId },
     scope,
     props: {
       callbackTarget: redirectTarget,
@@ -501,7 +567,7 @@ const authorize = async (
       connectionId,
       scopes: scope,
       userId: user.id,
-      workspaceId: workspace.id,
+      workspaceId,
     },
     revokeExistingGrants: false,
   });
@@ -510,7 +576,9 @@ const authorize = async (
       event: 'mcp_authorization_approved',
       clientId: client.clientId,
       userId: user.id,
-      workspaceId: workspace.id,
+      workspaceId,
+      scopes: scope,
+      provisioned: parsed.data.workspaceId === 'create',
     }),
   );
   return redirect(redirectTo, clearCsrfCookie());

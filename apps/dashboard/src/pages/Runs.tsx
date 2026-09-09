@@ -82,7 +82,8 @@ const RESULT_COLUMNS: ColumnSpec[] = [
 const RUN_SORTS: SortAccessors<RunRow> = {
   run: (row) => row.id,
   trigger: (row) => row.trigger,
-  status: (row) => row.status,
+  status: (row) =>
+    row.dispatchState === 'exhausted' ? 'dispatch failed' : row.status,
   results: (row) =>
     row.totalCount === 0 ? null : row.okCount / row.totalCount,
   duration: (row) =>
@@ -149,17 +150,31 @@ const durationLabel = (milliseconds: number | null) => {
 const runDuration = (run: RunRow) =>
   run.completedAt === null ? null : run.completedAt - run.createdAt;
 
-const StatusBadge = ({ status }: { status: RunRow['status'] }) => {
+const runStatusLabel = (run: RunRow) => {
+  if (run.dispatchState === 'exhausted') {
+    return 'dispatch failed';
+  }
+  if (
+    run.status === 'running' &&
+    (run.dispatchState === 'pending' || run.dispatchState === 'dispatching')
+  ) {
+    return 'queued';
+  }
+  return run.status;
+};
+
+const StatusBadge = ({ run }: { run: RunRow }) => {
+  const status = runStatusLabel(run);
   if (status === 'complete') {
     return <Badge tone="ok">complete</Badge>;
   }
-  if (status === 'failed') {
+  if (status === 'failed' || status === 'dispatch failed') {
     return <Badge tone="fail">failed</Badge>;
   }
   return (
     <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-secondary">
       <span className="size-1.5 animate-pulse bg-warning motion-reduce:animate-none" />
-      running
+      {status}
     </span>
   );
 };
@@ -259,7 +274,9 @@ export const Runs = () => {
     dir: 'desc',
   });
   const pageState = usePagination(sorted, 25);
-  const anyRunning = rows.some((row) => row.status === 'running');
+  const anyRunning = rows.some(
+    (row) => row.status === 'running' && row.dispatchState !== 'exhausted',
+  );
   const hasFilters =
     statusFilter !== ALL_STATUSES || triggerFilter !== ALL_TRIGGERS;
   const clearFilters = () => {
@@ -385,7 +402,11 @@ export const Runs = () => {
                 <StatTile
                   label="Active runs"
                   value={String(
-                    rows.filter((row) => row.status === 'running').length,
+                    rows.filter(
+                      (row) =>
+                        row.status === 'running' &&
+                        row.dispatchState !== 'exhausted',
+                    ).length,
                   )}
                   spark={
                     <p className="font-mono text-[11px] text-muted">
@@ -553,7 +574,7 @@ export const Runs = () => {
                             </Badge>
                           </td>
                           <td className="px-2 py-2.5">
-                            <StatusBadge status={runRow.status} />
+                            <StatusBadge run={runRow} />
                           </td>
                           <td className="px-2 py-2.5 text-right">
                             <span className="font-mono text-[12px] text-primary tabular-nums">
@@ -664,12 +685,15 @@ export const RunDetail = () => {
     [outcomeFilter, searchQuery, surfaceFilter],
   );
   useEffect(() => {
-    if (data?.run.status !== 'running') {
+    if (
+      data?.run.status !== 'running' ||
+      data.run.dispatchState === 'exhausted'
+    ) {
       return;
     }
     const timer = setInterval(refetch, 10_000);
     return () => clearInterval(timer);
-  }, [data?.run.status, refetch]);
+  }, [data?.run.dispatchState, data?.run.status, refetch]);
 
   const rescore = () => {
     void act(async () => {
@@ -796,7 +820,7 @@ export const RunDetail = () => {
               <div className="grid grid-cols-1 gap-px bg-border sm:grid-cols-2 xl:grid-cols-4">
                 <StatTile
                   label="Status"
-                  value={run.status}
+                  value={runStatusLabel(run)}
                   spark={
                     <p className="font-mono text-[11px] text-muted">
                       {triggerLabel(run.trigger)} trigger

@@ -1,7 +1,7 @@
 import { createMiddleware } from 'hono/factory';
 import { z } from 'zod';
 import { emailField } from '../lib/sanitize';
-import type { WorkspaceBindings } from './middleware';
+import type { AuthedBindings } from './middleware';
 
 const MAX_ADMIN_EMAILS = 100;
 const adminEmailsValue = z.string().max(10_000);
@@ -26,7 +26,7 @@ export const isOperatorEmail = (
   });
 };
 
-export const requireOperator = createMiddleware<WorkspaceBindings>(
+export const requireOperator = createMiddleware<AuthedBindings>(
   async (c, next) => {
     if (!isOperatorEmail(c.get('user').email, c.env.ADMIN_EMAILS)) {
       return c.json({ error: 'operator access required' }, 403);

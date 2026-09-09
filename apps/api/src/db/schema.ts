@@ -1,5 +1,6 @@
 import type { Alias } from '@refd/core/mentions';
 import type { SiteMetadata } from '@refd/core/site-metadata';
+import type { Surface } from '@refd/core/surfaces';
 import type { MonitoringTier } from '@refd/core/workspaces';
 import { sql } from 'drizzle-orm';
 import {
@@ -9,6 +10,7 @@ import {
   text,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
+import type { SetupConfiguration } from '../onboarding/canonical';
 
 const createdAt = () =>
   integer('created_at', { mode: 'number' })
@@ -57,29 +59,46 @@ export interface WorkspaceProfile {
 
 // A brand's tracking space. Standard users own up to five; administrators have
 // no account-level cap. Every entity/prompt/run hangs off exactly one workspace.
-export const workspaces = sqliteTable('workspaces', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  name: text('name').notNull(),
-  ownerUserId: integer('owner_user_id')
-    .notNull()
-    .references(() => users.id),
-  // Flips true once the wizard finishes (or the user skips it); gates the dashboard.
-  onboardingCompleted: integer('onboarding_completed', { mode: 'boolean' })
-    .notNull()
-    .default(false),
-  monitoringTier: text('monitoring_tier')
-    .$type<MonitoringTier>()
-    .notNull()
-    .default('snapshot_only'),
-  // Null is indefinite. A Unix timestamp in milliseconds makes pilots and
-  // cancelled subscriptions expire without another cron-side state transition.
-  monitoringEndsAt: integer('monitoring_ends_at', { mode: 'number' }),
-  profile: text('profile', { mode: 'json' }).$type<WorkspaceProfile>(),
-  // Enabled AI surfaces for runs; null = the user's entitlement default. Set in
-  // onboarding/Settings and bounded again when a run is created.
-  surfaces: text('surfaces', { mode: 'json' }).$type<string[]>(),
-  createdAt: createdAt(),
-});
+export const workspaces = sqliteTable(
+  'workspaces',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    name: text('name').notNull(),
+    ownerUserId: integer('owner_user_id')
+      .notNull()
+      .references(() => users.id),
+    // Flips true once the wizard finishes (or the user skips it); gates the dashboard.
+    onboardingCompleted: integer('onboarding_completed', { mode: 'boolean' })
+      .notNull()
+      .default(false),
+    monitoringTier: text('monitoring_tier')
+      .$type<MonitoringTier>()
+      .notNull()
+      .default('snapshot_only'),
+    // Null is indefinite. A Unix timestamp in milliseconds makes pilots and
+    // cancelled subscriptions expire without another cron-side state transition.
+    monitoringEndsAt: integer('monitoring_ends_at', { mode: 'number' }),
+    profile: text('profile', { mode: 'json' }).$type<WorkspaceProfile>(),
+    // Enabled AI surfaces for runs; null = the user's entitlement default. Set in
+    // onboarding/Settings and bounded again when a run is created.
+    surfaces: text('surfaces', { mode: 'json' }).$type<string[]>(),
+    // Optimistic-concurrency version for the onboarding draft: every mutation
+    // CAS-bumps it, so dashboard and MCP edits cannot silently overwrite one
+    // another.
+    onboardingDraftVersion: integer('onboarding_draft_version')
+      .notNull()
+      .default(0),
+    // Consent-time idempotency for OAuth workspace provisioning: duplicate
+    // approval submissions with the same key resolve to the one workspace.
+    provisioningKey: text('provisioning_key'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('workspaces_provisioning_key_unique')
+      .on(t.provisioningKey)
+      .where(sql`provisioning_key is not null`),
+  ],
+);
 
 export const mcpConnections = sqliteTable(
   'mcp_connections',
@@ -175,6 +194,22 @@ export interface SnapshotPrompt {
   text: string;
 }
 
+export interface RunDispatchPlan {
+  version: 1;
+  prompts: SnapshotPrompt[];
+  surfaces: Surface[];
+  samples: number;
+  promptBatchSize: number;
+  expectedMessages: number;
+}
+
+export type RunDispatchState =
+  | 'legacy'
+  | 'pending'
+  | 'dispatching'
+  | 'dispatched'
+  | 'exhausted';
+
 export const runs = sqliteTable(
   'runs',
   {
@@ -200,6 +235,24 @@ export const runs = sqliteTable(
     // consecutive runs differ (SOV/position shifts from set changes are
     // mechanical, not visibility events).
     entitySetHash: text('entity_set_hash'),
+    dispatchPlan: text('dispatch_plan', {
+      mode: 'json',
+    }).$type<RunDispatchPlan>(),
+    dispatchState: text('dispatch_state', {
+      enum: ['legacy', 'pending', 'dispatching', 'dispatched', 'exhausted'],
+    })
+      .notNull()
+      .default('legacy'),
+    dispatchCursor: integer('dispatch_cursor').notNull().default(0),
+    dispatchAttempts: integer('dispatch_attempts').notNull().default(0),
+    dispatchLastError: text('dispatch_last_error'),
+    dispatchNextAttemptAt: integer('dispatch_next_attempt_at', {
+      mode: 'number',
+    }),
+    dispatchStartedAt: integer('dispatch_started_at', { mode: 'number' }),
+    dispatchFinishedAt: integer('dispatch_finished_at', { mode: 'number' }),
+    dispatchLeaseId: text('dispatch_lease_id'),
+    dispatchLeaseUntil: integer('dispatch_lease_until', { mode: 'number' }),
     createdAt: createdAt(),
     completedAt: integer('completed_at', { mode: 'number' }),
   },
@@ -207,6 +260,11 @@ export const runs = sqliteTable(
     uniqueIndex('runs_key_unique').on(t.key),
     index('runs_date_idx').on(t.date),
     index('runs_ws_idx').on(t.workspaceId),
+    index('runs_dispatch_idx').on(
+      t.dispatchState,
+      t.dispatchNextAttemptAt,
+      t.dispatchLeaseUntil,
+    ),
   ],
 );
 
@@ -448,4 +506,79 @@ export const chatMessages = sqliteTable(
     createdAt: createdAt(),
   },
   (t) => [index('chat_messages_chat_idx').on(t.chatId)],
+);
+
+// Durable ledger behind the setup spend budgets (generation attempts and the
+// one free report claim). Keyed to the user so claims survive workspace
+// deletion; removed only with the owning account.
+export const setupUsage = sqliteTable(
+  'setup_usage',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    // Deliberately not a foreign key: the claim must outlive the workspace.
+    workspaceId: integer('workspace_id').notNull(),
+    kind: text('kind', { enum: ['generate', 'report'] }).notNull(),
+    section: text('section', {
+      enum: ['describe', 'competitors', 'prompts'],
+    }),
+    status: text('status', {
+      enum: ['claimed', 'succeeded', 'failed', 'void'],
+    })
+      .notNull()
+      .default('claimed'),
+    idempotencyKey: text('idempotency_key'),
+    createdAt: createdAt(),
+    settledAt: integer('settled_at', { mode: 'number' }),
+  },
+  (t) => [
+    uniqueIndex('setup_usage_idempotency_unique').on(
+      t.userId,
+      t.idempotencyKey,
+    ),
+    uniqueIndex('setup_usage_report_unique')
+      .on(t.workspaceId)
+      .where(sql`kind = 'report' and status in ('claimed', 'succeeded')`),
+    index('setup_usage_user_idx').on(t.userId, t.kind, t.createdAt),
+  ],
+);
+
+// Immutable record of an approved setup: the exact canonical configuration
+// (hash + schema version) and the pinned run group behind the first report.
+export const setupCommits = sqliteTable(
+  'setup_commits',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    workspaceId: integer('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    draftVersion: integer('draft_version').notNull(),
+    configurationSnapshot: text('configuration_snapshot', {
+      mode: 'json',
+    }).$type<SetupConfiguration>(),
+    configurationSchemaVersion: integer('configuration_schema_version')
+      .notNull()
+      .default(1),
+    configurationHash: text('configuration_hash').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    preliminaryRunId: integer('preliminary_run_id'),
+    backgroundRunId: integer('background_run_id'),
+    claimStatus: text('claim_status', { enum: ['active', 'void'] })
+      .notNull()
+      .default('active'),
+    createdAt: createdAt(),
+    completedAt: integer('completed_at', { mode: 'number' }),
+    voidedAt: integer('voided_at', { mode: 'number' }),
+    voidedByUserId: integer('voided_by_user_id'),
+    voidReason: text('void_reason'),
+  },
+  (t) => [
+    uniqueIndex('setup_commits_idempotency_unique').on(t.idempotencyKey),
+    uniqueIndex('setup_commits_ws_active_unique')
+      .on(t.workspaceId)
+      .where(sql`claim_status = 'active'`),
+    index('setup_commits_ws_idx').on(t.workspaceId),
+  ],
 );

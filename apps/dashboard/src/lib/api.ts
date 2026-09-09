@@ -3,9 +3,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  // The raw error body, for structured responses like draft-version conflicts.
+  body?: unknown;
+  constructor(status: number, message: string, body?: unknown) {
     super(message);
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -58,11 +61,21 @@ export const api = async <T>(path: string, init?: RequestInit): Promise<T> => {
       ...init?.headers,
     },
   });
-  const body = (await response.json().catch(() => ({}))) as { error?: string };
+  const body = (await response.json().catch(() => ({}))) as {
+    error?: unknown;
+  };
   if (!response.ok) {
     throw new ApiError(
       response.status,
-      body.error ?? `request failed (${response.status})`,
+      typeof body.error === 'string'
+        ? body.error
+        : body.error &&
+            typeof body.error === 'object' &&
+            'message' in body.error &&
+            typeof (body.error as { message: unknown }).message === 'string'
+          ? (body.error as { message: string }).message
+          : `request failed (${response.status})`,
+      body,
     );
   }
   return body as T;

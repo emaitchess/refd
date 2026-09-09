@@ -1,5 +1,12 @@
 import { type ComponentType, lazy, type ReactNode, Suspense } from 'react';
-import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router';
+import {
+  BrowserRouter,
+  Navigate,
+  Outlet,
+  Route,
+  Routes,
+  useParams,
+} from 'react-router';
 import { ToastProvider } from './components/feedback/Toast';
 import { CREATE_ACCOUNT_PATH, SIGN_IN_PATH } from './lib/routes';
 import { AuthProvider, useAuth } from './providers/auth';
@@ -29,6 +36,10 @@ const Prompts = lazyRoute(() => import('./pages/Prompts'), 'Prompts');
 const RunDetail = lazyRoute(() => import('./pages/Runs'), 'RunDetail');
 const Runs = lazyRoute(() => import('./pages/Runs'), 'Runs');
 const Settings = lazyRoute(() => import('./pages/Settings'), 'Settings');
+const SetupReport = lazyRoute(
+  () => import('./pages/SetupReport'),
+  'SetupReportPage',
+);
 const Sources = lazyRoute(() => import('./pages/Sources'), 'Sources');
 
 const RouteFallback = () => (
@@ -101,6 +112,39 @@ const RequireOnboarded = ({ children }: { children: ReactNode }) => {
   return children;
 };
 
+const WorkspaceNotFound = () => (
+  <div className="flex min-h-dvh w-full items-center justify-center bg-bg px-6">
+    <div className="text-center">
+      <p className="font-mono text-[10px] text-muted uppercase tracking-[0.12em]">
+        404
+      </p>
+      <p className="mt-2 text-[14px] text-secondary">workspace not found</p>
+    </div>
+  </div>
+);
+
+// Route binder for /w/:workspaceId/*: wait for the owned workspace list,
+// confirm the route workspace is owned, switch the API workspace context, and
+// render only after the selected workspace matches the route. Foreign ids
+// return not-found; the localStorage selection is never silently substituted.
+const WorkspaceRoute = ({ children }: { children: ReactNode }) => {
+  const params = useParams();
+  const { workspaces, loading, current, switchTo } = useWorkspace();
+  const id = Number.parseInt(params.workspaceId ?? '', 10);
+
+  if (loading) {
+    return null;
+  }
+  if (!Number.isFinite(id) || !workspaces.some((w) => w.id === id)) {
+    return <WorkspaceNotFound />;
+  }
+  if (current?.id !== id) {
+    switchTo(id);
+    return null;
+  }
+  return children;
+};
+
 export const App = () => (
   <ToastProvider>
     <AuthProvider>
@@ -121,6 +165,25 @@ export const App = () => (
           />
           <Route element={<AuthedShell />}>
             <Route path="/onboarding" element={suspended(<Onboarding />)} />
+            <Route
+              path="/w/:workspaceId"
+              element={<WorkspaceRoute>{<Outlet />}</WorkspaceRoute>}
+            >
+              <Route path="onboarding" element={suspended(<Onboarding />)} />
+              <Route
+                path="onboarding/report/:setupId"
+                element={suspended(<SetupReport />)}
+              />
+              <Route
+                element={
+                  <RequireOnboarded>{suspended(<Dash />)}</RequireOnboarded>
+                }
+              >
+                <Route path="home" element={suspended(<Home />)} />
+                <Route path="home/:chatId" element={suspended(<Home />)} />
+              </Route>
+              <Route path="*" element={<WorkspaceNotFound />} />
+            </Route>
             <Route
               element={
                 <RequireOnboarded>{suspended(<Dash />)}</RequireOnboarded>

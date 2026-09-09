@@ -28,11 +28,29 @@ import { loadEntitiesWithBrand } from './metrics';
 
 const MANUAL_RUNS_PER_HOUR = 5;
 
+const runResponseColumns = {
+  id: runs.id,
+  workspaceId: runs.workspaceId,
+  key: runs.key,
+  date: runs.date,
+  trigger: runs.trigger,
+  status: runs.status,
+  okCount: runs.okCount,
+  totalCount: runs.totalCount,
+  entitySnapshot: runs.entitySnapshot,
+  entitySetHash: runs.entitySetHash,
+  dispatchState: runs.dispatchState,
+  dispatchAttempts: runs.dispatchAttempts,
+  dispatchNextAttemptAt: runs.dispatchNextAttemptAt,
+  createdAt: runs.createdAt,
+  completedAt: runs.completedAt,
+};
+
 // The run identified by id, scoped to the workspace — undefined if absent or foreign.
 const getOwnedRun = async (db: Db, id: number, workspaceId: number) =>
   (
     await db
-      .select()
+      .select(runResponseColumns)
       .from(runs)
       .where(and(eq(runs.id, id), eq(runs.workspaceId, workspaceId)))
   )[0];
@@ -42,7 +60,7 @@ export const runRoutes = new Hono<WorkspaceBindings>();
 runRoutes.get('/', async (c) => {
   const db = getDb(c.env);
   const rows = await db
-    .select()
+    .select(runResponseColumns)
     .from(runs)
     .where(eq(runs.workspaceId, c.get('workspace').id))
     .orderBy(desc(runs.id))
@@ -87,7 +105,7 @@ runRoutes.post('/', requireOperator, async (c) => {
     date,
     { promptIds: opts?.promptIds, samples: opts?.samples },
   );
-  return c.json(created, 201);
+  return c.json(created, created.dispatchState === 'dispatched' ? 201 : 202);
 });
 
 // Recover paid provider data: re-enqueue the batch trigger for every dataset
