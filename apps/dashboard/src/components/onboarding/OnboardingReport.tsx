@@ -200,10 +200,18 @@ export const OnboardingReport = ({
   const prelim = onboardRuns.find((r) => !r.key.startsWith('onboard-bg'));
   const okCount = onboardRuns.reduce((s, r) => s + r.okCount, 0);
   const totalCount = onboardRuns.reduce((s, r) => s + r.totalCount, 0);
-  const prelimDone = prelim ? prelim.status !== 'running' : false;
-  const failed = prelim?.status === 'failed';
+  const prelimDone = prelim
+    ? prelim.status !== 'running' || prelim.dispatchState === 'exhausted'
+    : false;
+  const dispatchFailed = onboardRuns.some(
+    (run) => run.dispatchState === 'exhausted',
+  );
+  const failed = prelim?.status === 'failed' || dispatchFailed;
   const allDone =
-    onboardRuns.length > 0 && onboardRuns.every((r) => r.status !== 'running');
+    onboardRuns.length > 0 &&
+    onboardRuns.every(
+      (run) => run.status !== 'running' || run.dispatchState === 'exhausted',
+    );
   const progressPct =
     totalCount > 0 ? Math.round((okCount / totalCount) * 100) : 0;
 

@@ -1,5 +1,6 @@
 import type { Alias } from '@refd/core/mentions';
 import type { SiteMetadata } from '@refd/core/site-metadata';
+import type { Surface } from '@refd/core/surfaces';
 import type { MonitoringTier } from '@refd/core/workspaces';
 import { sql } from 'drizzle-orm';
 import {
@@ -175,6 +176,22 @@ export interface SnapshotPrompt {
   text: string;
 }
 
+export interface RunDispatchPlan {
+  version: 1;
+  prompts: SnapshotPrompt[];
+  surfaces: Surface[];
+  samples: number;
+  promptBatchSize: number;
+  expectedMessages: number;
+}
+
+export type RunDispatchState =
+  | 'legacy'
+  | 'pending'
+  | 'dispatching'
+  | 'dispatched'
+  | 'exhausted';
+
 export const runs = sqliteTable(
   'runs',
   {
@@ -200,6 +217,24 @@ export const runs = sqliteTable(
     // consecutive runs differ (SOV/position shifts from set changes are
     // mechanical, not visibility events).
     entitySetHash: text('entity_set_hash'),
+    dispatchPlan: text('dispatch_plan', {
+      mode: 'json',
+    }).$type<RunDispatchPlan>(),
+    dispatchState: text('dispatch_state', {
+      enum: ['legacy', 'pending', 'dispatching', 'dispatched', 'exhausted'],
+    })
+      .notNull()
+      .default('legacy'),
+    dispatchCursor: integer('dispatch_cursor').notNull().default(0),
+    dispatchAttempts: integer('dispatch_attempts').notNull().default(0),
+    dispatchLastError: text('dispatch_last_error'),
+    dispatchNextAttemptAt: integer('dispatch_next_attempt_at', {
+      mode: 'number',
+    }),
+    dispatchStartedAt: integer('dispatch_started_at', { mode: 'number' }),
+    dispatchFinishedAt: integer('dispatch_finished_at', { mode: 'number' }),
+    dispatchLeaseId: text('dispatch_lease_id'),
+    dispatchLeaseUntil: integer('dispatch_lease_until', { mode: 'number' }),
     createdAt: createdAt(),
     completedAt: integer('completed_at', { mode: 'number' }),
   },
@@ -207,6 +242,11 @@ export const runs = sqliteTable(
     uniqueIndex('runs_key_unique').on(t.key),
     index('runs_date_idx').on(t.date),
     index('runs_ws_idx').on(t.workspaceId),
+    index('runs_dispatch_idx').on(
+      t.dispatchState,
+      t.dispatchNextAttemptAt,
+      t.dispatchLeaseUntil,
+    ),
   ],
 );
 

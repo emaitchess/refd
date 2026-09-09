@@ -175,12 +175,21 @@ export interface CompetitorsResponse {
 
 export interface RunRow {
   id: number;
+  workspaceId: number;
   key: string;
   date: string;
   trigger: 'cron' | 'manual' | 'import' | 'onboard';
   status: 'running' | 'complete' | 'failed';
   okCount: number;
   totalCount: number;
+  dispatchState:
+    | 'legacy'
+    | 'pending'
+    | 'dispatching'
+    | 'dispatched'
+    | 'exhausted';
+  dispatchAttempts: number;
+  dispatchNextAttemptAt: number | null;
   createdAt: number;
   completedAt: number | null;
 }

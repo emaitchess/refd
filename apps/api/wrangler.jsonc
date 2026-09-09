@@ -49,8 +49,9 @@
     "BRIGHTDATA_SERP_ZONE": "refd_serp"
   },
   "triggers": {
-    // Daily snapshot run, 06:00 UTC.
-    "crons": ["0 6 * * *"]
+    // Daily snapshot run at 06:00 UTC; five-minute dispatch recovery never
+    // creates a new run.
+    "crons": ["0 6 * * *", "*/5 * * * *"]
   },
   "durable_objects": {
     // One instance per chat (idFromName(chatId)): owns the running exchange,

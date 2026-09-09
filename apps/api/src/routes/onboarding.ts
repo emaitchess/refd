@@ -624,7 +624,7 @@ onboardingRoutes.post('/commit', async (c) => {
 
   // Fire the preliminary run (1 prompt/category) + a background run for the rest,
   // both at sample=1 across the enabled surfaces. The report screen watches the
-  // preliminary run. Never fail commit if a run can't start.
+  // preliminary run.
   const promptRows = await db
     .select({ id: prompts.id, tags: prompts.tags })
     .from(prompts)
@@ -642,21 +642,17 @@ onboardingRoutes.post('/commit', async (c) => {
     .map((p) => p.id)
     .filter((id) => !preliminarySet.has(id));
   const date = new Date().toISOString().slice(0, 10);
-  try {
-    if (preliminaryIds.length > 0) {
-      await createRun(c.env, wsId, 'onboard', `onboard:${wsId}`, date, {
-        promptIds: preliminaryIds,
-        samples: 1,
-      });
-    }
-    if (backgroundIds.length > 0) {
-      await createRun(c.env, wsId, 'onboard', `onboard-bg:${wsId}`, date, {
-        promptIds: backgroundIds,
-        samples: 1,
-      });
-    }
-  } catch (error) {
-    console.error(`onboard run failed for ws ${wsId}`, error);
+  if (preliminaryIds.length > 0) {
+    await createRun(c.env, wsId, 'onboard', `onboard:${wsId}`, date, {
+      promptIds: preliminaryIds,
+      samples: 1,
+    });
+  }
+  if (backgroundIds.length > 0) {
+    await createRun(c.env, wsId, 'onboard', `onboard-bg:${wsId}`, date, {
+      promptIds: backgroundIds,
+      samples: 1,
+    });
   }
 
   await db
