@@ -1,7 +1,7 @@
 import { type Context, Hono } from 'hono';
 import type { WorkspaceBindings } from '../auth/middleware';
 import { getDb } from '../db/client';
-import { parseBody } from '../lib/http';
+import { parseBody, parseId } from '../lib/http';
 import {
   brandRequestSchema,
   commitRequestSchema,
@@ -10,6 +10,7 @@ import {
   type OnboardingFailure,
   patchRequestSchema,
 } from '../onboarding/contracts';
+import { getSetupReport } from '../onboarding/report';
 import {
   commitOnboarding,
   completeOnboarding,
@@ -93,6 +94,35 @@ onboardingRoutes.post('/commit', async (c) => {
 onboardingRoutes.post('/confirm', async (c) => {
   const data = await parseBody(c, confirmRequestSchema);
   return respond(c, await confirmSetup(context(c), data));
+});
+
+onboardingRoutes.get('/report/:setupId', async (c) => {
+  const setupId = parseId(c.req.param('setupId'));
+  if (setupId === null) {
+    return c.json({ error: 'invalid id' }, 400);
+  }
+  const report = await getSetupReport(
+    getDb(c.env),
+    c.env,
+    c.get('workspace').id,
+    setupId,
+  );
+  if (!report) {
+    return c.json({ error: 'not found' }, 404);
+  }
+  return c.json(report);
+});
+
+onboardingRoutes.get('/report', async (c) => {
+  const report = await getSetupReport(
+    getDb(c.env),
+    c.env,
+    c.get('workspace').id,
+  );
+  if (!report) {
+    return c.json({ error: 'not found' }, 404);
+  }
+  return c.json(report);
 });
 
 onboardingRoutes.post('/complete', async (c) => {
