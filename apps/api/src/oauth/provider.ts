@@ -60,7 +60,13 @@ const persistConnection = async (
         workspaceId: props.data.workspaceId,
       }),
     );
-  } catch {
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: 'mcp_connection_persist_failed',
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
     throw new OAuthError('temporarily_unavailable', {
       description: 'The connection could not be recorded. Try again.',
       statusCode: 503,
