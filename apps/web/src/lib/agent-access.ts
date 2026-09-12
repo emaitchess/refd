@@ -1,5 +1,45 @@
 export const MCP_ENDPOINT = 'https://api.refd.ai/mcp';
 
+// The editor-native server entry: the shape Cursor, VS Code, and Claude Code
+// all accept for a remote Streamable HTTP server. Encoded per client below.
+const MCP_CONFIG_JSON = JSON.stringify({ type: 'http', url: MCP_ENDPOINT });
+
+export interface AgentInstall {
+  name: string;
+  // Custom-scheme deeplink the editor handles natively.
+  href?: string;
+  // Shell one-liner when there is no deeplink.
+  command?: string;
+  note: string;
+}
+
+export const AGENT_INSTALLS: AgentInstall[] = [
+  {
+    name: 'Cursor',
+    href: `cursor://anysphere.cursor-deeplink/mcp/install?name=refd&config=${btoa(
+      MCP_CONFIG_JSON,
+    )}`,
+    note: 'Cursor opens, adds the server, and starts the OAuth sign-in.',
+  },
+  {
+    name: 'VS Code',
+    href: `vscode:mcp/install?name=refd&config=${encodeURIComponent(
+      MCP_CONFIG_JSON,
+    )}`,
+    note: 'VS Code opens, adds the server, and starts the OAuth sign-in.',
+  },
+  {
+    name: 'Claude Code',
+    command: `claude mcp add-json refd '${MCP_CONFIG_JSON}'`,
+    note: 'Then run `claude mcp login refd` to complete the OAuth sign-in.',
+  },
+  {
+    name: 'VS Code CLI',
+    command: `code --add-mcp '{"name":"refd","type":"http","url":"${MCP_ENDPOINT}"}'`,
+    note: 'Adds the server to the user profile; approve the sign-in when prompted.',
+  },
+];
+
 export const AGENT_TOOLS: [name: string, description: string][] = [
   [
     'get_workspace_info',
@@ -67,6 +107,7 @@ export const AGENT_CLIENTS: [name: string, instructions: string][] = [
 ];
 
 export const AGENT_TOKEN_STEPS: string[] = [
+  'No workspace yet? Create an account (business email) at https://dash.refd.ai/auth/create-account and finish the onboarding wizard. Self-hosted: register on your own dashboard.',
   'Open the workspace, go to Settings → Personal access tokens, and create a token named after the agent or pipeline.',
   'Copy the token once. It is stored only as a SHA-256 hash and cannot be retrieved again.',
   'Send it as `Authorization: Bearer refd_...` on every MCP request. It authenticates exactly like an OAuth grant: read-only, scoped to the one workspace, rate-limited per token, revoked from Settings.',

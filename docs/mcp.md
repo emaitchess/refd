@@ -109,16 +109,39 @@ cannot open one, use a personal access token instead (next section) and send
 it as `Authorization: Bearer` on every request, either as a custom-header
 option in the client config or by talking to the endpoint directly.
 
+### One-click install
+
+Cursor and VS Code open with the server preconfigured and start the OAuth
+sign-in:
+
+- Cursor: `cursor://anysphere.cursor-deeplink/mcp/install?name=refd&config=eyJ0eXBlIjoiaHR0cCIsInVybCI6Imh0dHBzOi8vYXBpLnJlZmQuYWkvbWNwIn0=`
+- VS Code: `vscode:mcp/install?name=refd&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fapi.refd.ai%2Fmcp%22%7D`
+
+One command instead of a click:
+
+```bash
+claude mcp add-json refd '{"type":"http","url":"https://api.refd.ai/mcp"}'
+claude mcp login refd
+```
+
+```bash
+code --add-mcp '{"name":"refd","type":"http","url":"https://api.refd.ai/mcp"}'
+```
+
 ## Headless and CI agents (personal access tokens)
 
 OAuth needs a browser. Where there is none (CI, cron, servers, sandboxed
 agents), generate a workspace-scoped read-only personal access token:
 
-1. Open the workspace in refd, go to **Settings → Personal access tokens**,
+1. No workspace yet? Create an account (business email) at
+   [dash.refd.ai/auth/create-account](https://dash.refd.ai/auth/create-account)
+   and finish the onboarding wizard. Self-hosted: register on your own
+   dashboard.
+2. Open the workspace in refd, go to **Settings → Personal access tokens**,
    and create a token named after the agent or pipeline.
-2. Copy the token once. It is stored only as a SHA-256 hash and cannot be
+3. Copy the token once. It is stored only as a SHA-256 hash and cannot be
    retrieved again.
-3. Call the MCP endpoint with it:
+4. Call the MCP endpoint with it:
 
 ```bash
 curl -X POST https://api.refd.ai/mcp \

@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro';
+import { MCP_ENDPOINT } from '../lib/agent-access';
 import {
   getPublicContent,
   type PublicContentEntry,
@@ -47,7 +48,7 @@ ${section('Product', [
   item(
     'Agent access',
     `${ORIGIN}/agents.md`,
-    'The read-only MCP endpoint, its OAuth model and personal access tokens for headless agents, the nine tools, and how to connect a client.',
+    `Read-only remote MCP at ${MCP_ENDPOINT}: OAuth for browser clients, personal access tokens for headless agents, the nine tools, and one-click install links.`,
   ),
 ])}
 

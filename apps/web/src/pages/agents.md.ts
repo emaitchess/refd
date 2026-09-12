@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro';
 import {
   AGENT_CLIENTS,
   AGENT_DISCOVERY,
+  AGENT_INSTALLS,
   AGENT_PAT_EXAMPLE,
   AGENT_TOKEN_STEPS,
   AGENT_TOOLS,
@@ -34,6 +35,14 @@ Call \`tools/list\` after connecting. Every tool resolves the workspace from the
 ## Connect a client
 
 ${AGENT_CLIENTS.map(([name, instructions]) => `- ${name}: ${instructions}`).join('\n')}
+
+## Install in one click
+
+${AGENT_INSTALLS.map((install) =>
+  install.href
+    ? `- ${install.name}: [open the installer](${install.href}) (${install.note})`
+    : `- ${install.name}: \`${install.command}\` (${install.note})`,
+).join('\n')}
 
 ## Headless and CI agents
 

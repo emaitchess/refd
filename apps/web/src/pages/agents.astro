@@ -6,6 +6,7 @@ import { GITHUB_URL } from '../consts';
 import {
   AGENT_CLIENTS,
   AGENT_DISCOVERY,
+  AGENT_INSTALLS,
   AGENT_PAT_EXAMPLE,
   AGENT_TOOLS,
   MCP_ENDPOINT,
@@ -115,6 +116,24 @@ import '../styles/global.css';
               <div class="cell">
                 <h3>{name}</h3>
                 <p>{how}</p>
+              </div>
+            ))
+          }
+        </div>
+        <p class="k" style="margin-top:44px">one-click install</p>
+        <div class="agent-grid">
+          {
+            AGENT_INSTALLS.map((install) => (
+              <div class="cell">
+                <h3>{install.name}</h3>
+                {install.href ? (
+                  <p style="margin-top:14px">
+                    <a class="btn" href={install.href}>install in {install.name}</a>
+                  </p>
+                ) : (
+                  <pre style="margin-top:14px;overflow-x:auto;font:400 12px/1.7 var(--mono);color:var(--secondary)">{install.command}</pre>
+                )}
+                <p>{install.note}</p>
               </div>
             ))
           }
