@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import {
   emptyArgsSchema,
+  MCP_INSTRUCTIONS,
+  MCP_TOOL_ANNOTATIONS,
   MCP_TOOL_NAMES,
   promptResultsArgsSchema,
   rangeArgsSchema,
@@ -33,6 +35,22 @@ describe('MCP tool catalog', () => {
     expect(
       readAnswerArgsSchema.safeParse({ resultId: 3, workspaceId: 2 }).data,
     ).not.toHaveProperty('workspaceId');
+  });
+
+  test('declares read-only, closed-world annotations for every tool', () => {
+    expect(MCP_TOOL_ANNOTATIONS).toMatchObject({
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    });
+  });
+
+  test('server instructions orient the model and fence untrusted evidence', () => {
+    expect(MCP_INSTRUCTIONS).toContain('get_digest');
+    expect(MCP_INSTRUCTIONS).toContain('get_recent_changes');
+    expect(MCP_INSTRUCTIONS).toContain('30d');
+    expect(MCP_INSTRUCTIONS).toContain('refd://glossary/metrics');
+    expect(MCP_INSTRUCTIONS).toContain('untrusted');
   });
 });
 
