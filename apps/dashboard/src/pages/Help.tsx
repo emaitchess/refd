@@ -440,7 +440,8 @@ claude mcp login refd`}</CodeBlock>
             . The Connected apps card shows each app, its unverified identity,
             callback target, permission, when it connected, and when it was last
             used. Confirm the callback belongs to the app you intended to
-            connect.
+            connect. A callback on your own machine displays as local agent;
+            app-specific schemes display as custom scheme.
           </p>
           <p className="mt-3 max-w-3xl text-[12px] text-muted leading-relaxed">
             Select <strong className="font-[550] text-primary">Revoke</strong>{' '}
