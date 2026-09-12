@@ -1,7 +1,7 @@
 import { getMcpAuthContext } from 'agents/mcp/server';
 import { and, desc, eq, isNull, lt, or } from 'drizzle-orm';
 import { getDb } from '../db/client';
-import { mcpConnections, users, workspaces } from '../db/schema';
+import { apiTokens, mcpConnections, users, workspaces } from '../db/schema';
 import type { AppEnv } from '../env';
 import { connectionPropsSchema } from '../oauth/connection-props';
 import { MCP_SCOPE } from '../oauth/constants';
@@ -47,6 +47,84 @@ const touchConnection = async (
     );
 };
 
+const touchToken = async (
+  env: AppEnv,
+  tokenRowId: number,
+  staleBefore: number,
+): Promise<void> => {
+  await getDb(env)
+    .update(apiTokens)
+    .set({ lastUsedAt: Date.now() })
+    .where(
+      and(
+        eq(apiTokens.id, tokenRowId),
+        or(isNull(apiTokens.lastUsedAt), lt(apiTokens.lastUsedAt, staleBefore)),
+      ),
+    );
+};
+
+// Personal access tokens resolve through the api_tokens mirror row instead of
+// the OAuth grant mirror: same ownership checks (userId + workspaceId +
+// connectionKey, not revoked), so revoking a token in Settings invalidates it
+// on the next request.
+const resolvePatPrincipal = async (
+  env: AppEnv,
+  executionContext: ExecutionContext,
+  props: { connectionId: string; userId: number; workspaceId: number },
+): Promise<McpPrincipal> => {
+  const row = (
+    await getDb(env)
+      .select({
+        clientName: apiTokens.name,
+        clientId: apiTokens.connectionKey,
+        tokenRowId: apiTokens.id,
+        lastUsedAt: apiTokens.lastUsedAt,
+        userEmail: users.email,
+        userId: users.id,
+        workspaceId: workspaces.id,
+        workspaceName: workspaces.name,
+      })
+      .from(apiTokens)
+      .innerJoin(users, eq(apiTokens.userId, users.id))
+      .innerJoin(workspaces, eq(apiTokens.workspaceId, workspaces.id))
+      .where(
+        and(
+          eq(apiTokens.connectionKey, props.connectionId),
+          eq(apiTokens.userId, props.userId),
+          eq(apiTokens.workspaceId, props.workspaceId),
+          isNull(apiTokens.revokedAt),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (!row) {
+    throw new McpAccessError('token is unavailable');
+  }
+  const staleBefore = Date.now() - LAST_USED_INTERVAL_MS;
+  if (row.lastUsedAt === null || row.lastUsedAt < staleBefore) {
+    executionContext.waitUntil(
+      touchToken(env, row.tokenRowId, staleBefore).catch((error) => {
+        console.error(
+          JSON.stringify({
+            event: 'mcp_token_touch_failed',
+            tokenId: row.tokenRowId,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      }),
+    );
+  }
+  return {
+    clientId: row.clientId,
+    clientName: row.clientName,
+    connectionRowId: row.tokenRowId,
+    userEmail: row.userEmail,
+    userId: row.userId,
+    workspaceId: row.workspaceId,
+    workspaceName: row.workspaceName,
+  };
+};
+
 export const resolveMcpPrincipal = async (
   env: AppEnv,
   executionContext: ExecutionContext,
@@ -54,6 +132,9 @@ export const resolveMcpPrincipal = async (
   const props = parseMcpTokenProps(getMcpAuthContext()?.props);
   if (!props) {
     throw new McpAccessError('invalid authorization context');
+  }
+  if (props.tokenKind === 'pat') {
+    return resolvePatPrincipal(env, executionContext, props);
   }
   const row = (
     await getDb(env)

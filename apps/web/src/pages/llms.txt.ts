@@ -47,7 +47,7 @@ ${section('Product', [
   item(
     'Agent access',
     `${ORIGIN}/agents.md`,
-    'The read-only MCP endpoint, its OAuth model, the nine tools, and how to connect a client.',
+    'The read-only MCP endpoint, its OAuth model and personal access tokens for headless agents, the nine tools, and how to connect a client.',
   ),
 ])}
 

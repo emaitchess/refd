@@ -264,6 +264,9 @@ account.delete('/', async (c) => {
     `delete from mcp_connections where workspace_id in (
       select id from workspaces where owner_user_id = ?
     )`,
+    `delete from api_tokens where workspace_id in (
+      select id from workspaces where owner_user_id = ?
+    )`,
     'delete from workspaces where owner_user_id = ?',
   ].map((statement) => c.env.DB.prepare(statement).bind(user.id));
   statements.push(

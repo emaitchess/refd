@@ -173,6 +173,7 @@ workspaceRoutes.delete('/:id', async (c) => {
     )`,
     'delete from chats where workspace_id = ?',
     'delete from mcp_connections where workspace_id = ?',
+    'delete from api_tokens where workspace_id = ?',
   ].map((statement) => c.env.DB.prepare(statement).bind(id));
   statements.push(
     c.env.DB.prepare(

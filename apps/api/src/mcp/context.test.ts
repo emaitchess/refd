@@ -63,4 +63,19 @@ describe('MCP authorization context', () => {
       }),
     ).not.toBeNull();
   });
+
+  test('accepts personal access token props and keeps the pat kind', () => {
+    const props = {
+      clientName: 'ci-agent',
+      connectionId: crypto.randomUUID(),
+      scopes: [MCP_SCOPE],
+      tokenKind: 'pat' as const,
+      userId: 7,
+      workspaceId: 11,
+    };
+    expect(parseMcpTokenProps(props)).toMatchObject({ tokenKind: 'pat' });
+    expect(
+      parseMcpTokenProps({ ...props, tokenKind: 'oauth' as never }),
+    ).toBeNull();
+  });
 });

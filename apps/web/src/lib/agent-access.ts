@@ -62,6 +62,17 @@ export const AGENT_CLIENTS: [name: string, instructions: string][] = [
   ],
   [
     'Any MCP client',
-    'Point a Streamable HTTP MCP client at the endpoint; it discovers auth via the protected-resource metadata.',
+    'Point a Streamable HTTP MCP client at the endpoint; it discovers auth via the protected-resource metadata. opencode-style configs take `{ "mcp": { "refd": { "type": "remote", "url": "...", "headers": { "Authorization": "Bearer refd_..." } } } }`.',
   ],
 ];
+
+export const AGENT_TOKEN_STEPS: string[] = [
+  'Open the workspace, go to Settings → Personal access tokens, and create a token named after the agent or pipeline.',
+  'Copy the token once. It is stored only as a SHA-256 hash and cannot be retrieved again.',
+  'Send it as `Authorization: Bearer refd_...` on every MCP request. It authenticates exactly like an OAuth grant: read-only, scoped to the one workspace, rate-limited per token, revoked from Settings.',
+];
+
+export const AGENT_PAT_EXAMPLE = `curl -X POST ${MCP_ENDPOINT} \\
+  -H "Authorization: Bearer refd_..." \\
+  -H 'Content-Type: application/json' \\
+  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}'`;

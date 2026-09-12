@@ -7,9 +7,11 @@ Open-source AI search monitoring — track how AI answers talk about any brand: 
 A Bun-workspace monorepo of three independently deployed Cloudflare Workers: **`apps/api`** (`api.refd.ai`) — the Hono API, OAuth, remote MCP, daily cron, and queue consumer, holding every binding; **`apps/dashboard`** (`dash.refd.ai`) — the React SPA as an assets-only Worker; **`apps/web`** (`refd.ai`) — the static Astro public site. Shared runtime-neutral code lives in **`packages/core`**. Data via BrightData (dataset scrapers + SERP API), stored in D1 (Drizzle) with gzipped raw payloads in R2.
 
 refd also exposes the same workspace intelligence to AI agents through a
-read-only, OAuth-protected remote MCP connector. See the
-[MCP connector guide](docs/mcp.md) for Claude, Claude Code, ChatGPT, and
-self-hosting setup.
+read-only remote MCP connector. The hosted guide lives at
+[refd.ai/agents](https://refd.ai/agents); the
+[MCP connector guide](docs/mcp.md) covers Claude, Claude Code, ChatGPT,
+generic clients, personal access tokens for headless agents, and self-hosting
+setup.
 
 ## How it works
 

@@ -6,6 +6,7 @@ import { GITHUB_URL } from '../consts';
 import {
   AGENT_CLIENTS,
   AGENT_DISCOVERY,
+  AGENT_PAT_EXAMPLE,
   AGENT_TOOLS,
   MCP_ENDPOINT,
 } from '../lib/agent-access';
@@ -15,7 +16,7 @@ import '../styles/global.css';
 
 <Base
   title="Build with refd | agent access"
-  description="Connect an AI agent to refd's read-only MCP server over OAuth. Read a brand's AI search visibility, competitors, citations, and answer evidence, scoped to one workspace."
+  description="Connect an AI agent to refd's read-only MCP server. Read a brand's AI search visibility, competitors, citations, and answer evidence, scoped to one workspace."
   path="/agents"
   markdownPath="/agents.md"
 >
@@ -32,10 +33,11 @@ import '../styles/global.css';
             <span class="muted">Read your AI visibility from any agent.</span>
           </h1>
           <p class="hero-sub">
-            refd exposes a workspace's AI search monitoring through a read-only,
-            OAuth-protected remote MCP server. Connect Claude, ChatGPT, or any
-            MCP client and query visibility, competitors, citations, and the raw
-            answers behind them, scoped to a single workspace.
+            refd exposes a workspace's AI search monitoring through a
+            read-only remote MCP server. Connect Claude, ChatGPT, or any MCP
+            client and query visibility, competitors, citations, and the raw
+            answers behind them, scoped to a single workspace. OAuth for
+            browser clients; personal access tokens for headless ones.
           </p>
           <div class="hero-cta">
             <a class="btn btn-primary" href="#connect">how to connect</a>
@@ -67,7 +69,7 @@ import '../styles/global.css';
           <div class="cell">
             <p class="k">auth</p>
             <h3>OAuth 2.1 + PKCE</h3>
-            <p>Authorization-code flow with per-workspace, revocable grants and the <code>data:read</code> scope.</p>
+            <p>Authorization-code flow with per-workspace, revocable grants and the <code>data:read</code> scope. Personal access tokens cover clients that have no browser.</p>
           </div>
           <div class="cell">
             <p class="k">access</p>
@@ -84,7 +86,7 @@ import '../styles/global.css';
         <div class="section-head">
           <p class="section-index">02 / the tools</p>
           <h2>Nine read tools, discovered at runtime.</h2>
-          <p>Call <code>tools/list</code> after connecting. Every tool resolves the workspace from the OAuth grant, never from arguments.</p>
+          <p>Call <code>tools/list</code> after connecting. Every tool resolves the workspace from the credential, never from arguments.</p>
         </div>
         <div class="agent-grid tools-grid">
           {
@@ -120,11 +122,38 @@ import '../styles/global.css';
       </div>
     </section>
 
+    <!-- Headless agents -->
+    <section class="section" id="headless">
+      <div class="rail">
+        <div class="section-head">
+          <p class="section-index">04 / headless and CI agents</p>
+          <h2>No browser? Use a personal access token.</h2>
+          <p>OAuth needs a browser. For CI, cron, servers, and sandboxed agents, Settings → Personal access tokens issues a workspace-scoped, read-only bearer token. It is shown once and stored only as a hash.</p>
+        </div>
+        <div class="agent-grid">
+          <div class="cell">
+            <p class="k">create</p>
+            <h3>Name it after the agent</h3>
+            <p>Generate the token in Settings, scoped to the current workspace. The prefix shown in the dashboard tells tokens apart.</p>
+          </div>
+          <div class="cell">
+            <p class="k">authenticate</p>
+            <h3>Bearer on every request</h3>
+            <p>The token authenticates exactly like an OAuth grant, rate-limited per token, and revoking it in Settings takes effect on the next request.</p>
+          </div>
+          <div class="cell" style="grid-column:1/-1">
+            <p class="k">smoke test</p>
+            <pre style="margin-top:14px;overflow-x:auto;font:400 12px/1.7 var(--mono);color:var(--secondary)">{AGENT_PAT_EXAMPLE}</pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Discovery -->
     <section class="section" id="discovery">
       <div class="rail">
         <div class="section-head">
-          <p class="section-index">04 / discovery</p>
+          <p class="section-index">05 / discovery</p>
           <h2>Everything is discoverable.</h2>
         </div>
         <div class="agent-grid">
@@ -145,7 +174,7 @@ import '../styles/global.css';
     <section class="section" id="open-source">
       <div class="rail">
         <div class="section-head">
-          <p class="section-index">05 / trust and source</p>
+          <p class="section-index">06 / trust and source</p>
           <h2>Inspect the boundary, or self-host the stack.</h2>
           <p>
             refd is MIT licensed and runs on Cloudflare Workers. The

@@ -111,6 +111,37 @@ export const mcpConnections = sqliteTable(
   ],
 );
 
+export const apiTokens = sqliteTable(
+  'api_tokens',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    // Only the SHA-256 hex of the raw token; the secret itself is shown once
+    // at creation and never stored, logged, or sent back to the client.
+    tokenHash: text('token_hash').notNull(),
+    tokenPrefix: text('token_prefix').notNull(),
+    connectionKey: text('connection_key').notNull(),
+    name: text('name').notNull(),
+    workspaceId: integer('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    scopes: text('scopes', { mode: 'json' })
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'`),
+    createdAt: createdAt(),
+    lastUsedAt: integer('last_used_at', { mode: 'number' }),
+    revokedAt: integer('revoked_at', { mode: 'number' }),
+  },
+  (t) => [
+    uniqueIndex('api_tokens_hash_unique').on(t.tokenHash),
+    uniqueIndex('api_tokens_key_unique').on(t.connectionKey),
+    index('api_tokens_ws_idx').on(t.workspaceId),
+  ],
+);
+
 export const entities = sqliteTable(
   'entities',
   {
