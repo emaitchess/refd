@@ -13,6 +13,7 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { WorkspaceIcon } from '@/components/layout/WorkspaceIcon';
 import { Badge, Card, EmptyState, Modal, Skeleton } from '@/components/ui';
 import { api, useAsyncAction, useQuery } from '@/lib/api';
+import { callbackHint } from '@/lib/callback-hint';
 import { timestamp } from '@/lib/format';
 import { useParamFlag } from '@/lib/params';
 import { cn } from '@/lib/utils';
@@ -570,61 +571,65 @@ const ConnectedAppsCard = () => {
           />
         ) : (
           <ul>
-            {query.data?.connections.map((connection) => (
-              <li
-                key={connection.id}
-                className={cn(CONNECTION_GRID, 'border-border border-t')}
-              >
-                <div className="flex min-w-0 flex-col justify-center px-5 py-3 md:border-border md:border-r">
-                  <span className="truncate text-[13px] text-primary">
-                    {connection.clientName}
-                  </span>
-                  <span className="font-mono text-[10px] text-error uppercase tracking-[0.08em]">
-                    unverified app
-                  </span>
-                  <span
-                    className="truncate font-mono text-[10px] text-muted"
-                    title={connection.callbackTarget ?? 'Legacy connection'}
-                  >
-                    callback: {connection.callbackTarget ?? 'unavailable'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 border-border border-t px-5 py-2 md:border-t-0 md:border-r md:px-4">
-                  <span className="field-label md:hidden">permission</span>
-                  {connection.scopes.map((scope) => (
-                    <Badge key={scope} tone="neutral">
-                      {scope === 'data:read' ? 'read workspace data' : scope}
-                    </Badge>
-                  ))}
-                </div>
-                <div
-                  className="flex items-center gap-2 border-border border-t px-5 py-2 font-mono text-[11px] text-muted md:border-t-0 md:border-r md:px-4"
-                  title={timestamp(connection.createdAt)}
+            {query.data?.connections.map((connection) => {
+              const hint = callbackHint(connection.callbackTarget);
+              return (
+                <li
+                  key={connection.id}
+                  className={cn(CONNECTION_GRID, 'border-border border-t')}
                 >
-                  <span className="field-label md:hidden">connected</span>
-                  {timestamp(connection.createdAt)}
-                </div>
-                <div
-                  className="flex items-center gap-2 border-border border-t px-5 py-2 font-mono text-[11px] text-muted md:border-t-0 md:border-r md:px-4"
-                  title={timestamp(connection.lastUsedAt)}
-                >
-                  <span className="field-label md:hidden">last used</span>
-                  {timestamp(connection.lastUsedAt)}
-                </div>
-                <div className="flex items-center justify-end border-border border-t px-5 py-2 md:border-t-0">
-                  <button
-                    type="button"
-                    className="btn-ghost h-7 px-2 font-mono text-[11px] text-error"
-                    onClick={() => {
-                      action.setError(null);
-                      setRevoking(connection);
-                    }}
+                  <div className="flex min-w-0 flex-col justify-center px-5 py-3 md:border-border md:border-r">
+                    <span className="truncate text-[13px] text-primary">
+                      {connection.clientName}
+                    </span>
+                    <span className="font-mono text-[10px] text-error uppercase tracking-[0.08em]">
+                      unverified app
+                    </span>
+                    <span
+                      className="truncate font-mono text-[10px] text-muted"
+                      title={connection.callbackTarget ?? 'Legacy connection'}
+                    >
+                      {hint ? `${hint} · callback: ` : 'callback: '}
+                      {connection.callbackTarget ?? 'unavailable'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 border-border border-t px-5 py-2 md:border-t-0 md:border-r md:px-4">
+                    <span className="field-label md:hidden">permission</span>
+                    {connection.scopes.map((scope) => (
+                      <Badge key={scope} tone="neutral">
+                        {scope === 'data:read' ? 'read workspace data' : scope}
+                      </Badge>
+                    ))}
+                  </div>
+                  <div
+                    className="flex items-center gap-2 border-border border-t px-5 py-2 font-mono text-[11px] text-muted md:border-t-0 md:border-r md:px-4"
+                    title={timestamp(connection.createdAt)}
                   >
-                    revoke
-                  </button>
-                </div>
-              </li>
-            ))}
+                    <span className="field-label md:hidden">connected</span>
+                    {timestamp(connection.createdAt)}
+                  </div>
+                  <div
+                    className="flex items-center gap-2 border-border border-t px-5 py-2 font-mono text-[11px] text-muted md:border-t-0 md:border-r md:px-4"
+                    title={timestamp(connection.lastUsedAt)}
+                  >
+                    <span className="field-label md:hidden">last used</span>
+                    {timestamp(connection.lastUsedAt)}
+                  </div>
+                  <div className="flex items-center justify-end border-border border-t px-5 py-2 md:border-t-0">
+                    <button
+                      type="button"
+                      className="btn-ghost h-7 px-2 font-mono text-[11px] text-error"
+                      onClick={() => {
+                        action.setError(null);
+                        setRevoking(connection);
+                      }}
+                    >
+                      revoke
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </Card>
