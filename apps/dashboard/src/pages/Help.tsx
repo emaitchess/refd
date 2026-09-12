@@ -321,7 +321,7 @@ claude mcp login refd`}</CodeBlock>
             },
             {
               label: 'OAuth protected',
-              text: 'Access uses OAuth 2.1 authorization codes with PKCE. Tokens are bound to the MCP endpoint and refresh credentials rotate.',
+              text: 'Access uses OAuth 2.1 authorization codes with PKCE. Tokens are bound to the MCP endpoint and refresh credentials rotate. Headless agents and CI without a browser can use a workspace-scoped personal access token instead.',
             },
           ].map((item, index) => (
             <article
@@ -448,6 +448,12 @@ claude mcp login refd`}</CodeBlock>
             to immediately invalidate the grant, its access tokens, and its
             refresh token. Deleting a workspace or account also revokes its
             connections before deleting data.
+          </p>
+          <p className="mt-3 max-w-3xl text-[12px] text-muted leading-relaxed">
+            The Personal access tokens card issues read-only bearer tokens for
+            headless agents and CI. A token reads this workspace exactly like a
+            connected app, is shown once and stored only as a hash, and revoking
+            it takes effect on the token&apos;s next request.
           </p>
         </div>
       </GuideSection>

@@ -1,19 +1,10 @@
 import type { AppEnv } from '../env';
+import { sha256Hex } from '../lib/hash';
 
 const retryHeaders = {
   'Cache-Control': 'no-store',
   'Content-Type': 'application/json',
   'Retry-After': '60',
-};
-
-const fingerprint = async (value: string): Promise<string> => {
-  const digest = await crypto.subtle.digest(
-    'SHA-256',
-    new TextEncoder().encode(value),
-  );
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
 };
 
 const oauthActor = async (request: Request, path: string): Promise<string> => {
@@ -42,7 +33,7 @@ export const limitMcpRequest = async (
   env: Pick<AppEnv, 'MCP_RATE_LIMITER'>,
 ): Promise<Response | null> => {
   const authorization = request.headers.get('Authorization') ?? '';
-  const key = await fingerprint(authorization);
+  const key = await sha256Hex(authorization);
   const { success } = await env.MCP_RATE_LIMITER.limit({ key });
   if (success) {
     return null;

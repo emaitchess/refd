@@ -8,6 +8,9 @@ export const connectionPropsSchema = z.object({
   scopes: z.array(z.literal(MCP_SCOPE)).length(1),
   userId: z.number().int().positive(),
   workspaceId: z.number().int().positive(),
+  // Present only for personal access tokens: routes principal resolution to
+  // the api_tokens mirror row instead of the mcp_connections grant mirror.
+  tokenKind: z.literal('pat').optional(),
 });
 
 export type ConnectionProps = z.infer<typeof connectionPropsSchema>;

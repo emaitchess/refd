@@ -478,6 +478,286 @@ interface ConnectedApp {
   lastUsedAt: number | null;
 }
 
+interface TokenRecord {
+  id: number;
+  name: string;
+  tokenPrefix: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+}
+
+const TOKEN_GRID =
+  'grid md:grid-cols-[minmax(180px,1fr)_minmax(150px,0.7fr)_minmax(150px,0.7fr)_minmax(150px,0.7fr)_minmax(90px,0.4fr)]';
+
+const TokensCard = () => {
+  const query = useQuery<{ tokens: TokenRecord[] }>('/settings/tokens');
+  const [name, setName] = useState('');
+  const [issued, setIssued] = useState<TokenRecord | null>(null);
+  const [token, setToken] = useState('');
+  const [revoking, setRevoking] = useState<TokenRecord | null>(null);
+  const { busy, error, run } = useAsyncAction();
+  const action = useAsyncAction();
+  const toast = useToast();
+
+  const create = (event: FormEvent) => {
+    event.preventDefault();
+    if (busy) {
+      return;
+    }
+    run(async () => {
+      const result = await api<{ token: string; record: TokenRecord }>(
+        '/settings/tokens',
+        { method: 'POST', body: JSON.stringify({ name: name.trim() }) },
+      );
+      setName('');
+      setToken(result.token);
+      setIssued(result.record);
+      query.refetch();
+    });
+  };
+
+  const copyToken = async () => {
+    try {
+      await navigator.clipboard.writeText(token);
+      toast('token copied');
+    } catch {
+      toast('copy failed. select the token text instead.');
+    }
+  };
+
+  const closeIssued = () => {
+    setIssued(null);
+    setToken('');
+  };
+
+  const closeRevoke = () => {
+    if (action.busy) {
+      return;
+    }
+    setRevoking(null);
+    action.setError(null);
+  };
+
+  const revoke = () => {
+    if (!revoking) {
+      return;
+    }
+    const target = revoking;
+    void action.run(async () => {
+      await api(`/settings/tokens/${target.id}`, { method: 'DELETE' });
+      setRevoking(null);
+      toast(`${target.name} revoked`);
+      query.refetch();
+    });
+  };
+
+  return (
+    <>
+      <Card className="overflow-hidden p-0">
+        <header className="border-border border-b bg-bg-elevated px-5 py-3">
+          <h2 className="section-label text-primary">personal access tokens</h2>
+          <p className="mt-1 max-w-3xl text-[12px] text-muted leading-relaxed">
+            Bearer tokens for headless agents and CI. A token reads this
+            workspace through MCP exactly like a connected app: read-only,
+            scoped to this workspace, and rate-limited. The token is shown once
+            at creation.
+          </p>
+        </header>
+
+        <div
+          className={cn(
+            TOKEN_GRID,
+            'hidden min-h-9 items-center bg-bg-elevated md:grid',
+          )}
+        >
+          <div className="section-label border-border border-r px-5">name</div>
+          <div className="section-label border-border border-r px-4">token</div>
+          <div className="section-label border-border border-r px-4">
+            created
+          </div>
+          <div className="section-label border-border border-r px-4">
+            last used
+          </div>
+          <div className="section-label px-5 text-right">action</div>
+        </div>
+
+        {query.loading && !query.data ? (
+          <div className="flex flex-col gap-px bg-border">
+            <Skeleton className="h-14 rounded-none" />
+          </div>
+        ) : query.error && !query.data ? (
+          <EmptyState
+            title="tokens unavailable"
+            hint="Personal access tokens could not be loaded."
+            action={
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={query.refetch}
+              >
+                retry
+              </button>
+            }
+            className="border-0"
+          />
+        ) : query.data?.tokens.length === 0 ? (
+          <EmptyState
+            title="no tokens"
+            hint="Create one to let a headless agent read this workspace."
+            className="border-0"
+          />
+        ) : (
+          <ul>
+            {query.data?.tokens.map((record) => (
+              <li
+                key={record.id}
+                className={cn(TOKEN_GRID, 'border-border border-t')}
+              >
+                <div className="flex min-w-0 items-center px-5 py-3 md:border-border md:border-r">
+                  <span className="truncate text-[13px] text-primary">
+                    {record.name}
+                  </span>
+                </div>
+                <div className="flex items-center border-border border-t px-5 py-2 font-mono text-[11px] text-muted md:border-t-0 md:border-r md:px-4">
+                  <span className="field-label md:hidden">token</span>
+                  <span className="truncate">{record.tokenPrefix}…</span>
+                </div>
+                <div
+                  className="flex items-center border-border border-t px-5 py-2 font-mono text-[11px] text-muted md:border-t-0 md:border-r md:px-4"
+                  title={timestamp(record.createdAt)}
+                >
+                  <span className="field-label md:hidden">created</span>
+                  {timestamp(record.createdAt)}
+                </div>
+                <div
+                  className="flex items-center border-border border-t px-5 py-2 font-mono text-[11px] text-muted md:border-t-0 md:border-r md:px-4"
+                  title={timestamp(record.lastUsedAt)}
+                >
+                  <span className="field-label md:hidden">last used</span>
+                  {timestamp(record.lastUsedAt)}
+                </div>
+                <div className="flex items-center justify-end border-border border-t px-5 py-2 md:border-t-0">
+                  <button
+                    type="button"
+                    className="btn-ghost h-7 px-2 font-mono text-[11px] text-error"
+                    onClick={() => {
+                      action.setError(null);
+                      setRevoking(record);
+                    }}
+                  >
+                    revoke
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <form
+          onSubmit={create}
+          className="flex flex-col gap-3 border-border border-t px-5 py-4 md:flex-row md:items-end md:justify-between"
+        >
+          <div>
+            <label htmlFor="new-token" className="field-label">
+              create token
+            </label>
+            <p className="mt-1 text-[12px] text-muted">
+              Name it after the agent or pipeline that will use it.
+            </p>
+          </div>
+          <div className="flex min-w-0 gap-2 md:w-[420px]">
+            <input
+              id="new-token"
+              className="input h-9 min-w-0 flex-1"
+              placeholder="token name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              minLength={1}
+              maxLength={60}
+              required
+            />
+            <button
+              type="submit"
+              className="btn-secondary"
+              disabled={busy || name.trim().length === 0}
+            >
+              {busy ? 'creating…' : 'create'}
+            </button>
+          </div>
+        </form>
+        {error ? (
+          <p className="border-border border-t px-5 py-3 text-[13px] text-error">
+            {error}
+          </p>
+        ) : null}
+      </Card>
+
+      {issued ? (
+        <Modal title={`${issued.name} token`} onClose={closeIssued}>
+          <p className="text-[13px] text-secondary leading-relaxed">
+            Copy this token now. It is stored only as a hash and cannot be shown
+            again. Use it as a bearer token against{' '}
+            <span className="font-mono text-[12px]">api.refd.ai/mcp</span>.
+          </p>
+          <div className="mt-4 flex items-center gap-2 border border-border bg-bg-elevated px-3 py-2">
+            <code className="min-w-0 flex-1 break-all font-mono text-[12px] text-primary">
+              {token}
+            </code>
+            <button
+              type="button"
+              className="btn-ghost h-7 shrink-0 px-2 font-mono text-[11px]"
+              onClick={() => void copyToken()}
+            >
+              copy
+            </button>
+          </div>
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={closeIssued}
+            >
+              done
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {revoking ? (
+        <Modal title={`Revoke ${revoking.name}?`} onClose={closeRevoke}>
+          <p className="text-[13px] text-secondary leading-relaxed">
+            This immediately revokes the token. Anything using it will start
+            failing on its next request.
+          </p>
+          {action.error ? (
+            <p className="mt-3 text-[13px] text-error" aria-live="polite">
+              {action.error}
+            </p>
+          ) : null}
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={closeRevoke}
+              disabled={action.busy}
+            >
+              cancel
+            </button>
+            <button
+              type="button"
+              className="btn-secondary text-error"
+              onClick={revoke}
+              disabled={action.busy}
+            >
+              {action.busy ? 'revoking…' : 'revoke token'}
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+    </>
+  );
+};
+
 const CONNECTION_GRID =
   'grid md:grid-cols-[minmax(180px,1fr)_minmax(170px,0.8fr)_minmax(150px,0.7fr)_minmax(150px,0.7fr)_minmax(90px,0.4fr)]';
 
@@ -756,6 +1036,7 @@ export const Settings = () => (
       <WorkspacesCard />
       <SurfacesCard />
       <ConnectedAppsCard />
+      <TokensCard />
       {import.meta.env.DEV ? <RescoreCard /> : null}
     </div>
   </>
