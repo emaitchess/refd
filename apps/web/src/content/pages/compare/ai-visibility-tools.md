@@ -72,7 +72,9 @@ making a decision on any number here.
 API and MCP access, separately: Otterly.ai lists both API and MCP from its
 Standard plan. Peec AI lists "API, MCP, custom exports." Semrush has both a
 documented API and an MCP server across the wider platform. refd ships an
-OAuth-protected remote MCP server with read-only tools. Profound offers an API
+OAuth-protected remote MCP server with read-only tools (an optional setup
+scope, disabled by default, can configure a workspace and start one report).
+Profound offers an API
 on Enterprise only. Scrunch offers an Enterprise Data API. AthenaHQ sells API
 access as a paid add-on. Elmo states API access on every plan. The rest do not
 say.

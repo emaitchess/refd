@@ -15,7 +15,7 @@ related:
     description: "Set up a brand, choose competitors and buyer questions, and inspect the evidence in your first report."
   - href: "/agents"
     title: "Connect an AI agent"
-    description: "Read workspace metrics and answer evidence through the OAuth-protected remote MCP server."
+    description: "Read workspace metrics and answer evidence, or let an agent set up a workspace, through the OAuth-protected remote MCP server."
 ---
 
 AI answers change. A useful measurement system has to preserve that uncertainty,

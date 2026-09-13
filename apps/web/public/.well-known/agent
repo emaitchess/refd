@@ -10,11 +10,13 @@
     "url": "https://api.refd.ai/mcp",
     "transport": "streamable-http",
     "authorization": "oauth2",
-    "access": "read-only",
-    "scopes_supported": ["data:read"],
+    "access": "read-only by default; optional phase-gated data:write setup scope",
+    "scopes_supported": ["data:read", "data:write"],
+    "workspace_entitlement": "one or more selected workspaces, or all (including ones created later); personal access tokens stay single-workspace",
     "protected_resource_metadata": "https://api.refd.ai/.well-known/oauth-protected-resource/mcp",
     "authorization_server_metadata": "https://api.refd.ai/.well-known/oauth-authorization-server",
     "registry": "ai.refd/refd"
   },
+  "skills": "https://refd.ai/skills/refd/SKILL.md",
   "llms_txt": "https://refd.ai/llms.txt"
 }

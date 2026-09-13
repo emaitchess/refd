@@ -2,7 +2,7 @@
 title: "Security at refd"
 description: "How refd protects hosted accounts, isolates workspace data, stores monitoring evidence, authorizes agent access, and handles vulnerability reports."
 eyebrow: "Trust"
-answer: "The hosted service uses encrypted transport, salted bcrypt password hashes, secure HTTP-only session cookies, origin checks, rate limits, owner-scoped workspaces, authenticated provider callbacks, and revocable read-only OAuth grants. No internet service is risk-free. Report a suspected vulnerability privately through GitHub Security or h@emaitchess.com."
+answer: "The hosted service uses encrypted transport, salted bcrypt password hashes, secure HTTP-only session cookies, origin checks, rate limits, owner-scoped workspaces, authenticated provider callbacks, and revocable OAuth grants scoped to the workspaces you select at consent. No internet service is risk-free. Report a suspected vulnerability privately through GitHub Security or h@emaitchess.com."
 publishedAt: 2026-07-30
 author:
   name: "Mohammad Hamza Suhail"
@@ -22,8 +22,8 @@ related:
 
 Security at refd starts with a narrow access model. A signed-in user can access
 only workspaces they own. Monitoring evidence stays attached to that workspace,
-and agent connections receive read-only access to one workspace selected by the
-owner.
+and agent connections are scoped to the workspaces the owner selects at consent
+(or every workspace, if the owner allows all).
 
 This page describes the safeguards in the current open-source code and hosted
 service. It is not a claim of formal certification, a penetration-test report,
@@ -106,14 +106,20 @@ as untrusted input:
 
 ## OAuth and agent access
 
-The remote MCP connector uses an OAuth authorization-code flow with PKCE. A
-person chooses the workspace during authorization, and the resulting grant is
-bound to that workspace and the `data:read` scope.
+The remote MCP connector uses an OAuth authorization-code flow with PKCE.
+During authorization a person picks the workspaces the connection may target:
+individual selections, Allow all (which also covers workspaces created later),
+or a new workspace provisioned inside the CSRF-protected approval. The
+resulting grant carries that workspace entitlement and the scopes shown at
+consent.
 
-The connector exposes read tools only. It cannot change workspace data, start a
-monitoring run, or trigger provider spend. Every tool derives the workspace
-from the encrypted OAuth grant rather than accepting a workspace identifier
-from the caller. The owner can review and revoke connections from Settings.
+Access is read-only by default: the connector exposes analytics tools only. An
+optional, phase-gated `data:write` scope adds setup tools that can configure a
+workspace and start exactly one provider-backed onboarding report. No grant can
+delete data, manage billing, or start further runs. Every tool derives what it
+may target from the encrypted grant rather than accepting a workspace
+identifier from the caller, and tool arguments can only narrow that boundary,
+never widen it. The owner can review and revoke connections from Settings.
 
 Connection metadata and instructions are available on the
 [agent access page](/agents).

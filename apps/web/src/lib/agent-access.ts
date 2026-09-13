@@ -1,5 +1,63 @@
 export const MCP_ENDPOINT = 'https://api.refd.ai/mcp';
 
+// Shared agent-facing facts. The agents page and its markdown twin render
+// these verbatim, so the two can never drift apart.
+export const AGENT_SCOPES: [scope: string, description: string][] = [
+  [
+    'data:read',
+    'Nine analytics tools plus a metric-glossary resource. Read-only.',
+  ],
+  [
+    'data:write',
+    'Adds nine setup tools that can configure a workspace and start one provider-backed onboarding report. Phase-gated: disabled by default on the hosted service; self-hosters enable it with MCP_SETUP_TOOLS_ENABLED=true.',
+  ],
+];
+
+export const AGENT_WORKSPACE_ENTITLEMENT =
+  'At consent you pick the workspaces the connection may target: check the ones you want, use Allow all to cover every workspace on the account (including ones you create later), or provision a new workspace for the agent to onboard. Every tool takes an optional workspace selector, and the credential, never the tool arguments, defines what it may target. Personal access tokens always cover exactly one workspace.';
+
+export const AGENT_INJECTION_BOUNDARY =
+  'Web prompt-injection can, at worst, act inside the workspaces the human authorized: a setup-scoped agent can edit configuration and start the one onboarding report, and no grant can delete data, manage billing, or start further runs.';
+
+export const AGENT_SETUP_TOOLS: [name: string, description: string][] = [
+  [
+    'get_setup_state',
+    'The setup wizard state: phase, editable draft, version, and regeneration allowances.',
+  ],
+  ['set_brand', 'Sets or updates the tracked brand: name, domains, aliases.'],
+  [
+    'draft_description',
+    'Fetches the brand website and drafts description, summary, and target market.',
+  ],
+  [
+    'suggest_competitors',
+    'Generates editable competitor candidates from indexed company search.',
+  ],
+  [
+    'suggest_prompts',
+    'Generates categorized, editable buyer-question candidates.',
+  ],
+  [
+    'update_setup',
+    'Applies explicit edits to any draft field, including enabled surfaces.',
+  ],
+  [
+    'preview_setup',
+    'Returns the exact canonical configuration, its hash, and warnings.',
+  ],
+  [
+    'confirm_setup',
+    'Commits the approved configuration and starts the one provider-backed onboarding report.',
+  ],
+  [
+    'get_setup_report',
+    'Live progress and the pinned setup report for the run group.',
+  ],
+];
+
+export const AGENT_SETUP_WORKFLOW =
+  'get_setup_state, set_brand, draft_description, suggest or update competitors and prompts, preview_setup, explicit user approval, confirm_setup, then get_setup_report until the runs land.';
+
 // The editor-native server entry: the shape Cursor, VS Code, and Claude Code
 // all accept for a remote Streamable HTTP server. Encoded per client below.
 const MCP_CONFIG_JSON = JSON.stringify({ type: 'http', url: MCP_ENDPOINT });
@@ -88,6 +146,11 @@ export const AGENT_DISCOVERY: [label: string, value: string, note: string][] = [
   ['OpenAPI catalog', 'https://refd.ai/openapi.json', 'Public HTTP surface'],
   ['Agent manifest', 'https://refd.ai/.well-known/agent', 'Discovery pointers'],
   ['MCP Registry', 'ai.refd/refd', 'registry.modelcontextprotocol.io'],
+  [
+    'Agent skill',
+    'https://refd.ai/skills/refd/SKILL.md',
+    'Installable SKILL.md',
+  ],
   ['llms.txt', 'https://refd.ai/llms.txt', 'Plain-text summary'],
 ];
 

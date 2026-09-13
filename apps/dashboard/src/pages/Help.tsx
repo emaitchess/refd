@@ -77,7 +77,7 @@ const MCP_TOOLS = [
   {
     name: 'get_workspace_info',
     purpose:
-      'Returns the connected brand, competitors, and enabled AI surfaces.',
+      'Returns the connected workspaces, tracked brand, competitors, and enabled AI surfaces.',
   },
   {
     name: 'get_visibility_overview',
@@ -117,7 +117,58 @@ const MCP_TOOLS = [
   {
     name: 'get_digest',
     purpose:
-      'Returns a complete grounded snapshot of the connected workspace in one call.',
+      'Returns a complete grounded snapshot of a connected workspace in one call.',
+  },
+  {
+    name: 'get_setup_state',
+    scope: 'data:write',
+    purpose:
+      'Returns the setup wizard state: phase, editable draft, version, and regeneration allowances.',
+  },
+  {
+    name: 'set_brand',
+    scope: 'data:write',
+    purpose: 'Sets or updates the tracked brand: name, domains, aliases.',
+  },
+  {
+    name: 'draft_description',
+    scope: 'data:write',
+    purpose:
+      'Fetches the brand website and drafts description, summary, and target market.',
+  },
+  {
+    name: 'suggest_competitors',
+    scope: 'data:write',
+    purpose:
+      'Generates editable competitor candidates from indexed company search.',
+  },
+  {
+    name: 'suggest_prompts',
+    scope: 'data:write',
+    purpose: 'Generates categorized, editable buyer-question candidates.',
+  },
+  {
+    name: 'update_setup',
+    scope: 'data:write',
+    purpose:
+      'Applies explicit edits to any draft field, including enabled surfaces.',
+  },
+  {
+    name: 'preview_setup',
+    scope: 'data:write',
+    purpose:
+      'Returns the exact canonical configuration, its hash, and warnings.',
+  },
+  {
+    name: 'confirm_setup',
+    scope: 'data:write',
+    purpose:
+      'Commits the approved configuration and starts the one provider-backed onboarding report.',
+  },
+  {
+    name: 'get_setup_report',
+    scope: 'data:write',
+    purpose: 'Live progress and the pinned setup report for the run group.',
   },
 ] as const;
 
@@ -312,8 +363,8 @@ claude mcp login refd`}</CodeBlock>
         <div className="grid sm:grid-cols-2">
           {[
             {
-              label: 'one workspace',
-              text: 'You select exactly one workspace during authorization. The grant cannot read any other workspace, even if the client supplies another workspace ID.',
+              label: 'workspace access',
+              text: 'At authorization you pick the workspaces the connection may target: any checked set, or Allow all (which also covers workspaces you create later). The grant cannot reach anything outside that entitlement, even if the client supplies another workspace ID.',
             },
             {
               label: 'scoped access',
@@ -346,9 +397,12 @@ claude mcp login refd`}</CodeBlock>
         </div>
         <div className="border-border border-t px-5 py-4">
           <p className="text-[12px] text-muted leading-relaxed">
-            To connect a different workspace, create another connection or
-            authorize again and select the new workspace. Existing grants never
-            change workspace in place.
+            Every tool takes an optional workspace argument that only selects
+            among the granted workspaces; get_workspace_info lists them with
+            their IDs. To change what a connection covers, authorize again with
+            a different selection. An Allow all connection picks up new
+            workspaces automatically. Personal access tokens always cover
+            exactly one workspace.
           </p>
           <p className="mt-2 text-[12px] text-muted leading-relaxed">
             refd limits MCP traffic to 120 requests per bearer token each
@@ -361,7 +415,7 @@ claude mcp login refd`}</CodeBlock>
       <GuideSection
         id="mcp-tools"
         title="Available tools"
-        description="Analytics tools are read-only; setup tools require data:write. Every tool resolves its workspace from the authorized grant."
+        description="Analytics tools are read-only; setup tools require data:write. Every tool resolves the granted workspaces from the credential, and the optional workspace argument only picks among them."
       >
         <div className="overflow-x-auto">
           <table className="w-full min-w-[680px] border-collapse text-left">
@@ -380,6 +434,11 @@ claude mcp login refd`}</CodeBlock>
                     <code className="font-mono text-[11px] text-primary">
                       {tool.name}
                     </code>
+                    {'scope' in tool && tool.scope ? (
+                      <span className="mt-1 block font-mono text-[9px] text-muted uppercase tracking-[0.08em]">
+                        {tool.scope}
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-5 py-3 text-[12px] text-secondary leading-relaxed">
                     {tool.purpose}
@@ -515,7 +574,7 @@ curl -i -X POST https://api.refdlocal.io/mcp \\
             {
               question: 'The connector opens the wrong workspace',
               answer:
-                'Workspace access is fixed when you approve the connection. Revoke it in Connected apps, reconnect, and choose the intended workspace.',
+                'Pass the workspace argument to the tools; get_workspace_info lists every workspace the connection may target with its ID. To change the entitlement itself, revoke the connection in Connected apps and authorize again with a different selection.',
             },
             {
               question: 'ChatGPT does not show a new or changed tool',

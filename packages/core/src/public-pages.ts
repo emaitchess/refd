@@ -32,6 +32,7 @@ export const PUBLIC_PAGE_PATHS = [
   '/support',
   '/terms',
   '/trackers',
+  '/skills/refd/SKILL.md',
   '/chatgpt-visibility-tracker',
   '/perplexity-visibility-tracker',
   '/gemini-visibility-tracker',

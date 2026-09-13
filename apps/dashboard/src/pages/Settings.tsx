@@ -802,9 +802,12 @@ const ConnectedAppsCard = () => {
         <header className="border-border border-b bg-bg-elevated px-5 py-3">
           <h2 className="section-label text-primary">connected apps</h2>
           <p className="mt-1 max-w-3xl text-[12px] text-muted leading-relaxed">
-            Apps listed here can read this workspace through MCP. They cannot
-            change data or start provider runs. A connection may cover several
-            workspaces; revoking it disconnects the app from all of them.
+            Apps listed here can read the workspaces you approved through MCP. A
+            connection with the optional setup scope can also configure a
+            workspace and start its one provider-backed onboarding report. No
+            connection can delete data or start further provider runs. A
+            connection may cover several workspaces; revoking it disconnects the
+            app from all of them.
           </p>
         </header>
 

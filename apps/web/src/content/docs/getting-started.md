@@ -14,7 +14,7 @@ related:
     description: "Read the collection, scoring, aggregation, and limitations behind every report."
   - href: "/agents"
     title: "Connect an AI agent"
-    description: "Use Claude, ChatGPT, or another MCP client to query an existing workspace."
+    description: "Use Claude, ChatGPT, or another MCP client to query a workspace, or to set one up end to end."
 ---
 
 refd turns a set of buyer questions into an evidence-backed view of how a brand

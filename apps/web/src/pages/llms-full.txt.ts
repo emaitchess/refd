@@ -85,7 +85,7 @@ Runtime-neutral metric and product contracts live in the shared core package.
 
 ## Agent access
 
-The production MCP endpoint is https://api.refd.ai/mcp. It uses OAuth with PKCE, grants read-only access to one human-selected workspace, and exposes nine tools plus a metric-glossary resource. It cannot mutate workspace data or trigger provider spend.
+The production MCP endpoint is https://api.refd.ai/mcp. It uses OAuth with PKCE, and a grant covers the workspaces selected at consent: a checked set, or every workspace via Allow all (including ones created later). Access is read-only by default: nine analytics tools plus a metric-glossary resource. An optional phase-gated data:write scope adds nine setup tools that can configure a workspace and start one provider-backed onboarding report; it is disabled by default on the hosted service and can never delete data, manage billing, or start further runs. Personal access tokens for headless agents stay read-only and single-workspace.
 
 ## Hosted and self-hosted
 
