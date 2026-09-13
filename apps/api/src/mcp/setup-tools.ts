@@ -28,8 +28,37 @@ import {
 import {
   McpAccessError,
   type McpPrincipal,
+  type McpWorkspace,
+  resolveGrantedWorkspace,
   resolveMcpPrincipal,
 } from './context';
+
+// Optional workspace selector: validated against the connection's granted
+// set at request time, never trusted from the argument itself. The grant
+// stays the only entitlement; the selector only picks among what it holds.
+export const workspaceArgSchema = z.number().int().positive().optional();
+
+export const workspaceSelectorSchema = z.object({
+  workspace: workspaceArgSchema,
+});
+
+const emptyBodySchema = z.object({});
+
+const generationBodySchema = z.object({
+  expectedVersion: z.number().int().nonnegative(),
+  regenerate: z.boolean().optional(),
+  idempotencyKey: z.string().uuid().optional(),
+});
+
+const confirmBodySchema = z.object({
+  expectedVersion: z.number().int().nonnegative(),
+  configurationHash: z.string().regex(/^[0-9a-f]{64}$/),
+  idempotencyKey: z.string().uuid(),
+});
+
+const reportBodySchema = z.object({
+  setupId: z.number().int().positive().optional(),
+});
 
 const textResult = (value: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }],
@@ -40,26 +69,27 @@ const errorResult = (body: unknown) => ({
   isError: true,
 });
 
-const accessDenied = () =>
+const invalidSetupArgs = () =>
   errorResult({
     error: {
-      code: 'forbidden',
-      message: 'This tool requires data:write on the connected workspace.',
+      code: 'invalid_arguments',
+      message: 'The tool arguments did not match the published schema.',
     },
   });
 
 const failureResult = (failure: OnboardingFailure) =>
   errorResult({ error: failure.error, status: failure.status });
 
-// Mutations never accept a workspace id: the OAuth grant is the only source.
+// Mutations target the workspace this call resolved from the grant.
 const contextFor = (
   env: AppEnv,
   principal: McpPrincipal,
+  workspace: McpWorkspace,
 ): OnboardingContext => ({
   db: getDb(env),
   env,
-  workspaceId: principal.workspaceId,
-  workspaceName: principal.workspaceName,
+  workspaceId: workspace.id,
+  workspaceName: workspace.name,
   userId: principal.userId,
   userEmail: principal.userEmail,
   adminEmails: env.ADMIN_EMAILS,
@@ -69,8 +99,11 @@ const runSetupTool = async (
   env: AppEnv,
   executionContext: ExecutionContext,
   name: string,
-  options: { requireWrite: boolean },
-  operation: (principal: McpPrincipal) => Promise<unknown>,
+  options: { requireWrite: boolean; workspaceArg?: number },
+  operation: (
+    principal: McpPrincipal,
+    workspace: McpWorkspace,
+  ) => Promise<unknown>,
 ) => {
   const startedAt = Date.now();
   try {
@@ -84,9 +117,15 @@ const runSetupTool = async (
           outcome: 'denied',
         }),
       );
-      return accessDenied();
+      return errorResult({
+        error: {
+          code: 'forbidden',
+          message: 'This tool requires data:write on the connected workspace.',
+        },
+      });
     }
-    const value = await operation(principal);
+    const workspace = resolveGrantedWorkspace(principal, options.workspaceArg);
+    const value = await operation(principal, workspace);
     console.log(
       JSON.stringify({
         event: 'mcp_tool_call',
@@ -94,7 +133,7 @@ const runSetupTool = async (
         clientId: principal.clientId,
         connectionId: principal.connectionRowId,
         userId: principal.userId,
-        workspaceId: principal.workspaceId,
+        workspaceId: workspace.id,
         durationMs: Date.now() - startedAt,
         outcome: 'ok',
       }),
@@ -132,6 +171,24 @@ const unwrapState = (result: unknown): unknown => {
   return textResult(result);
 };
 
+// The published inputSchema is the body shape plus the workspace selector.
+// Both schemas strip unknown keys, so parsing them separately over the same
+// arguments accepts exactly the same inputs the merged schema would.
+const selectorArgs = <T extends z.ZodObject<z.ZodRawShape>>(
+  args: unknown,
+  body: T,
+): { workspaceArg: number | undefined; body: z.infer<T> } | null => {
+  const parsedSelector = workspaceSelectorSchema.safeParse(args);
+  const parsedBody = body.safeParse(args);
+  if (!parsedSelector.success || !parsedBody.success) {
+    return null;
+  }
+  return {
+    workspaceArg: parsedSelector.data.workspace,
+    body: parsedBody.data,
+  };
+};
+
 // Registers the nine setup tools against a data:write grant. Only confirm_setup
 // can trigger provider spend; generation tools claim the budget first; every
 // mutation rides the same shared services as the dashboard.
@@ -143,16 +200,14 @@ export const registerSetupTools = (
   if (!setupToolsEnabled(env)) {
     return;
   }
-  const write = { requireWrite: true };
-  const inspect = { requireWrite: false };
 
   server.registerTool(
     'get_setup_state',
     {
       title: 'Get onboarding setup state',
       description:
-        'Returns the workspace setup wizard state: phase, editable draft, enabled surfaces, draft version, regeneration allowances, and commit state.',
-      inputSchema: z.object({}).strict(),
+        'Returns the workspace setup wizard state: phase, editable draft, enabled surfaces, draft version, regeneration allowances, and commit state. With several approved workspaces, pass workspace to target one.',
+      inputSchema: workspaceSelectorSchema,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -160,14 +215,20 @@ export const registerSetupTools = (
         openWorldHint: false,
       },
     },
-    async () =>
-      runSetupTool(
+    async (args) => {
+      const parsed = selectorArgs(args, emptyBodySchema);
+      if (!parsed) {
+        return invalidSetupArgs();
+      }
+      return runSetupTool(
         env,
         executionContext,
         'get_setup_state',
-        inspect,
-        async (principal) => loadOnboardingState(contextFor(env, principal)),
-      ),
+        { requireWrite: false, workspaceArg: parsed.workspaceArg },
+        async (principal, workspace) =>
+          loadOnboardingState(contextFor(env, principal, workspace)),
+      );
+    },
   );
 
   server.registerTool(
@@ -175,8 +236,8 @@ export const registerSetupTools = (
     {
       title: 'Set the tracked brand',
       description:
-        'Sets or updates the workspace brand: name, domains, and aliases. Requires expectedVersion from the latest setup state.',
-      inputSchema: brandRequestSchema,
+        'Sets or updates the workspace brand: name, domains, and aliases. Requires expectedVersion from the latest setup state. With several approved workspaces, pass workspace to target one.',
+      inputSchema: brandRequestSchema.extend(workspaceSelectorSchema.shape),
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -184,104 +245,90 @@ export const registerSetupTools = (
         openWorldHint: false,
       },
     },
-    async (args) =>
-      runSetupTool(
+    async (args) => {
+      const parsed = selectorArgs(args, brandRequestSchema);
+      if (!parsed) {
+        return invalidSetupArgs();
+      }
+      return runSetupTool(
         env,
         executionContext,
         'set_brand',
-        write,
-        async (principal) =>
-          unwrapState(await saveBrand(contextFor(env, principal), args)),
-      ),
-  );
-
-  server.registerTool(
-    'draft_description',
-    {
-      title: 'Draft the brand description',
-      description:
-        'Fetches the brand website and drafts an editable description, summary, and target market. Soft-fails; the budget is claimed before any external call. Requires expectedVersion.',
-      inputSchema: z.object({
-        expectedVersion: z.number().int().nonnegative(),
-        regenerate: z.boolean().optional(),
-        idempotencyKey: z.string().uuid().optional(),
-      }),
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: true,
-      },
-    },
-    async (args) =>
-      runSetupTool(
-        env,
-        executionContext,
-        'draft_description',
-        write,
-        async (principal) =>
-          unwrapState(await draftDescription(contextFor(env, principal), args)),
-      ),
-  );
-
-  server.registerTool(
-    'suggest_competitors',
-    {
-      title: 'Suggest competitors',
-      description:
-        'Generates editable competitor candidates from indexed company search. Suggestions replace the draft. Requires expectedVersion.',
-      inputSchema: z.object({
-        expectedVersion: z.number().int().nonnegative(),
-        regenerate: z.boolean().optional(),
-        idempotencyKey: z.string().uuid().optional(),
-      }),
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: true,
-      },
-    },
-    async (args) =>
-      runSetupTool(
-        env,
-        executionContext,
-        'suggest_competitors',
-        write,
-        async (principal) =>
+        { requireWrite: true, workspaceArg: parsed.workspaceArg },
+        async (principal, workspace) =>
           unwrapState(
-            await suggestCompetitors(contextFor(env, principal), args),
+            await saveBrand(contextFor(env, principal, workspace), parsed.body),
           ),
-      ),
+      );
+    },
   );
 
-  server.registerTool(
-    'suggest_prompts',
-    {
-      title: 'Suggest monitoring prompts',
-      description:
-        'Generates categorized, editable monitoring prompt candidates. Suggestions replace the draft. Requires expectedVersion.',
-      inputSchema: z.object({
-        expectedVersion: z.number().int().nonnegative(),
-        regenerate: z.boolean().optional(),
-        idempotencyKey: z.string().uuid().optional(),
-      }),
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: true,
+  const runGenerationTool = (
+    name: string,
+    title: string,
+    description: string,
+    idempotent: boolean,
+    run: (
+      ctx: OnboardingContext,
+      body: z.infer<typeof generationBodySchema>,
+    ) => Promise<unknown>,
+  ) => {
+    server.registerTool(
+      name,
+      {
+        title,
+        description,
+        inputSchema: generationBodySchema.extend(workspaceSelectorSchema.shape),
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: idempotent,
+          openWorldHint: true,
+        },
       },
-    },
-    async (args) =>
-      runSetupTool(
-        env,
-        executionContext,
-        'suggest_prompts',
-        write,
-        async (principal) =>
-          unwrapState(await suggestPrompts(contextFor(env, principal), args)),
-      ),
+      async (args) => {
+        const parsed = selectorArgs(args, generationBodySchema);
+        if (!parsed) {
+          return invalidSetupArgs();
+        }
+        return runSetupTool(
+          env,
+          executionContext,
+          name,
+          { requireWrite: true, workspaceArg: parsed.workspaceArg },
+          async (principal, workspace) =>
+            unwrapState(
+              await run(contextFor(env, principal, workspace), parsed.body),
+            ),
+        );
+      },
+    );
+  };
+
+  const mutate = { requireWrite: true };
+
+  runGenerationTool(
+    'draft_description',
+    'Draft the brand description',
+    'Fetches the brand website and drafts an editable description, summary, and target market. Soft-fails; the budget is claimed before any external call. Requires expectedVersion. With several approved workspaces, pass workspace to target one.',
+    false,
+    draftDescription,
+  );
+
+  runGenerationTool(
+    'suggest_competitors',
+    'Suggest competitors',
+    'Generates editable competitor candidates from indexed company search. Suggestions replace the draft. Requires expectedVersion. With several approved workspaces, pass workspace to target one.',
+    false,
+    suggestCompetitors,
+  );
+
+  runGenerationTool(
+    'suggest_prompts',
+    'Suggest monitoring prompts',
+    'Generates categorized, editable monitoring prompt candidates. Suggestions replace the draft. Requires expectedVersion. With several approved workspaces, pass workspace to target one.',
+    false,
+    suggestPrompts,
   );
 
   server.registerTool(
@@ -289,8 +336,8 @@ export const registerSetupTools = (
     {
       title: 'Update the setup draft',
       description:
-        'Applies explicit edits to any draft field: step, description, summary, target market, logo, competitors, prompts, and enabled surfaces. Stale expectedVersion returns a structured conflict with the current state.',
-      inputSchema: patchRequestSchema,
+        'Applies explicit edits to any draft field: step, description, summary, target market, logo, competitors, prompts, and enabled surfaces. Stale expectedVersion returns a structured conflict with the current state. With several approved workspaces, pass workspace to target one.',
+      inputSchema: patchRequestSchema.extend(workspaceSelectorSchema.shape),
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -298,15 +345,25 @@ export const registerSetupTools = (
         openWorldHint: false,
       },
     },
-    async (args) =>
-      runSetupTool(
+    async (args) => {
+      const parsed = selectorArgs(args, patchRequestSchema);
+      if (!parsed) {
+        return invalidSetupArgs();
+      }
+      return runSetupTool(
         env,
         executionContext,
         'update_setup',
-        write,
-        async (principal) =>
-          unwrapState(await updateDraft(contextFor(env, principal), args)),
-      ),
+        { ...mutate, workspaceArg: parsed.workspaceArg },
+        async (principal, workspace) =>
+          unwrapState(
+            await updateDraft(
+              contextFor(env, principal, workspace),
+              parsed.body,
+            ),
+          ),
+      );
+    },
   );
 
   server.registerTool(
@@ -314,8 +371,8 @@ export const registerSetupTools = (
     {
       title: 'Preview the final setup',
       description:
-        'Returns the exact canonical configuration, its draft version and SHA-256 hash, the expected prompt-surface checks, and warnings. Present this preview to the user before calling confirm_setup.',
-      inputSchema: z.object({}).strict(),
+        'Returns the exact canonical configuration, its draft version and SHA-256 hash, the expected prompt-surface checks, and warnings. Present this preview to the user before calling confirm_setup. With several approved workspaces, pass workspace to target one.',
+      inputSchema: workspaceSelectorSchema,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -323,14 +380,20 @@ export const registerSetupTools = (
         openWorldHint: false,
       },
     },
-    async () =>
-      runSetupTool(
+    async (args) => {
+      const parsed = selectorArgs(args, emptyBodySchema);
+      if (!parsed) {
+        return invalidSetupArgs();
+      }
+      return runSetupTool(
         env,
         executionContext,
         'preview_setup',
-        write,
-        async (principal) => previewSetup(contextFor(env, principal)),
-      ),
+        { ...mutate, workspaceArg: parsed.workspaceArg },
+        async (principal, workspace) =>
+          previewSetup(contextFor(env, principal, workspace)),
+      );
+    },
   );
 
   server.registerTool(
@@ -338,12 +401,8 @@ export const registerSetupTools = (
     {
       title: 'Confirm the approved setup',
       description:
-        'Commits the approved preview: verifies expectedVersion and the canonical configuration hash, claims the one free report, and starts the onboarding run group. Present the preview_setup result to the user and get explicit approval before calling this tool; it starts provider-backed collection.',
-      inputSchema: z.object({
-        expectedVersion: z.number().int().nonnegative(),
-        configurationHash: z.string().regex(/^[0-9a-f]{64}$/),
-        idempotencyKey: z.string().uuid(),
-      }),
+        'Commits the approved preview: verifies expectedVersion and the canonical configuration hash, claims the one free report, and starts the onboarding run group. Present the preview_setup result to the user and get explicit approval before calling this tool; it starts provider-backed collection. With several approved workspaces, pass workspace to target one.',
+      inputSchema: confirmBodySchema.extend(workspaceSelectorSchema.shape),
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -351,14 +410,20 @@ export const registerSetupTools = (
         openWorldHint: false,
       },
     },
-    async (args) =>
-      runSetupTool(
+    async (args) => {
+      const parsed = selectorArgs(args, confirmBodySchema);
+      if (!parsed) {
+        return invalidSetupArgs();
+      }
+      return runSetupTool(
         env,
         executionContext,
         'confirm_setup',
-        write,
-        async (principal) => confirmSetup(contextFor(env, principal), args),
-      ),
+        { ...mutate, workspaceArg: parsed.workspaceArg },
+        async (principal, workspace) =>
+          confirmSetup(contextFor(env, principal, workspace), parsed.body),
+      );
+    },
   );
 
   server.registerTool(
@@ -366,10 +431,8 @@ export const registerSetupTools = (
     {
       title: 'Get the pinned setup report',
       description:
-        'Returns live progress, totals, run status, and report data for the setup run group. Poll with retryAfterSeconds instead of holding the call open.',
-      inputSchema: z.object({
-        setupId: z.number().int().positive().optional(),
-      }),
+        'Returns live progress, totals, run status, and report data for the setup run group. Poll with retryAfterSeconds instead of holding the call open. With several approved workspaces, pass workspace to target one.',
+      inputSchema: reportBodySchema.extend(workspaceSelectorSchema.shape),
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -377,18 +440,22 @@ export const registerSetupTools = (
         openWorldHint: false,
       },
     },
-    async (args) =>
-      runSetupTool(
+    async (args) => {
+      const parsed = selectorArgs(args, reportBodySchema);
+      if (!parsed) {
+        return invalidSetupArgs();
+      }
+      return runSetupTool(
         env,
         executionContext,
         'get_setup_report',
-        inspect,
-        async (principal) => {
+        { requireWrite: false, workspaceArg: parsed.workspaceArg },
+        async (_principal, workspace) => {
           const report = await getSetupReport(
             getDb(env),
             env,
-            principal.workspaceId,
-            args.setupId,
+            workspace.id,
+            parsed.body.setupId,
           );
           if (!report) {
             return errorResult({
@@ -400,7 +467,8 @@ export const registerSetupTools = (
           }
           return report;
         },
-      ),
+      );
+    },
   );
 };
 

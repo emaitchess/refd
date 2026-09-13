@@ -474,6 +474,10 @@ interface ConnectedApp {
   clientName: string;
   callbackTarget: string | null;
   scopes: string[];
+  allWorkspaces: boolean;
+  workspaceId: number;
+  workspaceName: string | null;
+  workspaceCount: number;
   createdAt: number;
   lastUsedAt: number | null;
 }
@@ -799,7 +803,8 @@ const ConnectedAppsCard = () => {
           <h2 className="section-label text-primary">connected apps</h2>
           <p className="mt-1 max-w-3xl text-[12px] text-muted leading-relaxed">
             Apps listed here can read this workspace through MCP. They cannot
-            change data or start provider runs.
+            change data or start provider runs. A connection may cover several
+            workspaces; revoking it disconnects the app from all of them.
           </p>
         </header>
 
@@ -873,13 +878,20 @@ const ConnectedAppsCard = () => {
                       {connection.callbackTarget ?? 'unavailable'}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 border-border border-t px-5 py-2 md:border-t-0 md:border-r md:px-4">
+                  <div className="flex flex-wrap items-center gap-2 border-border border-t px-5 py-2 md:border-t-0 md:border-r md:px-4">
                     <span className="field-label md:hidden">permission</span>
                     {connection.scopes.map((scope) => (
                       <Badge key={scope} tone="neutral">
                         {scope === 'data:read' ? 'read workspace data' : scope}
                       </Badge>
                     ))}
+                    <Badge tone="neutral">
+                      {connection.allWorkspaces
+                        ? 'all workspaces'
+                        : connection.workspaceCount > 1
+                          ? `${connection.workspaceCount} workspaces`
+                          : (connection.workspaceName ?? 'one workspace')}
+                    </Badge>
                   </div>
                   <div
                     className="flex items-center gap-2 border-border border-t px-5 py-2 font-mono text-[11px] text-muted md:border-t-0 md:border-r md:px-4"
@@ -918,7 +930,13 @@ const ConnectedAppsCard = () => {
         <Modal title={`Disconnect ${revoking.clientName}?`} onClose={close}>
           <p className="text-[13px] text-secondary leading-relaxed">
             This immediately revokes the app&apos;s access and refresh tokens
-            for this workspace. The app will need your approval to reconnect.
+            for{' '}
+            {revoking.allWorkspaces
+              ? 'every workspace on the account'
+              : revoking.workspaceCount > 1
+                ? `all ${revoking.workspaceCount} workspaces it covers`
+                : 'this workspace'}
+            . The app will need your approval to reconnect.
           </p>
           {action.error ? (
             <p className="mt-3 text-[13px] text-error" aria-live="polite">

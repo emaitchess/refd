@@ -27,11 +27,112 @@ describe('OAuth consent', () => {
       expect(parsed.data).toEqual({
         csrfToken,
         decision: 'approve',
-        workspaceId: 'create',
+        workspaceIds: ['create'],
+        allWorkspaces: false,
         newWorkspaceName: 'refd.ai',
         provisioningKey,
       });
     }
+  });
+
+  test('parses a checked set of workspaces for a read-only grant', () => {
+    const form = new FormData();
+    form.set('csrf_token', crypto.randomUUID());
+    form.set('decision', 'approve');
+    form.append('workspace_id', '2');
+    form.append('workspace_id', '5');
+    form.append('workspace_id', '2');
+
+    const parsed = parseConsentForm(form);
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.workspaceIds).toEqual(['2', '5', '2']);
+      expect(parsed.data.allWorkspaces).toBe(false);
+    }
+  });
+
+  test('parses the allow-all switch', () => {
+    const form = new FormData();
+    form.set('csrf_token', crypto.randomUUID());
+    form.set('decision', 'approve');
+    form.set('all_workspaces', '1');
+
+    const parsed = parseConsentForm(form);
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.allWorkspaces).toBe(true);
+      expect(parsed.data.workspaceIds).toEqual([]);
+    }
+  });
+
+  test('renders checkboxes and the allow-all switch for read-only grants', async () => {
+    const response = renderConsent(
+      new Request('https://api.refd.ai/oauth/authorize'),
+      {
+        clientId: 'test-client',
+        clientName: 'Test client',
+        redirectUris: ['https://client.example/oauth/callback'],
+        tokenEndpointAuthMethod: 'none',
+      },
+      [
+        { id: 1, name: 'Ready workspace', onboarded: true, logoUrl: null },
+        { id: 2, name: 'Draft workspace', onboarded: false, logoUrl: null },
+      ],
+      'https://client.example/oauth/callback',
+      [MCP_SCOPE],
+    );
+    const html = await response.text();
+
+    expect(html).toContain('type="checkbox" name="workspace_id" value="1"');
+    expect(html).toContain('type="checkbox" name="workspace_id" value="2"');
+    expect(html).toContain('name="all_workspaces"');
+    expect(html).toContain('Allow all workspaces');
+    expect(html).toContain('every workspace on the account');
+    expect(html).toContain('allowAll.addEventListener');
+    expect(html).not.toContain('type="radio"');
+  });
+
+  test('renders checkboxes, the allow-all switch, and the create row for write grants', async () => {
+    const response = renderConsent(
+      new Request('https://api.refd.ai/oauth/authorize'),
+      {
+        clientId: 'test-client',
+        clientName: 'Test client',
+        redirectUris: ['https://client.example/oauth/callback'],
+        tokenEndpointAuthMethod: 'none',
+      },
+      [{ id: 1, name: 'Ready workspace', onboarded: true, logoUrl: null }],
+      'https://client.example/oauth/callback',
+      [MCP_SCOPE, MCP_WRITE_SCOPE],
+    );
+    const html = await response.text();
+
+    expect(html).toContain('type="checkbox" name="workspace_id" value="1"');
+    expect(html).toContain('name="all_workspaces"');
+    expect(html).toContain('Allow all workspaces');
+    expect(html).toContain('Create a new workspace with this agent');
+    expect(html).not.toContain('type="radio"');
+  });
+
+  test('omits the allow-all switch when the account has no workspaces yet', async () => {
+    const response = renderConsent(
+      new Request('https://api.refd.ai/oauth/authorize'),
+      {
+        clientId: 'test-client',
+        clientName: 'Test client',
+        redirectUris: ['https://client.example/oauth/callback'],
+        tokenEndpointAuthMethod: 'none',
+      },
+      [],
+      'https://client.example/oauth/callback',
+      [MCP_SCOPE, MCP_WRITE_SCOPE],
+    );
+    const html = await response.text();
+
+    expect(html).not.toContain('name="all_workspaces"');
+    expect(html).toContain('Create a new workspace with this agent');
   });
 
   test('shows the workspace name input only when create is selected', async () => {

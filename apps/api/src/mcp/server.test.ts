@@ -7,6 +7,7 @@ import {
   promptResultsArgsSchema,
   rangeArgsSchema,
   readAnswerArgsSchema,
+  workspaceArgSchema,
 } from './server';
 
 describe('MCP tool catalog', () => {
@@ -24,7 +25,7 @@ describe('MCP tool catalog', () => {
     ]);
   });
 
-  test('does not accept workspace scope in tool arguments', () => {
+  test('does not accept a trusted workspace grant in tool arguments', () => {
     expect(emptyArgsSchema.safeParse({ workspaceId: 2 }).success).toBeFalse();
     expect(
       promptResultsArgsSchema.safeParse({
@@ -37,6 +38,17 @@ describe('MCP tool catalog', () => {
     ).not.toHaveProperty('workspaceId');
   });
 
+  test('accepts an optional workspace selector validated at request time', () => {
+    expect(workspaceArgSchema.safeParse(2)).toMatchObject({ success: true });
+    expect(workspaceArgSchema.safeParse(0).success).toBeFalse();
+    expect(workspaceArgSchema.safeParse('2').success).toBeFalse();
+    expect(workspaceArgSchema.safeParse(undefined).success).toBeTrue();
+    expect(emptyArgsSchema.safeParse({ workspace: 2 }).success).toBeTrue();
+    expect(
+      rangeArgsSchema.safeParse({ range: '30d', workspace: 5 }).success,
+    ).toBeTrue();
+  });
+
   test('declares read-only, closed-world annotations for every tool', () => {
     expect(MCP_TOOL_ANNOTATIONS).toMatchObject({
       readOnlyHint: true,
@@ -46,11 +58,13 @@ describe('MCP tool catalog', () => {
   });
 
   test('server instructions orient the model and fence untrusted evidence', () => {
+    expect(MCP_INSTRUCTIONS).toContain('get_workspace_info');
     expect(MCP_INSTRUCTIONS).toContain('get_digest');
     expect(MCP_INSTRUCTIONS).toContain('get_recent_changes');
     expect(MCP_INSTRUCTIONS).toContain('30d');
     expect(MCP_INSTRUCTIONS).toContain('refd://glossary/metrics');
     expect(MCP_INSTRUCTIONS).toContain('untrusted');
+    expect(MCP_INSTRUCTIONS).toContain('workspace');
   });
 });
 

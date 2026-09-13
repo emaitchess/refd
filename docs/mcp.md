@@ -10,17 +10,26 @@ The hosted guide for agents lives at [refd.ai/agents](https://refd.ai/agents)
 ([markdown](https://refd.ai/agents.md)); this document is the same contract
 with more protocol detail. The connector uses OAuth 2.1 with S256 PKCE. It
 supports Client ID Metadata Documents, with Dynamic Client Registration as a
-compatibility fallback. During authorization, refd asks you to select one
-completed workspace or, with the write scope, to provision a new one. The
-resulting connection can act only on that workspace.
+compatibility fallback. During authorization, refd asks you to choose the
+workspaces a connection may act on: check any number of completed
+workspaces, or flip **Allow all** so the agent sees every workspace on the
+account, including ones created later. Write-scope approvals add an option to
+provision a new workspace with the agent.
 
 Two scopes exist:
 
 - `data:read` (default): the analytics and evidence tools. Cannot change data
-  or spend provider quota.
-- `data:write`: adds the setup tools. The agent can draft, edit, and preview
-  the workspace setup, and `confirm_setup` starts exactly one provider-backed
-  onboarding report. No other provider run is reachable over MCP. The scope is
+  or spend provider quota. A connection may cover several workspaces. All
+  tools accept an optional `workspace` argument (the workspace id, from
+  `get_workspace_info`); omit it to target the connection's default. A
+  checked-set connection is pinned to the workspaces approved at consent
+  time; an **Allow all** connection resolves the account's workspaces at
+  request time, so new workspaces join with no re-approval.
+- `data:write`: adds the setup tools for every approved workspace. The agent
+  can draft, edit, and preview a workspace's setup, and `confirm_setup`
+  starts exactly one provider-backed onboarding report per workspace; the
+  same per-workspace draft versions and spend budgets that bound the
+  dashboard apply. No other provider run is reachable over MCP. The scope is
   phase-gated server-side (`MCP_SETUP_TOOLS_ENABLED`) and the consent screen
   discloses what write access allows before approval.
 
@@ -53,8 +62,8 @@ Claude custom connectors are available from **Customize → Connectors**. On an
 individual plan, select **+ → Add custom connector**. On Team and Enterprise
 plans, an Owner first adds it from **Organization settings → Connectors → Add →
 Custom → Web**. Enter `https://api.refd.ai/mcp`; no client ID or secret is
-needed. Select **Connect**, sign in to refd, choose a workspace, and approve the
-requested scopes.
+needed. Select **Connect**, sign in to refd, choose the workspaces (or flip
+**Allow all**), and approve the requested scopes.
 
 Enable refd for a conversation from the **+ → Connectors** menu. Claude reaches
 remote connectors from Anthropic's cloud, so a self-hosted endpoint must be
@@ -176,7 +185,7 @@ exported, or narrowed to fewer prompts than the workspace tracks.
 
 | Tool | Purpose |
 | --- | --- |
-| `get_workspace_info` | Connected brand, competitors, and enabled AI surfaces |
+| `get_workspace_info` | Connected workspaces, brand, competitors, and enabled AI surfaces |
 | `get_visibility_overview` | Mention, citation, share-of-voice, position, sentiment, coverage, and surface metrics |
 | `get_competitor_landscape` | Brand and competitor visibility comparison |
 | `get_prompt_performance` | Buyer-question performance and zero-visibility prompts |
@@ -187,8 +196,11 @@ exported, or narrowed to fewer prompts than the workspace tracks.
 | `get_digest` | Complete grounded workspace snapshot |
 
 Ranges accept `1d`, `3d`, `7d`, `30d`, `90d`, or `all` and default to `30d`.
-The server also publishes `refd://glossary/metrics`, a read-only resource with
-the definitions used by the dashboard.
+Every tool, read or setup, accepts an optional `workspace` argument (the
+workspace id from `get_workspace_info`); an argument outside the connection's
+granted set is rejected. The server also publishes
+`refd://glossary/metrics`, a read-only resource with the definitions used by
+the dashboard.
 
 Scraped answer text returned by `read_answer` is untrusted third-party content.
 Clients should treat it as evidence, never as instructions.
@@ -197,11 +209,13 @@ Clients should treat it as evidence, never as instructions.
 
 Open the connected workspace in refd, go to **Settings → Connected apps**, and
 select **Revoke**. This invalidates the grant, its current access tokens, and
-its refresh token. The card also records the callback target approved for new
-connections; older connections created before this field was added show it as
-unavailable. Personal access tokens are revoked from **Settings → Personal
-access tokens**. Removing the workspace or account also revokes its grants and
-deletes its tokens before deleting the data.
+its refresh token. A connection may cover several workspaces: revoking it
+disconnects the app from all of them, and the revoke confirmation says which.
+The card also records the callback target approved for new connections; older
+connections created before this field was added show it as unavailable.
+Personal access tokens are revoked from **Settings → Personal access tokens**
+and always cover a single workspace. Removing the workspace or account also
+revokes its grants and deletes its tokens before deleting the data.
 
 ## Self-hosting
 
