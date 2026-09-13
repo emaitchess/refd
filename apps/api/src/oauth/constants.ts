@@ -1,4 +1,16 @@
 export const MCP_SCOPE = 'data:read';
+export const MCP_WRITE_SCOPE = 'data:write';
+export const MCP_SCOPES = [MCP_SCOPE, MCP_WRITE_SCOPE] as const;
+
+// Phase-gate: the write scope and setup tools stay hidden until the bounded
+// production test flips the flag.
+export const setupToolsEnabled = (env: {
+  MCP_SETUP_TOOLS_ENABLED?: string;
+}): boolean => env.MCP_SETUP_TOOLS_ENABLED === 'true';
+
+export const advertisedScopes = (env: {
+  MCP_SETUP_TOOLS_ENABLED?: string;
+}): string[] => (setupToolsEnabled(env) ? [...MCP_SCOPES] : [MCP_SCOPE]);
 
 export const OAUTH_PROTOCOL_OPTIONS = {
   scopesSupported: [MCP_SCOPE],

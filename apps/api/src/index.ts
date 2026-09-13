@@ -4,6 +4,7 @@ import { getDb } from './db/client';
 import { workspaces } from './db/schema';
 import type { AppEnv } from './env';
 import { handleIngestBatch } from './ingest/consumer';
+import { resumePendingRunDispatches } from './ingest/dispatch';
 import type { IngestMessage } from './ingest/messages';
 import { createRun } from './ingest/runs';
 import { oauthFetch } from './oauth/provider';
@@ -21,10 +22,24 @@ export default {
     ctx: ExecutionContext,
   ): Promise<Response> => oauthFetch(request, env, ctx),
 
-  async scheduled(
-    _controller: ScheduledController,
-    env: AppEnv,
-  ): Promise<void> {
+  async scheduled(controller: ScheduledController, env: AppEnv): Promise<void> {
+    try {
+      const resumed = await resumePendingRunDispatches(env);
+      if (resumed.length > 0) {
+        console.log(
+          JSON.stringify({
+            message: 'scheduled run dispatch recovery completed',
+            runs: resumed,
+          }),
+        );
+      }
+    } catch (error) {
+      console.error('scheduled run dispatch recovery failed', error);
+    }
+    if (controller.cron !== '0 6 * * *') {
+      return;
+    }
+
     const date = new Date().toISOString().slice(0, 10);
     const now = Date.now();
     const candidates = await getDb(env)
@@ -43,7 +58,7 @@ export default {
     );
     for (const ws of eligibleWorkspaces) {
       try {
-        const { runId, created } = await createRun(
+        const { runId, created, dispatchState } = await createRun(
           env,
           ws.id,
           'cron',
@@ -52,8 +67,8 @@ export default {
         );
         console.log(
           created
-            ? `cron: ws ${ws.id} run ${runId} started`
-            : `cron: ws ${ws.id} already ran for ${date}`,
+            ? `cron: ws ${ws.id} run ${runId} ${dispatchState}`
+            : `cron: ws ${ws.id} run ${runId} already exists (${dispatchState})`,
         );
       } catch (error) {
         // A workspace with no prompts (or a transient failure) must not

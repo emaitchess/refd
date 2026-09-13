@@ -1,8 +1,9 @@
 import { and, eq } from 'drizzle-orm';
-import { getDb } from '../db/client';
+import { type Db, getDb } from '../db/client';
 import {
   entities,
   prompts,
+  type RunDispatchState,
   runs,
   type SnapshotEntity,
   users,
@@ -10,9 +11,10 @@ import {
 } from '../db/schema';
 import type { AppEnv } from '../env';
 import { configForUser } from '../lib/user-config';
-import { DATASET_SURFACES, enabledSurfaces } from '../providers/types';
+import { enabledSurfaces } from '../providers/types';
 import type { ScorableEntity } from '../scoring';
-import type { IngestMessage, RunPrompt } from './messages';
+import { buildRunDispatchPlan, resumeRunDispatchWith } from './dispatch';
+import type { RunPrompt } from './messages';
 
 export const samplesFor = (env: AppEnv): number => {
   const parsed = Number.parseInt(env.SAMPLES, 10);
@@ -24,20 +26,10 @@ export const promptBatchSize = (env: AppEnv): number => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
 };
 
-export const chunk = <T>(items: T[], size: number): T[][] => {
-  const step = Math.max(1, size);
-  const batches: T[][] = [];
-  for (let i = 0; i < items.length; i += step) {
-    batches.push(items.slice(i, i + step));
-  }
-  return batches;
-};
-
-export const loadEntities = async (
-  env: AppEnv,
+export const loadEntitiesWith = async (
+  db: Db,
   workspaceId: number,
 ): Promise<ScorableEntity[]> => {
-  const db = getDb(env);
   const rows = await db
     .select()
     .from(entities)
@@ -51,6 +43,11 @@ export const loadEntities = async (
     isBrand: row.isBrand,
   }));
 };
+
+export const loadEntities = async (
+  env: AppEnv,
+  workspaceId: number,
+): Promise<ScorableEntity[]> => loadEntitiesWith(getDb(env), workspaceId);
 
 // The frozen set a run scores against; live entities only as a fallback for
 // runs created before snapshots existed.
@@ -95,11 +92,14 @@ export interface CreatedRun {
   runId: number;
   created: boolean;
   totalCount: number;
+  dispatchState: RunDispatchState;
+  dispatchAttempts: number;
 }
 
 // Idempotent by key ("cron:YYYY-MM-DD" | "manual:<uuid>"): a duplicate cron
 // fire or double-submitted trigger becomes a no-op instead of a second run.
-export const createRun = async (
+export const createRunWith = async (
+  db: Db,
   env: AppEnv,
   workspaceId: number,
   trigger: 'cron' | 'manual' | 'onboard',
@@ -109,7 +109,33 @@ export const createRun = async (
   // opts.samples overrides the default sample count (preliminary uses 1).
   opts: { promptIds?: number[]; samples?: number } = {},
 ): Promise<CreatedRun> => {
-  const db = getDb(env);
+  const previous = (
+    await db
+      .select({
+        id: runs.id,
+        workspaceId: runs.workspaceId,
+        totalCount: runs.totalCount,
+      })
+      .from(runs)
+      .where(eq(runs.key, key))
+  )[0];
+  if (previous) {
+    if (previous.workspaceId !== workspaceId) {
+      throw new Error(`run key belongs to another workspace: ${key}`);
+    }
+    const dispatch = await resumeRunDispatchWith(db, env.INGEST, previous.id);
+    if (!dispatch) {
+      throw new Error(`run disappeared while resuming dispatch: ${key}`);
+    }
+    return {
+      runId: previous.id,
+      created: false,
+      totalCount: previous.totalCount,
+      dispatchState: dispatch.state,
+      dispatchAttempts: dispatch.attempts,
+    };
+  }
+
   const ws = (
     await db
       .select({
@@ -149,15 +175,19 @@ export const createRun = async (
     ws.surfaces,
     config.limits.maxEnabledSurfacesPerWorkspace,
   );
-  const datasetSurfaces = DATASET_SURFACES.filter((s) => surfaces.includes(s));
-  const aioEnabled = surfaces.includes('google_aio');
-
   const samples = opts.samples ?? samplesFor(env);
-  const totalCount = activePrompts.length * surfaces.length * samples;
+  const dispatchPlan = buildRunDispatchPlan({
+    prompts: activePrompts,
+    surfaces,
+    samples,
+    promptBatchSize: promptBatchSize(env),
+  });
+  const totalCount =
+    activePrompts.length * surfaces.length * dispatchPlan.samples;
 
   // Freeze the entity set alongside the prompt set: every result in this run
   // scores against the same entities regardless of mid-run edits.
-  const entitySnapshot = await loadEntities(env, workspaceId);
+  const entitySnapshot = await loadEntitiesWith(db, workspaceId);
 
   const inserted = await db
     .insert(runs)
@@ -169,54 +199,60 @@ export const createRun = async (
       totalCount,
       entitySnapshot,
       entitySetHash: entitySetHash(entitySnapshot),
+      dispatchPlan,
+      dispatchState: 'pending',
     })
     .onConflictDoNothing({ target: runs.key })
     .returning({ id: runs.id });
 
   const insertedId = inserted[0]?.id;
   if (insertedId === undefined) {
-    const existing = await db.select().from(runs).where(eq(runs.key, key));
+    const existing = await db
+      .select({
+        id: runs.id,
+        workspaceId: runs.workspaceId,
+        totalCount: runs.totalCount,
+      })
+      .from(runs)
+      .where(eq(runs.key, key));
     const run = existing[0];
     if (!run) {
       throw new Error(`run insert conflicted but key not found: ${key}`);
     }
-    return { runId: run.id, created: false, totalCount: run.totalCount };
+    if (run.workspaceId !== workspaceId) {
+      throw new Error(`run key belongs to another workspace: ${key}`);
+    }
+    const dispatch = await resumeRunDispatchWith(db, env.INGEST, run.id);
+    if (!dispatch) {
+      throw new Error(`run disappeared while resuming dispatch: ${key}`);
+    }
+    return {
+      runId: run.id,
+      created: false,
+      totalCount: run.totalCount,
+      dispatchState: dispatch.state,
+      dispatchAttempts: dispatch.attempts,
+    };
   }
 
-  const promptBatches = chunk(activePrompts, promptBatchSize(env));
-  const messages: IngestMessage[] = [];
-  for (let sample = 1; sample <= samples; sample += 1) {
-    for (const surface of datasetSurfaces) {
-      promptBatches.forEach((batch, chunkIndex) => {
-        messages.push({
-          kind: 'brightdata_trigger',
-          runId: insertedId,
-          workspaceId,
-          surface,
-          sample,
-          chunk: chunkIndex,
-          prompts: batch,
-        });
-      });
-    }
-    if (aioEnabled) {
-      for (const prompt of activePrompts) {
-        messages.push({
-          kind: 'serp_aio_fetch',
-          runId: insertedId,
-          workspaceId,
-          prompt,
-          sample,
-        });
-      }
-    }
+  const dispatch = await resumeRunDispatchWith(db, env.INGEST, insertedId);
+  if (!dispatch) {
+    throw new Error(`new run disappeared while dispatching: ${key}`);
   }
-  // Queues sendBatch caps at 100 messages per call.
-  for (let i = 0; i < messages.length; i += 100) {
-    await env.INGEST.sendBatch(
-      messages.slice(i, i + 100).map((body) => ({ body })),
-    );
-  }
-
-  return { runId: insertedId, created: true, totalCount };
+  return {
+    runId: insertedId,
+    created: true,
+    totalCount,
+    dispatchState: dispatch.state,
+    dispatchAttempts: dispatch.attempts,
+  };
 };
+
+export const createRun = (
+  env: AppEnv,
+  workspaceId: number,
+  trigger: 'cron' | 'manual' | 'onboard',
+  key: string,
+  date: string,
+  opts: { promptIds?: number[]; samples?: number } = {},
+) => createRunWith(getDb(env), env, workspaceId, trigger, key, date, opts);

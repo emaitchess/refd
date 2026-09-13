@@ -29,6 +29,12 @@
     "PROMPT_BATCH_SIZE": "5",
     // refd.ai checks workspace entitlements. Self-hosters should use "all".
     "SCHEDULED_MONITORING_POLICY": "entitled",
+    // Setup spend circuit breakers (dashboard + MCP share them).
+    "SETUP_GENERATION_DAILY_LIMIT": "500",
+    "SETUP_REPORT_DAILY_LIMIT": "100",
+    // data:write OAuth scope + MCP setup tools stay disabled until the
+    // bounded production test flips this to "true".
+    "MCP_SETUP_TOOLS_ENABLED": "false",
     // The API Worker's own public origin: the base for BrightData notify
     // callbacks (with BRIGHTDATA_WEBHOOK_SECRET) and the canonical MCP resource
     // URL (<PUBLIC_BASE_URL>/mcp) and OAuth discovery.
@@ -49,8 +55,9 @@
     "BRIGHTDATA_SERP_ZONE": "refd_serp"
   },
   "triggers": {
-    // Daily snapshot run, 06:00 UTC.
-    "crons": ["0 6 * * *"]
+    // Daily snapshot run at 06:00 UTC; five-minute dispatch recovery never
+    // creates a new run.
+    "crons": ["0 6 * * *", "*/5 * * * *"]
   },
   "durable_objects": {
     // One instance per chat (idFromName(chatId)): owns the running exchange,

@@ -19,6 +19,7 @@ import { entityRoutes } from './routes/entities';
 import { faviconRoutes } from './routes/favicon';
 import { imageRoutes } from './routes/image';
 import { onboardingRoutes } from './routes/onboarding';
+import { operatorRoutes } from './routes/operator';
 import { overviewRoutes } from './routes/overview';
 import { promptRoutes } from './routes/prompts';
 import { runRoutes } from './routes/runs';
@@ -57,6 +58,7 @@ const authed = new Hono<AuthedBindings>();
 authed.use(requireAuth);
 authed.route('/config', configRoutes);
 authed.route('/workspaces', workspaceRoutes);
+authed.route('/operator', operatorRoutes);
 // Favicon proxy: session-gated, workspace-agnostic (used across onboarding and
 // the dashboard), so it hangs off /favicon rather than a workspace scope.
 authed.route('/favicon', faviconRoutes);

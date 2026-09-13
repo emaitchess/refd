@@ -167,10 +167,14 @@ export const McpGuide = () => (
         Connect refd to an AI assistant
       </h2>
       <p className="mt-2 max-w-3xl text-[13px] text-secondary leading-relaxed">
-        refd exposes a read-only Model Context Protocol server. A connected AI
-        assistant can inspect your visibility data and answer evidence without
-        changing the workspace, starting provider runs, or spending provider
-        quota.
+        refd exposes a Model Context Protocol server. A connected AI assistant
+        can inspect your visibility data and answer evidence with the{' '}
+        <code className="font-mono text-[11px] text-primary">data:read</code>{' '}
+        scope. With the optional{' '}
+        <code className="font-mono text-[11px] text-primary">data:write</code>{' '}
+        scope it can also set up a workspace with you and start its one
+        provider-backed onboarding report; every other provider run stays
+        operator-only.
       </p>
       <div className="mt-4 border border-border bg-bg">
         <div className="section-label border-border border-b px-3 py-2 text-muted">
@@ -312,12 +316,12 @@ claude mcp login refd`}</CodeBlock>
               text: 'You select exactly one workspace during authorization. The grant cannot read any other workspace, even if the client supplies another workspace ID.',
             },
             {
-              label: 'read only',
-              text: 'The data:read permission covers every published tool. It cannot edit prompts, entities, workspace settings, or account data.',
+              label: 'scoped access',
+              text: 'data:read covers every analytics tool and cannot edit data. The optional data:write scope adds setup only: configure the draft, preview it, and confirm it once.',
             },
             {
-              label: 'no provider spend',
-              text: 'The connector cannot start scheduled, manual, onboarding, or rescore runs. It only reads data that refd has already collected.',
+              label: 'bounded spend',
+              text: 'The only provider spend a connector can trigger is the single free onboarding report that confirm_setup starts. Scheduled, manual, and rescore runs stay operator-only.',
             },
             {
               label: 'OAuth protected',
@@ -357,7 +361,7 @@ claude mcp login refd`}</CodeBlock>
       <GuideSection
         id="mcp-tools"
         title="Available tools"
-        description="All tools are read-only and resolve their workspace from the authorized grant."
+        description="Analytics tools are read-only; setup tools require data:write. Every tool resolves its workspace from the authorized grant."
       >
         <div className="overflow-x-auto">
           <table className="w-full min-w-[680px] border-collapse text-left">
@@ -416,9 +420,10 @@ claude mcp login refd`}</CodeBlock>
             instructions.
           </p>
           <p className="mt-2 text-[12px] text-muted leading-relaxed">
-            refd does not expose web search, arbitrary raw-payload access,
-            onboarding, chat, authentication, account controls, operator tools,
-            or any create, update, and delete actions through MCP.
+            refd does not expose web search, arbitrary raw-payload access, chat,
+            authentication, account controls, operator tools, or workspace
+            deletion through MCP. Setup writes stop at the confirmed snapshot;
+            post-onboarding changes belong to the dashboard.
           </p>
         </div>
       </GuideSection>

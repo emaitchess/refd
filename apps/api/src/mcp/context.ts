@@ -3,8 +3,10 @@ import { and, desc, eq, isNull, lt, or } from 'drizzle-orm';
 import { getDb } from '../db/client';
 import { apiTokens, mcpConnections, users, workspaces } from '../db/schema';
 import type { AppEnv } from '../env';
-import { connectionPropsSchema } from '../oauth/connection-props';
-import { MCP_SCOPE } from '../oauth/constants';
+import {
+  type ConnectionProps,
+  connectionPropsSchema,
+} from '../oauth/connection-props';
 
 const LAST_USED_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -12,6 +14,7 @@ export interface McpPrincipal {
   clientId: string;
   clientName: string;
   connectionRowId: number;
+  scopes: string[];
   userEmail: string;
   userId: number;
   workspaceId: number;
@@ -20,13 +23,19 @@ export interface McpPrincipal {
 
 export class McpAccessError extends Error {}
 
-export const parseMcpTokenProps = (value: unknown) => {
+export const parseMcpTokenProps = (value: unknown): ConnectionProps | null => {
   const props = connectionPropsSchema.safeParse(value);
-  if (!props.success || props.data.scopes[0] !== MCP_SCOPE) {
+  if (
+    !props.success ||
+    new Set(props.data.scopes).size !== props.data.scopes.length
+  ) {
     return null;
   }
   return props.data;
 };
+
+const tokenScopesCoveredBy = (tokenScopes: string[], granted: string[]) =>
+  tokenScopes.every((scope) => granted.includes(scope));
 
 const touchConnection = async (
   env: AppEnv,
@@ -70,7 +79,12 @@ const touchToken = async (
 const resolvePatPrincipal = async (
   env: AppEnv,
   executionContext: ExecutionContext,
-  props: { connectionId: string; userId: number; workspaceId: number },
+  props: {
+    connectionId: string;
+    scopes: string[];
+    userId: number;
+    workspaceId: number;
+  },
 ): Promise<McpPrincipal> => {
   const row = (
     await getDb(env)
@@ -118,6 +132,7 @@ const resolvePatPrincipal = async (
     clientId: row.clientId,
     clientName: row.clientName,
     connectionRowId: row.tokenRowId,
+    scopes: props.scopes,
     userEmail: row.userEmail,
     userId: row.userId,
     workspaceId: row.workspaceId,
@@ -142,6 +157,7 @@ export const resolveMcpPrincipal = async (
         clientName: mcpConnections.clientName,
         clientId: mcpConnections.clientId,
         connectionRowId: mcpConnections.id,
+        connectionScopes: mcpConnections.scopes,
         lastUsedAt: mcpConnections.lastUsedAt,
         userEmail: users.email,
         userId: users.id,
@@ -171,6 +187,11 @@ export const resolveMcpPrincipal = async (
   if (!row) {
     throw new McpAccessError('connection is unavailable');
   }
+  // Effective token scopes must be a subset of the live connection's scopes:
+  // a narrowed token can never outrun what the mirrored grant holds.
+  if (!tokenScopesCoveredBy(props.scopes, row.connectionScopes)) {
+    throw new McpAccessError('token scopes exceed the connection grant');
+  }
   const staleBefore = Date.now() - LAST_USED_INTERVAL_MS;
   if (row.lastUsedAt === null || row.lastUsedAt < staleBefore) {
     executionContext.waitUntil(
@@ -189,6 +210,7 @@ export const resolveMcpPrincipal = async (
     clientId: row.clientId,
     clientName: row.clientName,
     connectionRowId: row.connectionRowId,
+    scopes: props.scopes,
     userEmail: row.userEmail,
     userId: row.userId,
     workspaceId: row.workspaceId,
