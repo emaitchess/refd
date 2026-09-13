@@ -457,10 +457,18 @@ const authorize = async (
     const ownedWorkspaces = await db
       .select({ id: workspaces.id, name: workspaces.name })
       .from(workspaces)
-      .where(eq(workspaces.ownerUserId, user.id))
+      .where(
+        and(
+          eq(workspaces.ownerUserId, user.id),
+          eq(workspaces.onboardingCompleted, true),
+        ),
+      )
       .orderBy(workspaces.id);
     if (ownedWorkspaces.length === 0 && !scope?.includes(MCP_WRITE_SCOPE)) {
-      return errorPage(409, 'Create a workspace before connecting this app.');
+      return errorPage(
+        409,
+        'Finish setting up a workspace before connecting this app.',
+      );
     }
     return renderConsent(
       request,
@@ -535,13 +543,19 @@ const authorize = async (
     const id = Number(parsed.data.workspaceId);
     const workspace = (
       await db
-        .select({ id: workspaces.id })
+        .select({
+          id: workspaces.id,
+          onboarded: workspaces.onboardingCompleted,
+        })
         .from(workspaces)
         .where(and(eq(workspaces.id, id), eq(workspaces.ownerUserId, user.id)))
         .limit(1)
     )[0];
     if (!workspace) {
       return errorPage(404, 'Workspace not found.');
+    }
+    if (!workspace.onboarded) {
+      return errorPage(409, 'That workspace has not finished setup.');
     }
     workspaceId = workspace.id;
   }

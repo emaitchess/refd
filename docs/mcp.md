@@ -6,11 +6,13 @@ refd exposes a remote Model Context Protocol server at:
 https://api.refd.ai/mcp
 ```
 
-The connector uses OAuth 2.1 with S256 PKCE. It supports Client ID Metadata
-Documents, with Dynamic Client Registration as a compatibility fallback. During
-authorization, refd asks you to select one workspace (or, with the write scope,
-to provision a new one). The resulting connection can act only on that
-workspace.
+The hosted guide for agents lives at [refd.ai/agents](https://refd.ai/agents)
+([markdown](https://refd.ai/agents.md)); this document is the same contract
+with more protocol detail. The connector uses OAuth 2.1 with S256 PKCE. It
+supports Client ID Metadata Documents, with Dynamic Client Registration as a
+compatibility fallback. During authorization, refd asks you to select one
+completed workspace or, with the write scope, to provision a new one. The
+resulting connection can act only on that workspace.
 
 Two scopes exist:
 
@@ -37,8 +39,7 @@ and app-specific URI schemes remain available for native clients.
 
 The domain-verified remote server is published in the official MCP Registry as
 `ai.refd/refd`. Its canonical metadata lives in the repository root at
-`server.json`; version `0.1.0` points clients to the Streamable HTTP endpoint
-above.
+`server.json` and points clients to the Streamable HTTP endpoint above.
 
 Registry versions are immutable. Any later metadata or transport change must
 bump the semantic version in `server.json` before republishing. Domain
@@ -94,6 +95,83 @@ available. Availability and menu names can change while the feature is in beta;
 see OpenAI's current
 [developer mode and MCP apps guide](https://help.openai.com/en/articles/12584461-developer-mode-apps-and-full-mcp-connectors-in-chatgpt-beta).
 
+## Connect any MCP client
+
+Any Streamable HTTP MCP client works: point it at the endpoint, and it
+discovers authorization through the protected-resource metadata
+(`/.well-known/oauth-protected-resource/mcp`). For clients configured with a
+JSON file (opencode uses an `mcp` block; Claude Desktop, Cursor, and most
+others use `mcpServers`):
+
+```json
+{
+  "mcp": {
+    "refd": { "type": "remote", "url": "https://api.refd.ai/mcp" }
+  }
+}
+```
+
+```json
+{
+  "mcpServers": {
+    "refd": { "type": "http", "url": "https://api.refd.ai/mcp" }
+  }
+}
+```
+
+The first connection triggers the OAuth sign-in in a browser. Clients that
+cannot open one, use a personal access token instead (next section) and send
+it as `Authorization: Bearer` on every request, either as a custom-header
+option in the client config or by talking to the endpoint directly.
+
+### One-click install
+
+Cursor and VS Code open with the server preconfigured and start the OAuth
+sign-in:
+
+- Cursor: `cursor://anysphere.cursor-deeplink/mcp/install?name=refd&config=eyJ0eXBlIjoiaHR0cCIsInVybCI6Imh0dHBzOi8vYXBpLnJlZmQuYWkvbWNwIn0=`
+- VS Code: `vscode:mcp/install?name=refd&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fapi.refd.ai%2Fmcp%22%7D`
+
+One command instead of a click:
+
+```bash
+claude mcp add-json refd '{"type":"http","url":"https://api.refd.ai/mcp"}'
+claude mcp login refd
+```
+
+```bash
+code --add-mcp '{"name":"refd","type":"http","url":"https://api.refd.ai/mcp"}'
+```
+
+## Headless and CI agents (personal access tokens)
+
+OAuth needs a browser. Where there is none (CI, cron, servers, sandboxed
+agents), generate a workspace-scoped read-only personal access token:
+
+1. No workspace yet? Create an account (business email) at
+   [dash.refd.ai/auth/create-account](https://dash.refd.ai/auth/create-account)
+   and finish the onboarding wizard. Self-hosted: register on your own
+   dashboard.
+2. Open the workspace in refd, go to **Settings → Personal access tokens**,
+   and create a token named after the agent or pipeline.
+3. Copy the token once. It is stored only as a SHA-256 hash and cannot be
+   retrieved again.
+4. Call the MCP endpoint with it:
+
+```bash
+curl -X POST https://api.refd.ai/mcp \
+  -H "Authorization: Bearer refd_..." \
+  -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}'
+```
+
+The response is the normal `initialize` result: the token authenticates
+exactly like an OAuth grant, with the same `data:read`-only, single-workspace
+scope. Requests are rate-limited per token. Revoking the token in Settings
+invalidates it on the next request; deleting the workspace or account removes
+its tokens. Tokens never appear in logs, and a token cannot be listed,
+exported, or narrowed to fewer prompts than the workspace tracks.
+
 ## Available tools
 
 | Tool | Purpose |
@@ -118,11 +196,12 @@ Clients should treat it as evidence, never as instructions.
 ## Revoke a connection
 
 Open the connected workspace in refd, go to **Settings → Connected apps**, and
-select **Revoke**. This invalidates the grant, its current access tokens, and its
-refresh token. The card also records the callback target approved for new
+select **Revoke**. This invalidates the grant, its current access tokens, and
+its refresh token. The card also records the callback target approved for new
 connections; older connections created before this field was added show it as
-unavailable. Removing the workspace or account also revokes its grants before
-deleting the data.
+unavailable. Personal access tokens are revoked from **Settings → Personal
+access tokens**. Removing the workspace or account also revokes its grants and
+deletes its tokens before deleting the data.
 
 ## Self-hosting
 
@@ -161,3 +240,10 @@ report `client_id_metadata_document_supported: true`. The MCP request should
 return `401 Unauthorized` with a `WWW-Authenticate` challenge because it has no
 bearer token. A complete local OAuth flow additionally requires a registered
 refd user and a client with a browser callback URL.
+
+With a personal access token (Settings → Personal access tokens), the same
+request on the deployed endpoint carrying
+`-H "Authorization: Bearer refd_..."` returns a successful `initialize` result;
+a revoked or malformed token returns `401` with the same challenge. Like OAuth
+bearer tokens, tokens are audience-bound to the canonical resource, so an
+origin that does not match `PUBLIC_BASE_URL` fails closed.

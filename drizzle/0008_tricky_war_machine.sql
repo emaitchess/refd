@@ -36,6 +36,17 @@ CREATE TABLE `setup_usage` (
 CREATE UNIQUE INDEX `setup_usage_idempotency_unique` ON `setup_usage` (`user_id`,`idempotency_key`);--> statement-breakpoint
 CREATE UNIQUE INDEX `setup_usage_report_unique` ON `setup_usage` (`workspace_id`) WHERE kind = 'report' and status in ('claimed', 'succeeded');--> statement-breakpoint
 CREATE INDEX `setup_usage_user_idx` ON `setup_usage` (`user_id`,`kind`,`created_at`);--> statement-breakpoint
+ALTER TABLE `runs` ADD `dispatch_plan` text;--> statement-breakpoint
+ALTER TABLE `runs` ADD `dispatch_state` text DEFAULT 'legacy' NOT NULL;--> statement-breakpoint
+ALTER TABLE `runs` ADD `dispatch_cursor` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE `runs` ADD `dispatch_attempts` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE `runs` ADD `dispatch_last_error` text;--> statement-breakpoint
+ALTER TABLE `runs` ADD `dispatch_next_attempt_at` integer;--> statement-breakpoint
+ALTER TABLE `runs` ADD `dispatch_started_at` integer;--> statement-breakpoint
+ALTER TABLE `runs` ADD `dispatch_finished_at` integer;--> statement-breakpoint
+ALTER TABLE `runs` ADD `dispatch_lease_id` text;--> statement-breakpoint
+ALTER TABLE `runs` ADD `dispatch_lease_until` integer;--> statement-breakpoint
+CREATE INDEX `runs_dispatch_idx` ON `runs` (`dispatch_state`,`dispatch_next_attempt_at`,`dispatch_lease_until`);--> statement-breakpoint
 ALTER TABLE `workspaces` ADD `onboarding_draft_version` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE `workspaces` ADD `provisioning_key` text;--> statement-breakpoint
 CREATE UNIQUE INDEX `workspaces_provisioning_key_unique` ON `workspaces` (`provisioning_key`) WHERE provisioning_key is not null;

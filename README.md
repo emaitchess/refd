@@ -7,9 +7,13 @@ Open-source AI search monitoring — track how AI answers talk about any brand: 
 A Bun-workspace monorepo of three independently deployed Cloudflare Workers: **`apps/api`** (`api.refd.ai`) — the Hono API, OAuth, remote MCP, daily cron, and queue consumer, holding every binding; **`apps/dashboard`** (`dash.refd.ai`) — the React SPA as an assets-only Worker; **`apps/web`** (`refd.ai`) — the static Astro public site. Shared runtime-neutral code lives in **`packages/core`**. Data via BrightData (dataset scrapers + SERP API), stored in D1 (Drizzle) with gzipped raw payloads in R2.
 
 refd also exposes the same workspace intelligence to AI agents through a
-read-only, OAuth-protected remote MCP connector. See the
-[MCP connector guide](docs/mcp.md) for Claude, Claude Code, ChatGPT, and
-self-hosting setup.
+read-only remote MCP connector. The hosted guide lives at
+[refd.ai/agents](https://refd.ai/agents); the
+[MCP connector guide](docs/mcp.md) covers Claude, Claude Code, ChatGPT,
+generic clients, personal access tokens for headless agents, and self-hosting
+setup.
+
+One click from the guide installs it in [Cursor](cursor://anysphere.cursor-deeplink/mcp/install?name=refd&config=eyJ0eXBlIjoiaHR0cCIsInVybCI6Imh0dHBzOi8vYXBpLnJlZmQuYWkvbWNwIn0=) or [VS Code](vscode:mcp/install?name=refd&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fapi.refd.ai%2Fmcp%22%7D) — or `claude mcp add-json refd '{"type":"http","url":"https://api.refd.ai/mcp"}'`. Headless agents use a personal access token from **Settings → Personal access tokens** instead of OAuth.
 
 ## How it works
 

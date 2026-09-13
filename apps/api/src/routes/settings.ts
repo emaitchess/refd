@@ -8,9 +8,16 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { WorkspaceBindings } from '../auth/middleware';
 import { getDb } from '../db/client';
-import { mcpConnections, workspaces } from '../db/schema';
+import { apiTokens, mcpConnections, workspaces } from '../db/schema';
 import { parseBody, parseId } from '../lib/http';
+import { singleLineText } from '../lib/sanitize';
 import { configForUser } from '../lib/user-config';
+import { MCP_SCOPE } from '../oauth/constants';
+import {
+  generatePersonalAccessToken,
+  hashPersonalAccessToken,
+  MAX_ACTIVE_TOKENS_PER_WORKSPACE,
+} from '../oauth/pat';
 import { enabledSurfaces, SURFACES } from '../providers/types';
 
 // `listUserGrants` reads OAUTH_KV via an eventually-consistent list, so a
@@ -172,6 +179,128 @@ settingsRoutes.delete('/connections/:id', async (c) => {
       connectionId: connection.id,
       userId,
       workspaceId,
+    }),
+  );
+  return c.json({ ok: true });
+});
+
+// Personal access tokens: workspace-scoped read-only bearer tokens for
+// headless agents and CI. Same scope and mirror-row checks as an OAuth grant;
+// only the SHA-256 hash is stored.
+settingsRoutes.get('/tokens', async (c) => {
+  const db = getDb(c.env);
+  const rows = await db
+    .select({
+      id: apiTokens.id,
+      name: apiTokens.name,
+      tokenPrefix: apiTokens.tokenPrefix,
+      createdAt: apiTokens.createdAt,
+      lastUsedAt: apiTokens.lastUsedAt,
+    })
+    .from(apiTokens)
+    .where(
+      and(
+        eq(apiTokens.workspaceId, c.get('workspace').id),
+        eq(apiTokens.userId, c.get('user').id),
+        isNull(apiTokens.revokedAt),
+      ),
+    )
+    .orderBy(desc(apiTokens.createdAt));
+  return c.json({ tokens: rows });
+});
+
+const createTokenSchema = z.object({ name: singleLineText(1, 60) });
+
+settingsRoutes.post('/tokens', async (c) => {
+  const data = await parseBody(c, createTokenSchema);
+  const workspaceId = c.get('workspace').id;
+  const userId = c.get('user').id;
+  const generated = generatePersonalAccessToken();
+  const tokenHash = await hashPersonalAccessToken(generated.token);
+  // Count guard and insert in one statement so concurrent creates cannot both
+  // pass a stale preflight count.
+  const row = await c.env.DB.prepare(
+    `insert into api_tokens
+       (token_hash, token_prefix, connection_key, name, workspace_id, user_id, scopes)
+     select ?, ?, ?, ?, ?, ?, ?
+     where (
+       select count(*) from api_tokens
+       where workspace_id = ? and user_id = ? and revoked_at is null
+     ) < ?
+     returning id, token_prefix, created_at`,
+  )
+    .bind(
+      tokenHash,
+      generated.tokenPrefix,
+      generated.connectionKey,
+      data.name,
+      workspaceId,
+      userId,
+      JSON.stringify([MCP_SCOPE]),
+      workspaceId,
+      userId,
+      MAX_ACTIVE_TOKENS_PER_WORKSPACE,
+    )
+    .first<{ id: number; token_prefix: string; created_at: number }>();
+  if (row === null) {
+    return c.json(
+      {
+        error: `up to ${MAX_ACTIVE_TOKENS_PER_WORKSPACE} active tokens per workspace`,
+      },
+      409,
+    );
+  }
+  console.log(
+    JSON.stringify({
+      event: 'pat_created',
+      tokenId: row.id,
+      userId,
+      workspaceId,
+    }),
+  );
+  return c.json(
+    {
+      // The only time the raw token ever leaves the server.
+      token: generated.token,
+      record: {
+        id: row.id,
+        name: data.name,
+        tokenPrefix: row.token_prefix,
+        createdAt: row.created_at,
+        lastUsedAt: null,
+      },
+    },
+    201,
+  );
+});
+
+settingsRoutes.delete('/tokens/:id', async (c) => {
+  const id = parseId(c.req.param('id'));
+  if (id === null) {
+    return c.json({ error: 'invalid token' }, 400);
+  }
+  const db = getDb(c.env);
+  const updated = await db
+    .update(apiTokens)
+    .set({ revokedAt: Date.now() })
+    .where(
+      and(
+        eq(apiTokens.id, id),
+        eq(apiTokens.workspaceId, c.get('workspace').id),
+        eq(apiTokens.userId, c.get('user').id),
+        isNull(apiTokens.revokedAt),
+      ),
+    )
+    .returning({ id: apiTokens.id });
+  if (!updated[0]) {
+    return c.json({ error: 'token not found' }, 404);
+  }
+  console.log(
+    JSON.stringify({
+      event: 'pat_revoked',
+      tokenId: updated[0].id,
+      userId: c.get('user').id,
+      workspaceId: c.get('workspace').id,
     }),
   );
   return c.json({ ok: true });

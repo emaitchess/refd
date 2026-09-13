@@ -18,6 +18,7 @@ import {
   OAUTH_PROTOCOL_OPTIONS,
   oauthResourceUrl,
 } from './constants';
+import { PAT_PREFIX, resolvePersonalAccessToken } from './pat';
 import { limitMcpRequest, limitOAuthRequest } from './rate-limit';
 import { hasSecureRegistrationRedirects } from './security';
 
@@ -70,7 +71,13 @@ const persistConnection = async (
         scopes: exchange.scope,
       }),
     );
-  } catch {
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: 'mcp_connection_persist_failed',
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
     throw new OAuthError('temporarily_unavailable', {
       description: 'The connection could not be recorded. Try again.',
       statusCode: 503,
@@ -165,6 +172,26 @@ export const createOAuthOptions = (
       scopes_supported: advertisedScopes(env),
       bearer_methods_supported: ['header'],
       resource_name: 'refd AI visibility data',
+    },
+    // Bearer credentials that are not provider-issued OAuth tokens: a
+    // workspace-scoped personal access token (`refd_...`). Anything else
+    // falls through as null, which the provider answers with the same
+    // generic 401 it gave before the callback existed.
+    resolveExternalToken: async ({ token, request, env: callbackEnv }) => {
+      if (!token.startsWith(PAT_PREFIX)) {
+        return null;
+      }
+      const props = await resolvePersonalAccessToken(callbackEnv, token);
+      if (!props) {
+        console.log(
+          JSON.stringify({ event: 'mcp_pat_rejected', path: '/mcp' }),
+        );
+        return null;
+      }
+      return {
+        audience: oauthResourceUrl(request.url, callbackEnv.PUBLIC_BASE_URL),
+        props,
+      };
     },
     tokenExchangeCallback: (exchange) => persistConnection(env, exchange),
   };

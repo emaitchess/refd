@@ -19,8 +19,10 @@ const serveAgentManifest = async (env: Env): Promise<Response> => {
 };
 
 // The website Worker fronts the static Astro build (ASSETS). Its dynamic jobs:
-// homepage Markdown negotiation, and pinning the JSON content-type on the
-// extensionless agent manifest. Everything else serves straight from assets.
+// homepage Markdown negotiation, pinning the JSON content-type on the
+// extensionless agent manifest, and catching agents that guess `refd.ai/mcp`
+// as the connector endpoint (the real endpoint lives on api.refd.ai) by
+// sending them to the setup guide. Everything else serves straight from assets.
 export default {
   fetch: async (
     request: Request,
@@ -29,6 +31,9 @@ export default {
   ): Promise<Response> => {
     if (new URL(request.url).pathname === AGENT_MANIFEST_PATH) {
       return serveAgentManifest(env);
+    }
+    if (new URL(request.url).pathname === '/mcp') {
+      return Response.redirect(new URL('/agents', request.url), 308);
     }
     return (
       (await handleHomepage(request, (assetRequest) =>
