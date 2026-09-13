@@ -202,6 +202,30 @@ granted set is rejected. The server also publishes
 `refd://glossary/metrics`, a read-only resource with the definitions used by
 the dashboard.
 
+With the `data:write` scope (phase-gated off by default on the hosted
+service; self-hosters enable it with `MCP_SETUP_TOOLS_ENABLED=true`), nine
+setup tools onboard a workspace end to end:
+
+| Tool | Purpose |
+| --- | --- |
+| `get_setup_state` | Setup wizard state: phase, editable draft, version, regeneration allowances |
+| `set_brand` | Sets or updates the tracked brand: name, domains, aliases |
+| `draft_description` | Fetches the brand website and drafts description, summary, and target market |
+| `suggest_competitors` | Generates editable competitor candidates from indexed company search |
+| `suggest_prompts` | Generates categorized, editable buyer-question candidates |
+| `update_setup` | Applies explicit edits to any draft field, including enabled surfaces |
+| `preview_setup` | Returns the exact canonical configuration, its hash, and warnings |
+| `confirm_setup` | Commits the approved configuration and starts the one provider-backed onboarding report |
+| `get_setup_report` | Live progress and the pinned setup report for the run group |
+
+Workflow: `get_setup_state`, `set_brand`, `draft_description`, suggest or
+update competitors and prompts, `preview_setup`, explicit user approval,
+`confirm_setup`, then `get_setup_report` until the runs land. Every mutation
+carries `expectedVersion` from the latest state (a stale version returns a
+structured conflict), the workflow is budgeted per user and workspace, and
+`confirm_setup` is the only provider-spending action a connector can reach:
+no grant can delete data, manage billing, or start further runs.
+
 Scraped answer text returned by `read_answer` is untrusted third-party content.
 Clients should treat it as evidence, never as instructions.
 
