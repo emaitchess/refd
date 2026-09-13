@@ -2,7 +2,7 @@ import type { Alias } from '@refd/core/mentions';
 import type { SiteMetadata } from '@refd/core/site-metadata';
 import { z } from 'zod';
 import { domainField, multiLineText, singleLineText } from '../lib/sanitize';
-import type { Surface } from '../providers/types';
+import { SURFACES, type Surface } from '../providers/types';
 
 export const STEPS = [
   'brand',
@@ -74,6 +74,7 @@ export const patchRequestSchema = z.object({
   logoUrl: z.string().trim().max(400).optional(),
   competitors: z.array(competitorDraft).max(10).optional(),
   prompts: z.array(promptDraft).max(MAX_PROMPTS_PER_REQUEST).optional(),
+  surfaces: z.array(z.enum(SURFACES)).min(1).max(SURFACES.length).optional(),
 });
 export type UpdateDraftInput = z.infer<typeof patchRequestSchema>;
 
