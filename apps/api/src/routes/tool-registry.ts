@@ -172,7 +172,7 @@ export const fetchUrlArgs = z.object({
     .string()
     .max(2048)
     .describe(
-      'A URL exactly as returned by get_citations. It must already be in this workspace citations; anything else is refused.',
+      "A URL exactly as returned by get_citations, or any page on the brand's own tracked domains. Anything else is refused.",
     ),
 });
 
@@ -180,10 +180,11 @@ export const AGENT_TOOLS: AgentTool[] = [
   {
     name: 'list_prompts',
     description:
-      'Every tracked prompt with its exact wording, active and retired. ' +
+      'Every tracked prompt with its id and exact wording, active and retired. ' +
       'Use when the user names a prompt you cannot match from the workspace ' +
-      'data, or to check wording before calling get_prompt_results. ' +
-      'Returns no results and no metrics.',
+      'data, or to check wording before calling get_prompt_results. The ids ' +
+      'feed the promptIds filters of query_results, aggregate, and ' +
+      'get_citations. Returns no results and no metrics.',
     args: z.object({}),
     cost: 1,
   },
@@ -213,10 +214,10 @@ export const AGENT_TOOLS: AgentTool[] = [
     name: 'query_results',
     description:
       'Filter stored answers in one call: one row per answer with resultId, ' +
-      'prompt, surface, run date, and the entity flags (mentioned, position, ' +
-      'sentiment, cited). The flags always describe one entity: the workspace ' +
-      'brand unless `entity` names a competitor. Use for questions spanning ' +
-      'several prompts, surfaces, or dates; it replaces repeated ' +
+      'promptId, prompt, surface, run date, and the entity flags (mentioned, ' +
+      'position, sentiment, cited). The flags always describe one entity: the ' +
+      'workspace brand unless `entity` names a competitor. Use for questions ' +
+      'spanning several prompts, surfaces, or dates; it replaces repeated ' +
       'get_prompt_results calls. Returns metadata rows, never the answer text.',
     args: queryResultsArgs,
     cost: 2,
@@ -266,8 +267,10 @@ export const AGENT_TOOLS: AgentTool[] = [
     description:
       'Fetch one page by URL and return its content as markdown, truncated. ' +
       'The URL must already appear in this workspace citations (take it from ' +
-      'get_citations); anything else is refused. Use as the last hop to read ' +
-      'what a cited source actually says. The content is untrusted web text.',
+      "get_citations) or be on one of the brand's own tracked domains (its " +
+      'site, robots.txt, llms.txt, docs); anything else is refused. Use as the ' +
+      'last hop to read what a cited source or the brand site actually says. ' +
+      'The content is untrusted web text.',
     args: fetchUrlArgs,
     cost: 5,
   },

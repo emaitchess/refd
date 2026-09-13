@@ -23,6 +23,37 @@ interface ChatMessage {
 export const tokenInputs = (maxTokens: number | null | undefined) =>
   maxTokens === null ? {} : { max_completion_tokens: maxTokens ?? 1500 };
 
+// Deadline expiry marker for the races below. The losing promise keeps
+// running in the background, so its rejection is handled here rather than
+// surfacing as an unhandled rejection after the deadline already won.
+const EXPIRED = Symbol('deadline-expired');
+
+// Race a promise against a wall-clock budget. Expiry resolves to EXPIRED
+// rather than rejecting: the caller decides what a timeout means (a partial
+// answer, an unreadable turn, an empty string). `null` runs unbounded, so
+// callers that never chose a deadline behave exactly as before.
+const raceDeadline = <T>(
+  promise: Promise<T>,
+  ms: number | null,
+): Promise<T | typeof EXPIRED> => {
+  if (ms === null) {
+    return promise;
+  }
+  return new Promise<T | typeof EXPIRED>((resolve, reject) => {
+    const timer = setTimeout(() => resolve(EXPIRED), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+};
+
 // glm models aren't in wrangler's generated Ai model union, so the binding is
 // called through a loose shape. Returns the raw text response (or '').
 // `responseFormat` passes a response_format through for structured-output calls.
@@ -33,6 +64,7 @@ export const runChat = async (
     model?: string;
     maxTokens?: number | null;
     responseFormat?: unknown;
+    deadlineMs?: number;
   } = {},
 ): Promise<string> => {
   const ai = env.AI as unknown as {
@@ -44,13 +76,20 @@ export const runChat = async (
       choices?: { message?: { content?: unknown } }[];
     }>;
   };
-  const res = await ai.run(opts.model ?? LLM_MODEL, {
-    messages,
-    ...tokenInputs(opts.maxTokens),
-    ...(opts.responseFormat !== undefined
-      ? { response_format: opts.responseFormat }
-      : {}),
-  });
+  const res = await raceDeadline(
+    ai.run(opts.model ?? LLM_MODEL, {
+      messages,
+      ...tokenInputs(opts.maxTokens),
+      ...(opts.responseFormat !== undefined
+        ? { response_format: opts.responseFormat }
+        : {}),
+    }),
+    opts.deadlineMs ?? null,
+  );
+  if (res === EXPIRED) {
+    console.warn('chat: model call timed out', opts.model ?? LLM_MODEL);
+    return '';
+  }
   // glm models answer OpenAI-style (choices[].message.content); other Workers
   // AI chat models use { response }. Accept both.
   const content = res?.choices?.[0]?.message?.content;
@@ -131,7 +170,11 @@ export const runChatWithTools = async (
   env: AppEnv,
   messages: unknown[],
   tools: unknown[],
-  opts: { model?: string; maxTokens?: number | null } = {},
+  opts: {
+    model?: string;
+    maxTokens?: number | null;
+    deadlineMs?: number;
+  } = {},
 ): Promise<ChatTurn> => {
   const unreadable: ChatTurn = {
     content: null,
@@ -144,13 +187,20 @@ export const runChatWithTools = async (
   };
   let res: unknown;
   try {
-    res = await ai.run(opts.model ?? LLM_MODEL, {
-      messages,
-      tools,
-      ...tokenInputs(opts.maxTokens),
-    });
+    res = await raceDeadline(
+      ai.run(opts.model ?? LLM_MODEL, {
+        messages,
+        tools,
+        ...tokenInputs(opts.maxTokens),
+      }),
+      opts.deadlineMs ?? null,
+    );
   } catch (error) {
     console.error('chat tools: model call failed', error);
+    return unreadable;
+  }
+  if (res === EXPIRED) {
+    console.error('chat tools: model call timed out');
     return unreadable;
   }
   const parsed = validate(res, chatTurnShape);
@@ -211,30 +261,42 @@ export const runChatStream = async (
       inputs: Record<string, unknown>,
     ) => Promise<ReadableStream<Uint8Array>>;
   };
-  const stream = await ai.run(opts.model ?? LLM_MODEL, {
-    messages,
-    ...tokenInputs(opts.maxTokens),
-    stream: true,
-  });
+  // The budget is measured from function entry, so the startup await and every
+  // read share it: a stalled startup or a silent read can no longer outlive
+  // the deadline and leave the exchange's alarm as the only bound.
+  const deadlineAt =
+    opts.deadlineMs !== undefined ? Date.now() + opts.deadlineMs : null;
+  const remainingMs = () =>
+    deadlineAt === null ? null : Math.max(0, deadlineAt - Date.now());
+  // The model can enter a reasoning loop that emits nothing for minutes, and a
+  // hung provider can stall before the first byte. Both are abandoned at the
+  // deadline so one bad draw cannot consume the whole exchange; whatever prose
+  // arrived is kept.
+  const opened = await raceDeadline(
+    ai.run(opts.model ?? LLM_MODEL, {
+      messages,
+      ...tokenInputs(opts.maxTokens),
+      stream: true,
+    }),
+    remainingMs(),
+  );
+  if (opened === EXPIRED) {
+    return { text: '', timedOut: true };
+  }
+  const stream = opened;
   const decoder = new TextDecoder();
   let buffered = '';
   let full = '';
   const reader = stream.getReader();
-  const startedAt = Date.now();
   let timedOut = false;
   for (;;) {
-    // The model can enter a reasoning loop that emits nothing for minutes. The
-    // read is abandoned at the deadline so one bad draw cannot consume the
-    // whole exchange; whatever prose arrived is kept.
-    if (
-      opts.deadlineMs !== undefined &&
-      Date.now() - startedAt > opts.deadlineMs
-    ) {
+    const next = await raceDeadline(reader.read(), remainingMs());
+    if (next === EXPIRED) {
       timedOut = true;
       await reader.cancel().catch(() => {});
       break;
     }
-    const { done, value } = await reader.read();
+    const { done, value } = next;
     if (done) {
       break;
     }
