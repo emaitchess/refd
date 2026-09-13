@@ -455,11 +455,26 @@ export const Home = () => {
   const pollForStoredPair = (id: number, questionId: number | null) => {
     const token = ++pollTokenRef.current;
     let attempt = 0;
+    const fetchThread = () =>
+      api<{ chatId: number; title: string; messages: ChatMessage[] }>(
+        `/chat/${id}`,
+      );
+    const land = (res: {
+      chatId: number;
+      title: string;
+      messages: ChatMessage[];
+    }) => {
+      setDetached(null);
+      if (activeChatRef.current === id && res.messages.length > 0) {
+        setTitle(res.title);
+        setMessages(res.messages);
+        suggestionsQ.refetch();
+      }
+      listQ.refetch();
+    };
     const next = () => {
       attempt += 1;
-      void api<{ chatId: number; title: string; messages: ChatMessage[] }>(
-        `/chat/${id}`,
-      )
+      fetchThread()
         .then((res) => {
           if (pollTokenRef.current !== token) {
             return;
@@ -473,15 +488,23 @@ export const Home = () => {
             window.setTimeout(next, 10_000);
             return;
           }
-          setDetached(null);
-          if (activeChatRef.current === id && res.messages.length > 0) {
-            setTitle(res.title);
-            setMessages(res.messages);
-            suggestionsQ.refetch();
-          }
-          listQ.refetch();
+          land(res);
         })
-        .catch(() => {});
+        .catch(() => {
+          // A transient fetch failure must not end the wait silently;
+          // reschedule against the same attempt budget.
+          if (pollTokenRef.current !== token) {
+            return;
+          }
+          if (attempt < 35) {
+            window.setTimeout(next, 10_000);
+            return;
+          }
+          // Window exhausted on failures: end the wait either way.
+          fetchThread()
+            .then(land)
+            .catch(() => setDetached(null));
+        });
     };
     window.setTimeout(next, 10_000);
   };
