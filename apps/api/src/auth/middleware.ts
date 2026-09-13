@@ -73,7 +73,8 @@ export const requireWorkspace = createMiddleware<WorkspaceBindings>(
 );
 
 // CSRF hardening: state-changing requests must carry a JSON content type —
-// cross-site HTML forms cannot send application/json.
+// cross-site HTML forms cannot send application/json. A request with no
+// Content-Length carries no body, so the media type cannot apply to it.
 export const requireJsonForMutations = createMiddleware(async (c, next) => {
   const method = c.req.method.toUpperCase();
   if (
@@ -82,9 +83,12 @@ export const requireJsonForMutations = createMiddleware(async (c, next) => {
     method === 'PATCH' ||
     method === 'DELETE'
   ) {
-    const contentType = c.req.header('Content-Type') ?? '';
-    if (!contentType.includes('application/json')) {
-      return c.json({ error: 'expected application/json' }, 415);
+    const length = c.req.header('Content-Length');
+    if (length !== undefined && length !== '0') {
+      const contentType = c.req.header('Content-Type') ?? '';
+      if (!contentType.includes('application/json')) {
+        return c.json({ error: 'expected application/json' }, 415);
+      }
     }
   }
   await next();
