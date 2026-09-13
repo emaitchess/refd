@@ -48,7 +48,12 @@ ${section('Product', [
   item(
     'Agent access',
     `${ORIGIN}/agents.md`,
-    `Read-only remote MCP at ${MCP_ENDPOINT}: OAuth for browser clients, personal access tokens for headless agents, the nine tools, and one-click install links.`,
+    `Remote MCP at ${MCP_ENDPOINT}: OAuth for browser clients, personal access tokens for headless agents, nine read tools plus optional bounded setup tools, multi-workspace connections, and one-click install links.`,
+  ),
+  item(
+    'Agent skill',
+    `${ORIGIN}/skills/refd/SKILL.md`,
+    'A complete SKILL.md for agents: connecting, reading data, and the bounded setup workflow.',
   ),
 ])}
 
