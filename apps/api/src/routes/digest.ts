@@ -336,7 +336,7 @@ export const buildDigest = async (
     })),
     sentiment: {
       brand: sentimentDist(rows, brand.id),
-      note: 'shares of classified mentions; null = nothing classified',
+      note: 'counts of classified mentions; shares are derived from these; null = nothing classified',
     },
     sources: {
       topCited: domains.map((d) => ({

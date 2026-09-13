@@ -214,7 +214,8 @@ const systemPrompt = (): string =>
   'yet", never zero.\n' +
   '- "Mentioned" (named in answer text) and "cited" (own domain in sources) ' +
   'are independent signals. A missing Google AI Overview is normal. Sentiment ' +
-  'values are shares of classified mentions only.\n' +
+  'values are counts of classified mentions; derive shares before writing ' +
+  'percentages.\n' +
   '- Write 2 to 5 sentences of plain markdown prose, no headings and no JSON ' +
   'in the prose. Do not recite whole tables; the app renders the supporting ' +
   'data panels alongside your answer.\n' +
@@ -264,6 +265,14 @@ const ANSWER_TOKEN_CEILING = 16000;
 // attempts still finish comfortably inside it.
 const EVIDENCE_PREFIX = 'Evidence gathered for this question:';
 const ANSWER_DEADLINE_MS = 75_000;
+// Wall-clock caps on the non-streamed model calls, measured from call entry.
+// A stalled planning turn returns the unreadable turn (the loop degrades to
+// answering with gathered evidence); a stalled metadata call returns null (no
+// panels or links; the answer itself is kept either way). Before these, a
+// hung call outlived its intended bound and the object's 5-minute alarm was
+// the only ceiling, which is how live chats died at ~300s in the answer phase.
+const PLANNING_TURN_DEADLINE_MS = 90_000;
+const META_DEADLINE_MS = 60_000;
 // Evidence lines kept for the retry. Measured on the same payload: the full
 // 87 rows and a 30-row slice both answer, the slice faster.
 const RETRY_EVIDENCE_LINES = 30;
@@ -386,6 +395,7 @@ const extractMeta = async (
         model: PLANNING_MODEL,
         maxTokens: null,
         responseFormat: metaResponseFormat(withTitle),
+        deadlineMs: META_DEADLINE_MS,
       },
     );
     return parseJson(raw, metaSchema);
@@ -477,6 +487,10 @@ export const runExchange = async (
   const tools = availableTools(hasWebSearch);
   const toolDefs = tools.map(toolDefinition);
   const allSources: WebResult[] = [];
+  // URLs already carrying an S-number this exchange. Tools filter against it
+  // before numbering their own results, so the numbers they promise the model
+  // stay aligned with what actually gets registered here.
+  const knownSourceUrls = new Set<string>();
   const seenCalls = new Set<string>();
   const toolMessages: unknown[] = [];
   let spent = 0;
@@ -494,8 +508,13 @@ export const runExchange = async (
         ...toolMessages,
       ],
       toolDefs,
-      // No ceiling: a cap only ever truncates the reasoning the turn needs.
-      { model: PLANNING_MODEL, maxTokens: null },
+      // No token ceiling: a cap only ever truncates the reasoning the turn
+      // needs. The wall-clock deadline is what bounds a stalled turn.
+      {
+        model: PLANNING_MODEL,
+        maxTokens: null,
+        deadlineMs: PLANNING_TURN_DEADLINE_MS,
+      },
     );
     if (turn.finishReason !== 'tool_calls' || turn.toolCalls.length === 0) {
       await step('finished gathering', toolsUsed());
@@ -536,6 +555,18 @@ export const runExchange = async (
         });
         continue;
       }
+      // Reserve the cost before executing: checking only after a whole batch
+      // let one round spend past the cap (the live run that hit 34 of 30).
+      // The call is not marked seen, because it never ran.
+      if (spent + tool.cost > TOOL_BUDGET) {
+        await step('skipped, tool budget reached', tool.name);
+        toolMessages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: `Tool ${tool.name} was not run: the tool budget for this exchange is used up. Stop calling tools and answer from the evidence already gathered.`,
+        });
+        continue;
+      }
       seenCalls.add(callKey);
       const outcome = await executeTool(
         env,
@@ -543,9 +574,15 @@ export const runExchange = async (
         tool.name,
         parsed.args,
         allSources.length,
+        knownSourceUrls,
       );
       if (outcome.sources) {
-        allSources.push(...outcome.sources);
+        for (const source of outcome.sources) {
+          if (!knownSourceUrls.has(source.url)) {
+            knownSourceUrls.add(source.url);
+            allSources.push(source);
+          }
+        }
       }
       await step(outcome.label, outcome.detail);
       toolMessages.push({
