@@ -726,10 +726,9 @@ export const Home = () => {
           <button
             type="button"
             onClick={stop}
-            aria-label="Stop watching (the server keeps answering)"
             className="btn-secondary h-8 shrink-0 px-3 font-mono text-[12px]"
           >
-            stop watching
+            stop
           </button>
         ) : (
           <button
@@ -746,10 +745,6 @@ export const Home = () => {
   );
 
   const recentChats = listQ.data?.chats ?? [];
-  const followUps =
-    !busy && !live && messages.length > 0
-      ? (suggestionsQ.data?.suggestions ?? []).slice(0, 4)
-      : [];
 
   if (chatId === null && messages.length === 0) {
     return (
@@ -950,22 +945,6 @@ export const Home = () => {
               stopped watching · the answer lands here when it finishes
             </span>
           </p>
-        ) : null}
-        {followUps.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {followUps.map((s) => (
-              <button
-                key={s.label}
-                type="button"
-                onClick={() => send(s.question)}
-                disabled={busy}
-                title={s.question}
-                className="border border-border bg-bg-card px-3 py-1.5 text-left text-[12px] text-secondary transition-colors hover:border-border-strong hover:text-primary"
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
         ) : null}
         {error ? <p className="text-[13px] text-error">{error}</p> : null}
         {openAction.error ? (
