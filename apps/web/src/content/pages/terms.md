@@ -102,18 +102,21 @@ investment, medical, advertising, or other professional advice.
 
 ## MCP connections and other integrations
 
-You may authorize a compatible MCP client to read one selected workspace. Each
-grant is limited to the scopes shown during authorization and can be revoked
-from Settings.
+You may authorize a compatible MCP client to read the workspaces you select:
+one, several, or every workspace on the account, including ones created after
+approval. Each grant is limited to the scopes shown during authorization and
+can be revoked from Settings.
 
 An authorized client is a separate service controlled by you or a third party.
 Its handling of data is governed by its own terms and privacy practices. You
 are responsible for selecting trustworthy clients, reviewing requested access,
 and revoking a connection that is no longer needed.
 
-The hosted MCP server is read-only. It cannot modify workspace data or start a
-provider-spending monitoring run. We may change available tools, resources, or
-protocol support as the Service evolves.
+The hosted MCP server is read-only by default. An optional, separately granted
+setup scope lets a client configure a workspace (brand, competitors, prompts,
+and surfaces) and start exactly one provider-backed onboarding report. It
+cannot delete data, manage billing, or start any further provider runs. We may
+change available tools, resources, or protocol support as the Service evolves.
 
 ## Acceptable use
 

@@ -98,14 +98,18 @@ answers can differ.
 ## MCP connection help
 
 The production MCP endpoint is `https://api.refd.ai/mcp`. It uses OAuth and
-grants read-only access to one workspace at a time.
+gives the client access to the workspaces you select during authorization (or
+every workspace with Allow all). Access is read-only unless you grant the
+optional setup scope.
 
 If a client cannot connect:
 
 1. Confirm that the client supports remote Streamable HTTP MCP servers and
    OAuth.
 2. Remove the incomplete connection from the client and retry authorization.
-3. Choose the intended workspace during the hosted authorization screen.
+3. Select the intended workspaces during the hosted authorization screen (or
+   use Allow all). A new workspace can also be provisioned for the agent
+   there.
 4. If access worked previously, check Settings for a revoked connection and
    authorize a new one.
 

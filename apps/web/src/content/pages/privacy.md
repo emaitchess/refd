@@ -46,8 +46,9 @@ When you create or use an account, we process:
   attempt counters used to prevent abuse.
 
 If you connect an MCP client, we also store the OAuth client and grant
-information needed to operate and revoke the connection, including the selected
-workspace, client name, scope, and last-used time. We do not receive the
+information needed to operate and revoke the connection, including the
+workspace entitlement you selected (a set of workspaces, or every workspace on
+the account), client name, scope, and last-used time. We do not receive the
 password for your third-party MCP client.
 
 ### Workspace and monitoring content
@@ -118,7 +119,9 @@ We use information to:
   retrieve the resulting AI answers.
 - Generate onboarding drafts, competitor suggestions, prompts, summaries, and
   sentiment labels.
-- Operate user-authorized, read-only MCP connections.
+- Operate user-authorized MCP connections within the workspace entitlement you
+  select at consent. Connections are read-only by default; an optional setup
+  scope can configure a workspace and start one onboarding report.
 - Enforce workspace, prompt, surface, and request limits.
 - Protect the Service, investigate failures, prevent abuse, and maintain
   reliability.
@@ -151,7 +154,7 @@ instructions, or meet legal obligations.
 | Monitoring collection service | Receives monitoring prompts and collection settings, then returns answers and search results from the configured AI surfaces |
 | [Exa](https://exa.ai/privacy-policy) | Searches public web indexes for competitor discovery and for dashboard web research when that feature is used |
 | A self-hosted [Umami](https://umami.is) instance operated by refd | Processes aggregate traffic and product-event information from `refd.ai` and `dash.refd.ai`. No third-party analytics provider receives this data |
-| An MCP client you authorize | Receives read-only workspace data requested through the tools available to that client |
+| An MCP client you authorize | Receives workspace data from the workspaces you selected (or all of them) through the tools available to that client. A setup-scoped client can also configure a workspace and start one onboarding report |
 
 These providers process information under their own terms and privacy
 commitments. Some features are optional or only run when configured.

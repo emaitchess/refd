@@ -6,9 +6,14 @@ import { GITHUB_URL } from '../consts';
 import {
   AGENT_CLIENTS,
   AGENT_DISCOVERY,
+  AGENT_INJECTION_BOUNDARY,
   AGENT_INSTALLS,
   AGENT_PAT_EXAMPLE,
+  AGENT_SCOPES,
+  AGENT_SETUP_TOOLS,
+  AGENT_SETUP_WORKFLOW,
   AGENT_TOOLS,
+  AGENT_WORKSPACE_ENTITLEMENT,
   MCP_ENDPOINT,
 } from '../lib/agent-access';
 import Base from '../layouts/Base.astro';
@@ -17,7 +22,7 @@ import '../styles/global.css';
 
 <Base
   title="Build with refd | agent access"
-  description="Connect an AI agent to refd's read-only MCP server. Read a brand's AI search visibility, competitors, citations, and answer evidence, scoped to the workspaces the human authorizes."
+  description="Connect an AI agent to refd's MCP server. Read AI search visibility, competitors, citations, and answer evidence, or let an agent set up a workspace, across the workspaces you choose."
   path="/agents"
   markdownPath="/agents.md"
 >
@@ -35,14 +40,16 @@ import '../styles/global.css';
           </h1>
           <p class="hero-sub">
             refd exposes AI search monitoring for your workspaces through a
-            read-only remote MCP server. Connect Claude, ChatGPT, or any MCP
-            client and query visibility, competitors, citations, and the raw
-            answers behind them, scoped to the workspaces the human
-            authorizes. OAuth for browser clients; personal access tokens for
+            remote MCP server. Connect Claude, ChatGPT, or any MCP client and
+            query visibility, competitors, citations, and the raw answers
+            behind them, across the workspaces you approve. Reading is the
+            default; an optional bounded setup scope lets an agent onboard a
+            workspace. OAuth for browser clients; personal access tokens for
             headless ones.
           </p>
           <div class="hero-cta">
             <a class="btn btn-primary" href="#connect">how to connect</a>
+            <a class="btn" href="/skills/refd/SKILL.md">agent SKILL.md</a>
             <a class="btn" href="/openapi.json">OpenAPI catalog</a>
           </div>
         </div>
@@ -54,14 +61,10 @@ import '../styles/global.css';
       <div class="rail">
         <div class="section-head">
           <p class="section-index">01 / the connector</p>
-          <h2>A read-only connector, scoped to what you authorize.</h2>
+          <h2>Scoped to what you authorize.</h2>
           <p>
-            Every OAuth grant is read-only and covers only the workspaces
-            approved at consent: check any number, or allow all so the agent
-            also sees ones created later. The connector cannot change data or
-            start paid runs, and the owner can revoke it anytime from
-            Settings. Web prompt-injection can, at worst, read within the
-            workspaces the human authorized.
+            {AGENT_WORKSPACE_ENTITLEMENT} {AGENT_INJECTION_BOUNDARY} The owner
+            can revoke the connection anytime from Settings.
           </p>
         </div>
         <div class="agent-grid">
@@ -73,12 +76,14 @@ import '../styles/global.css';
           <div class="cell">
             <p class="k">auth</p>
             <h3>OAuth 2.1 + PKCE</h3>
-            <p>Authorization-code flow with revocable grants and the <code>data:read</code> scope. Single-workspace personal access tokens cover clients that have no browser.</p>
+            <p>Authorization-code flow with revocable grants. Single-workspace personal access tokens cover clients that have no browser.</p>
           </div>
           <div class="cell">
-            <p class="k">access</p>
-            <h3>Read-only</h3>
-            <p>Nine tools plus a metric-glossary resource. No writes, no run triggers, no spend.</p>
+            <p class="k">scopes</p>
+            <h3>Read by default</h3>
+            {AGENT_SCOPES.map(([scope, description]) => (
+              <p><code>{scope}</code>: {description}</p>
+            ))}
           </div>
         </div>
       </div>
@@ -95,6 +100,29 @@ import '../styles/global.css';
         <div class="agent-grid tools-grid">
           {
             AGENT_TOOLS.map(([name, desc]) => (
+              <div class="cell">
+                <h3><code>{name}</code></h3>
+                <p>{desc}</p>
+              </div>
+            ))
+          }
+        </div>
+        <p class="k" style="margin-top:44px">setup tools · data:write</p>
+        <div class="section-head" style="margin-top:8px">
+          <h2>Let an agent do the setup.</h2>
+          <p>
+            With the <code>data:write</code> scope, the setup tools onboard a
+            workspace end to end: {AGENT_SETUP_WORKFLOW} The workflow is
+            budgeted, and <code>confirm_setup</code> starts exactly one
+            provider-backed onboarding report; no grant can delete data,
+            manage billing, or start further runs. Disabled by default on the
+            hosted service; self-hosters enable it with
+            <code>MCP_SETUP_TOOLS_ENABLED=true</code>.
+          </p>
+        </div>
+        <div class="agent-grid tools-grid">
+          {
+            AGENT_SETUP_TOOLS.map(([name, desc]) => (
               <div class="cell">
                 <h3><code>{name}</code></h3>
                 <p>{desc}</p>
