@@ -341,9 +341,15 @@ export const Home = () => {
     activeChatRef.current = chatId ?? loadedId;
   }, [chatId, loadedId]);
   const [deleteBusyId, setDeleteBusyId] = useState<number | null>(null);
-  // Set while a stopped exchange is still running server-side; the stored
-  // pair lands in D1 when it finishes, and the poll refills the thread then.
-  const [detached, setDetached] = useState<number | null>(null);
+  // Set while a detached exchange is still running server-side: the user
+  // stopped watching, or the stream dropped without a terminal frame. The
+  // stored pair lands in D1 when it finishes, and the poll refills the
+  // thread then.
+  const [detached, setDetached] = useState<{
+    id: number;
+    mode: 'stopped' | 'dropped';
+    since: number;
+  } | null>(null);
   const pollTokenRef = useRef(0);
   const stopRef = useRef<AbortController | null>(null);
   const [announce, setAnnounce] = useState('');
@@ -585,7 +591,13 @@ export const Home = () => {
           // The question was already persisted server-side, so keep the user
           // bubble and land the stored pair by polling. Rolling the input
           // back would invite a duplicate question.
-          setDetached(id);
+          const mode = controller.signal.aborted ? 'stopped' : 'dropped';
+          setDetached({ id, mode, since: Date.now() });
+          if (mode === 'dropped') {
+            setAnnounce(
+              'the live stream dropped; the answer will land here when it finishes',
+            );
+          }
           if (chatId === null) {
             setLoadedId(id);
             navigate(`/home/${id}`, { replace: true });
@@ -942,8 +954,13 @@ export const Home = () => {
           <p className="flex items-center gap-2 font-mono text-[11px] text-muted">
             <DitherLoader size={10} />
             <span>
-              stopped watching · the answer lands here when it finishes
+              {detached.mode === 'dropped'
+                ? 'still answering · the stream dropped, the answer will land here when it finishes'
+                : 'stopped watching · the answer lands here when it finishes'}
             </span>
+            {detached.mode === 'dropped' ? (
+              <Elapsed since={detached.since} />
+            ) : null}
           </p>
         ) : null}
         {error ? <p className="text-[13px] text-error">{error}</p> : null}
