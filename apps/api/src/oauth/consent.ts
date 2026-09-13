@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { app } from '../app';
 import { readRequestSession } from '../auth/session';
 import { getDb } from '../db/client';
-import { mcpConnections, users, workspaces } from '../db/schema';
+import { entities, mcpConnections, users, workspaces } from '../db/schema';
 import type { AppEnv } from '../env';
 import { dashboardOriginForRequest } from '../lib/cors';
 import { provisionWorkspace } from '../lib/workspace-provision';
@@ -42,6 +42,14 @@ const consentFormSchema = z.object({
   newWorkspaceName: z.string().max(60).optional(),
   provisioningKey: z.string().uuid().optional(),
 });
+export const parseConsentForm = (form: FormData | null) =>
+  consentFormSchema.safeParse({
+    csrfToken: form?.get('csrf_token'),
+    decision: form?.get('decision'),
+    workspaceId: form?.get('workspace_id') ?? undefined,
+    newWorkspaceName: form?.get('new_workspace_name') ?? undefined,
+    provisioningKey: form?.get('provisioning_key') ?? undefined,
+  });
 const clientNameSchema = z
   .string()
   .transform((value) => value.trim().slice(0, 120))
@@ -90,7 +98,7 @@ const responseHeaders = (
 ): Headers => {
   const headers = new Headers({
     'Cache-Control': 'no-store',
-    'Content-Security-Policy': `default-src 'none'; ${nonce ? `script-src 'nonce-${nonce}'; ` : ''}style-src 'unsafe-inline'; form-action ${formActionSources(callbackUrl)}; frame-ancestors 'none'; base-uri 'none'`,
+    'Content-Security-Policy': `default-src 'none'; ${nonce ? `script-src 'nonce-${nonce}'; ` : ''}style-src 'unsafe-inline'; img-src https://www.google.com https://*.gstatic.com; form-action ${formActionSources(callbackUrl)}; frame-ancestors 'none'; base-uri 'none'`,
     'Content-Type': 'text/html; charset=utf-8',
     'Referrer-Policy': 'no-referrer',
     'X-Content-Type-Options': 'nosniff',
@@ -105,6 +113,23 @@ const responseHeaders = (
 const clientName = (client: ClientInfo): string => {
   const parsed = clientNameSchema.safeParse(client.clientName ?? 'MCP client');
   return parsed.success ? parsed.data : 'MCP client';
+};
+
+// Same favicon service the dashboard uses for brand logos.
+const faviconUrl = (domain: string): string =>
+  `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
+
+const workspaceAvatar = (workspace: {
+  name: string;
+  logoUrl: string | null;
+}): string => {
+  if (workspace.logoUrl) {
+    return `<img class="ws-logo" src="${escapeHtml(workspace.logoUrl)}" alt="" width="20" height="20" loading="lazy">`;
+  }
+  const initial = escapeHtml(
+    workspace.name.trim().charAt(0).toUpperCase() || '?',
+  );
+  return `<svg class="ws-logo" viewBox="0 0 20 20" aria-hidden="true"><rect width="20" height="20" rx="4" fill="rgba(127,127,127,.15)"/><text x="10" y="14" text-anchor="middle" font-size="11" fill="currentColor">${initial}</text></svg>`;
 };
 
 const logoMark = (): string => {
@@ -320,10 +345,15 @@ const denyRedirect = (request: AuthRequest): Response => {
   return redirect(location.toString(), clearCsrfCookie());
 };
 
-const renderConsent = (
+export const renderConsent = (
   request: Request,
   client: ClientInfo,
-  ownedWorkspaces: { id: number; name: string }[],
+  ownedWorkspaces: {
+    id: number;
+    name: string;
+    onboarded: boolean;
+    logoUrl: string | null;
+  }[],
   callbackUrl: string,
   scopes: string[],
 ): Response => {
@@ -336,7 +366,8 @@ const renderConsent = (
       (workspace, index) => `
         <label class="workspace">
           <input type="radio" name="workspace_id" value="${workspace.id}" ${!writeMode && index === 0 ? 'checked' : ''} required>
-          <span><strong>${escapeHtml(workspace.name)}</strong><small>Only this workspace</small></span>
+          ${workspaceAvatar(workspace)}
+          <span><strong>${escapeHtml(workspace.name)}</strong><small>${workspace.onboarded ? 'Only this workspace' : 'Setup in progress'}</small></span>
         </label>`,
     ),
     ...(writeMode
@@ -374,6 +405,7 @@ const renderConsent = (
 .new-name{margin-top:12px;width:100%;padding:10px 12px;border:1px solid var(--border);background:var(--card);color:var(--primary);font:inherit}
 .new-name:focus{outline:none;border-color:var(--border-strong)}.workspace input{width:14px;height:14px;margin:0;accent-color:var(--primary)}.actions{display:flex;justify-content:flex-end;gap:10px;border-top:1px solid var(--border);background:var(--surface)}button.action{height:40px;border:1px solid var(--border-strong);padding:0 18px;background:var(--card);color:var(--primary);font:500 13px "Inter Variable",Inter,system-ui,sans-serif;cursor:pointer;transition:background 150ms,transform 150ms}.action:hover{background:var(--hover)}.action:active,.theme:active{transform:scale(.98)}.action.primary{border-color:var(--primary);background:var(--primary);color:var(--bg)}button:focus-visible,input:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}.foot{height:56px;display:flex;flex:none;align-items:center;justify-content:space-between;padding:0 32px;border-top:1px solid var(--border);font:10px "Departure Mono",ui-monospace,monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}@media(max-width:820px){header{height:56px;padding:0 20px}.layout{display:block}.intro{padding:64px 20px 40px;border-right:0;border-bottom:1px solid var(--border)}h1{font-size:34px}.safety{margin-top:32px}.form-shell{margin:32px 20px 64px}.foot{padding:0 20px}}@media(max-width:520px){.app-head,.form-body,.actions{padding:20px}.actions{flex-direction:column-reverse}.action{width:100%}.safety-row{grid-template-columns:76px 1fr}}
       .identity-warning{margin:0 20px;padding:14px 0;border-bottom:1px solid var(--border);color:var(--secondary);font-size:12px}.identity-warning strong{display:block;color:var(--accent);font:10px "Departure Mono",ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase}.identity-warning p{margin:6px 0 0}.identity-warning code{color:var(--primary);font:11px "Departure Mono",ui-monospace,monospace;overflow-wrap:anywhere}
+      .ws-logo{width:20px;height:20px;border-radius:4px;flex:none}
     </style>
   </head>
   <body>
@@ -401,7 +433,7 @@ const renderConsent = (
             <div class="permission">${permissionRows}</div>
             <div class="section-label">choose a workspace</div>
             <div class="workspaces">${workspaceRows}</div>
-            ${writeMode ? `<input class="new-name" type="text" name="new_workspace_name" maxlength="60" placeholder="Name for the new workspace" autocomplete="off" aria-label="New workspace name">` : ''}
+            ${writeMode ? `<input class="new-name" id="new-workspace-name" type="text" name="new_workspace_name" maxlength="60" placeholder="Name for the new workspace" autocomplete="off" aria-label="New workspace name" hidden disabled>` : ''}
             <input type="hidden" name="provisioning_key" value="${crypto.randomUUID()}">
           </div>
           <div class="actions">
@@ -412,7 +444,7 @@ const renderConsent = (
       </main>
       <footer class="foot"><span>open-source AI search monitoring</span><span>OAuth 2.1</span></footer>
     </div>
-    <script nonce="${nonce}">const button=document.getElementById("theme-toggle");const setLabel=()=>{const current=document.documentElement.dataset.theme;button.textContent=current==="dark"?"light theme":"dark theme";button.setAttribute("aria-label",button.textContent)};setLabel();button.addEventListener("click",()=>{const next=document.documentElement.dataset.theme==="dark"?"light":"dark";document.documentElement.dataset.theme=next;try{localStorage.setItem("refd-theme",next)}catch{}setLabel()})</script>
+    <script nonce="${nonce}">const button=document.getElementById("theme-toggle");const setLabel=()=>{const current=document.documentElement.dataset.theme;button.textContent=current==="dark"?"light theme":"dark theme";button.setAttribute("aria-label",button.textContent)};setLabel();button.addEventListener("click",()=>{const next=document.documentElement.dataset.theme==="dark"?"light":"dark";document.documentElement.dataset.theme=next;try{localStorage.setItem("refd-theme",next)}catch{}setLabel()});const workspaceName=document.getElementById("new-workspace-name");if(workspaceName){const choices=document.querySelectorAll('input[name="workspace_id"]');const syncWorkspaceName=()=>{const creating=document.querySelector('input[name="workspace_id"]:checked')?.value==="create";workspaceName.hidden=!creating;workspaceName.disabled=!creating;workspaceName.required=creating};choices.forEach((choice)=>choice.addEventListener("change",syncWorkspaceName));syncWorkspaceName()}</script>
   </body>
 </html>`,
     { headers: responseHeaders(csrfCookie(token), nonce, callbackUrl) },
@@ -455,15 +487,30 @@ const authorize = async (
   if (request.method === 'GET') {
     const scope = grantedScopes(authRequest, writeEnabled);
     const ownedWorkspaces = await db
-      .select({ id: workspaces.id, name: workspaces.name })
+      .select({
+        id: workspaces.id,
+        name: workspaces.name,
+        onboarded: workspaces.onboardingCompleted,
+        brandDomains: entities.domains,
+      })
       .from(workspaces)
-      .where(
+      .leftJoin(
+        entities,
         and(
-          eq(workspaces.ownerUserId, user.id),
-          eq(workspaces.onboardingCompleted, true),
+          eq(entities.workspaceId, workspaces.id),
+          eq(entities.isBrand, true),
         ),
       )
+      .where(eq(workspaces.ownerUserId, user.id))
       .orderBy(workspaces.id);
+    const workspaceChoices = ownedWorkspaces.map((workspace) => ({
+      id: workspace.id,
+      name: workspace.name,
+      onboarded: workspace.onboarded,
+      logoUrl: workspace.brandDomains?.[0]
+        ? faviconUrl(workspace.brandDomains[0])
+        : null,
+    }));
     if (ownedWorkspaces.length === 0 && !scope?.includes(MCP_WRITE_SCOPE)) {
       return errorPage(
         409,
@@ -473,7 +520,7 @@ const authorize = async (
     return renderConsent(
       request,
       client,
-      ownedWorkspaces,
+      workspaceChoices,
       authRequest.redirectUri,
       scope ?? [],
     );
@@ -484,11 +531,7 @@ const authorize = async (
   }
 
   const form = await request.formData().catch(() => null);
-  const parsed = consentFormSchema.safeParse({
-    csrfToken: form?.get('csrf_token'),
-    decision: form?.get('decision'),
-    workspaceId: form?.get('workspace_id') ?? undefined,
-  });
+  const parsed = parseConsentForm(form);
   if (
     !parsed.success ||
     !(await validCsrfToken(request, parsed.data.csrfToken))
@@ -543,19 +586,13 @@ const authorize = async (
     const id = Number(parsed.data.workspaceId);
     const workspace = (
       await db
-        .select({
-          id: workspaces.id,
-          onboarded: workspaces.onboardingCompleted,
-        })
+        .select({ id: workspaces.id })
         .from(workspaces)
         .where(and(eq(workspaces.id, id), eq(workspaces.ownerUserId, user.id)))
         .limit(1)
     )[0];
     if (!workspace) {
       return errorPage(404, 'Workspace not found.');
-    }
-    if (!workspace.onboarded) {
-      return errorPage(409, 'That workspace has not finished setup.');
     }
     workspaceId = workspace.id;
   }
