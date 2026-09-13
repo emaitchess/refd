@@ -1,4 +1,4 @@
-import { promptLimitMessage } from '@refd/core/config';
+import { promptLimitMessage, surfaceLimitMessage } from '@refd/core/config';
 import { siteMetadataSchema } from '@refd/core/site-metadata';
 import { and, eq } from 'drizzle-orm';
 import type { Db } from '../db/client';
@@ -18,7 +18,7 @@ import { insertActivePrompt } from '../lib/prompt-limit';
 import { domainField, multiLineText, singleLineText } from '../lib/sanitize';
 import { fetchSiteMetadata, fetchSiteText } from '../lib/site-fetch';
 import { configForUser } from '../lib/user-config';
-import { enabledSurfaces } from '../providers/types';
+import { enabledSurfaces, SURFACES, type Surface } from '../providers/types';
 import {
   claimFreeReport,
   claimGenerationAttempt,
@@ -287,6 +287,7 @@ const mutateDraft = async (
   ctx: OnboardingContext,
   expectedVersion: number,
   mutate: (profile: WorkspaceProfile) => Partial<WorkspaceProfile>,
+  surfaces?: Surface[],
 ): Promise<OnboardingState | OnboardingFailure> => {
   const loaded = await loadDraftForMutation(ctx, expectedVersion);
   if ('error' in loaded) {
@@ -310,6 +311,7 @@ const mutateDraft = async (
     .update(workspaces)
     .set({
       profile: merged,
+      ...(surfaces === undefined ? {} : { surfaces }),
       onboardingDraftVersion: expectedVersion + 1,
     })
     .where(
@@ -741,8 +743,17 @@ export const updateDraft = async (
   ) {
     return { error: promptLimitMessage(promptLimit), status: 409 };
   }
-  const { expectedVersion, ...patch } = data;
-  return mutateDraft(ctx, expectedVersion, () => patch);
+  const { expectedVersion, surfaces: requestedSurfaces, ...patch } = data;
+  let surfaces: Surface[] | undefined;
+  if (requestedSurfaces !== undefined) {
+    const selected = new Set(requestedSurfaces);
+    surfaces = SURFACES.filter((surface) => selected.has(surface));
+    const maxSurfaces = config(ctx).limits.maxEnabledSurfacesPerWorkspace;
+    if (surfaces.length > maxSurfaces) {
+      return { error: surfaceLimitMessage(maxSurfaces), status: 409 };
+    }
+  }
+  return mutateDraft(ctx, expectedVersion, () => patch, surfaces);
 };
 
 const canonicalConfigurationFor = async (

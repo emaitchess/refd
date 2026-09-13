@@ -289,7 +289,7 @@ export const registerSetupTools = (
     {
       title: 'Update the setup draft',
       description:
-        'Applies explicit edits to any draft field: step, description, summary, target market, logo, competitors, and prompts. Stale expectedVersion returns a structured conflict with the current state.',
+        'Applies explicit edits to any draft field: step, description, summary, target market, logo, competitors, prompts, and enabled surfaces. Stale expectedVersion returns a structured conflict with the current state.',
       inputSchema: patchRequestSchema,
       annotations: {
         readOnlyHint: false,

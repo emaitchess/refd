@@ -1,9 +1,130 @@
 import { describe, expect, test } from 'bun:test';
 import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
 import type { AppEnv } from '../env';
-import { handleOAuthDefault, oauthAuthorizationErrorResponse } from './consent';
+import {
+  handleOAuthDefault,
+  oauthAuthorizationErrorResponse,
+  parseConsentForm,
+  renderConsent,
+} from './consent';
+import { MCP_SCOPE, MCP_WRITE_SCOPE } from './constants';
 
 describe('OAuth consent', () => {
+  test('parses the fields required to provision a workspace', () => {
+    const form = new FormData();
+    const csrfToken = crypto.randomUUID();
+    const provisioningKey = crypto.randomUUID();
+    form.set('csrf_token', csrfToken);
+    form.set('decision', 'approve');
+    form.set('workspace_id', 'create');
+    form.set('new_workspace_name', 'refd.ai');
+    form.set('provisioning_key', provisioningKey);
+
+    const parsed = parseConsentForm(form);
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data).toEqual({
+        csrfToken,
+        decision: 'approve',
+        workspaceId: 'create',
+        newWorkspaceName: 'refd.ai',
+        provisioningKey,
+      });
+    }
+  });
+
+  test('shows the workspace name input only when create is selected', async () => {
+    const response = renderConsent(
+      new Request('https://api.refd.ai/oauth/authorize'),
+      {
+        clientId: 'test-client',
+        clientName: 'Test client',
+        redirectUris: ['https://client.example/oauth/callback'],
+        tokenEndpointAuthMethod: 'none',
+      },
+      [
+        {
+          id: 1,
+          name: 'Existing workspace',
+          onboarded: true,
+          logoUrl:
+            'https://www.google.com/s2/favicons?domain=example.com&sz=64',
+        },
+        {
+          id: 2,
+          name: 'Half-setup workspace',
+          onboarded: false,
+          logoUrl: null,
+        },
+      ],
+      'https://client.example/oauth/callback',
+      [MCP_SCOPE, MCP_WRITE_SCOPE],
+    );
+    const html = await response.text();
+
+    expect(html).toContain('id="new-workspace-name"');
+    expect(html).toContain('aria-label="New workspace name" hidden disabled');
+    expect(html).toContain('workspaceName.hidden=!creating');
+    expect(html).toContain('workspaceName.disabled=!creating');
+    expect(html).toContain('workspaceName.required=creating');
+  });
+
+  test('lists incomplete workspaces so an agent can finish their setup', async () => {
+    const response = renderConsent(
+      new Request('https://api.refd.ai/oauth/authorize'),
+      {
+        clientId: 'test-client',
+        clientName: 'Test client',
+        redirectUris: ['https://client.example/oauth/callback'],
+        tokenEndpointAuthMethod: 'none',
+      },
+      [
+        { id: 1, name: 'Ready workspace', onboarded: true, logoUrl: null },
+        { id: 2, name: 'Draft workspace', onboarded: false, logoUrl: null },
+      ],
+      'https://client.example/oauth/callback',
+      [MCP_SCOPE, MCP_WRITE_SCOPE],
+    );
+    const html = await response.text();
+
+    expect(html).toContain('Ready workspace');
+    expect(html).toContain('Draft workspace');
+    expect(html).toContain('Setup in progress');
+    expect(html).toContain('value="2"');
+  });
+
+  test('renders a brand favicon when a domain exists and a letter avatar otherwise', async () => {
+    const response = renderConsent(
+      new Request('https://api.refd.ai/oauth/authorize'),
+      {
+        clientId: 'test-client',
+        clientName: 'Test client',
+        redirectUris: ['https://client.example/oauth/callback'],
+        tokenEndpointAuthMethod: 'none',
+      },
+      [
+        {
+          id: 1,
+          name: 'Branded',
+          onboarded: true,
+          logoUrl:
+            'https://www.google.com/s2/favicons?domain=branded.example&sz=64',
+        },
+        { id: 2, name: 'Bare', onboarded: false, logoUrl: null },
+      ],
+      'https://client.example/oauth/callback',
+      [MCP_SCOPE, MCP_WRITE_SCOPE],
+    );
+    const html = await response.text();
+
+    expect(html).toContain(
+      'class="ws-logo" src="https://www.google.com/s2/favicons?domain=branded.example&amp;sz=64"',
+    );
+    expect(html).toContain('viewBox="0 0 20 20"');
+    expect(html).toContain('>B</text>');
+  });
+
   test('requires a refd session before showing an authorization request', async () => {
     const request = new Request(
       'https://refd.ai/oauth/authorize?client_id=test&state=opaque',
