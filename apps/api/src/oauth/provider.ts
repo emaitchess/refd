@@ -49,25 +49,39 @@ const persistConnection = async (
     };
   }
   try {
+    const workspaceIds =
+      props.data.workspaceIds ??
+      (props.data.workspaceId !== undefined ? [props.data.workspaceId] : []);
+    if (workspaceIds.length === 0) {
+      throw new OAuthError('server_error', {
+        description: 'The authorization grant is invalid.',
+      });
+    }
     await getDb(env)
       .insert(mcpConnections)
-      .values({
-        grantId: exchange.grantId,
-        connectionKey: props.data.connectionId,
-        workspaceId: props.data.workspaceId,
-        userId: props.data.userId,
-        clientId: exchange.clientId,
-        clientName: props.data.clientName,
-        callbackTarget: props.data.callbackTarget ?? null,
-        scopes: exchange.scope,
-      })
-      .onConflictDoNothing({ target: mcpConnections.grantId });
+      .values(
+        workspaceIds.map((workspaceId) => ({
+          grantId: exchange.grantId,
+          connectionKey: props.data.connectionId,
+          workspaceId,
+          allWorkspaces: props.data.allWorkspaces === true,
+          userId: props.data.userId,
+          clientId: exchange.clientId,
+          clientName: props.data.clientName,
+          callbackTarget: props.data.callbackTarget ?? null,
+          scopes: exchange.scope,
+        })),
+      )
+      .onConflictDoNothing({
+        target: [mcpConnections.grantId, mcpConnections.workspaceId],
+      });
     console.log(
       JSON.stringify({
         event: 'mcp_connection_created',
         clientId: exchange.clientId,
         userId: props.data.userId,
-        workspaceId: props.data.workspaceId,
+        allWorkspaces: props.data.allWorkspaces === true,
+        workspaceIds,
         scopes: exchange.scope,
       }),
     );

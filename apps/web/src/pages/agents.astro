@@ -17,7 +17,7 @@ import '../styles/global.css';
 
 <Base
   title="Build with refd | agent access"
-  description="Connect an AI agent to refd's read-only MCP server. Read a brand's AI search visibility, competitors, citations, and answer evidence, scoped to one workspace."
+  description="Connect an AI agent to refd's read-only MCP server. Read a brand's AI search visibility, competitors, citations, and answer evidence, scoped to the workspaces the human authorizes."
   path="/agents"
   markdownPath="/agents.md"
 >
@@ -34,11 +34,12 @@ import '../styles/global.css';
             <span class="muted">Read your AI visibility from any agent.</span>
           </h1>
           <p class="hero-sub">
-            refd exposes a workspace's AI search monitoring through a
+            refd exposes AI search monitoring for your workspaces through a
             read-only remote MCP server. Connect Claude, ChatGPT, or any MCP
             client and query visibility, competitors, citations, and the raw
-            answers behind them, scoped to a single workspace. OAuth for
-            browser clients; personal access tokens for headless ones.
+            answers behind them, scoped to the workspaces the human
+            authorizes. OAuth for browser clients; personal access tokens for
+            headless ones.
           </p>
           <div class="hero-cta">
             <a class="btn btn-primary" href="#connect">how to connect</a>
@@ -53,12 +54,14 @@ import '../styles/global.css';
       <div class="rail">
         <div class="section-head">
           <p class="section-index">01 / the connector</p>
-          <h2>A read-only connector, scoped to one workspace.</h2>
+          <h2>A read-only connector, scoped to what you authorize.</h2>
           <p>
-            Every OAuth grant is bound to a single workspace and is read-only.
-            The connector cannot change data or start paid runs, and the owner
-            can revoke it anytime from Settings. Web prompt-injection can, at
-            worst, read within the one workspace the human authorized.
+            Every OAuth grant is read-only and covers only the workspaces
+            approved at consent: check any number, or allow all so the agent
+            also sees ones created later. The connector cannot change data or
+            start paid runs, and the owner can revoke it anytime from
+            Settings. Web prompt-injection can, at worst, read within the
+            workspaces the human authorized.
           </p>
         </div>
         <div class="agent-grid">
@@ -70,7 +73,7 @@ import '../styles/global.css';
           <div class="cell">
             <p class="k">auth</p>
             <h3>OAuth 2.1 + PKCE</h3>
-            <p>Authorization-code flow with per-workspace, revocable grants and the <code>data:read</code> scope. Personal access tokens cover clients that have no browser.</p>
+            <p>Authorization-code flow with revocable grants and the <code>data:read</code> scope. Single-workspace personal access tokens cover clients that have no browser.</p>
           </div>
           <div class="cell">
             <p class="k">access</p>
@@ -87,7 +90,7 @@ import '../styles/global.css';
         <div class="section-head">
           <p class="section-index">02 / the tools</p>
           <h2>Nine read tools, discovered at runtime.</h2>
-          <p>Call <code>tools/list</code> after connecting. Every tool resolves the workspace from the credential, never from arguments.</p>
+          <p>Call <code>tools/list</code> after connecting. Every tool resolves the granted workspaces from the credential; an optional <code>workspace</code> argument only picks among them, and <code>get_workspace_info</code> lists the choices.</p>
         </div>
         <div class="agent-grid tools-grid">
           {
@@ -108,7 +111,7 @@ import '../styles/global.css';
         <div class="section-head">
           <p class="section-index">03 / connect</p>
           <h2>Point a client at the endpoint.</h2>
-          <p>The endpoint is always <code>{MCP_ENDPOINT}</code>. Discovery and sign-in are automatic; you authorize one workspace per connection.</p>
+          <p>The endpoint is always <code>{MCP_ENDPOINT}</code>. Discovery and sign-in are automatic; you approve the workspaces a connection covers.</p>
         </div>
         <div class="agent-grid">
           {

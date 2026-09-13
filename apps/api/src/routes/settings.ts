@@ -3,7 +3,7 @@ import type {
   OAuthHelpers,
 } from '@cloudflare/workers-oauth-provider';
 import { surfaceLimitMessage } from '@refd/core/config';
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { WorkspaceBindings } from '../auth/middleware';
@@ -101,10 +101,14 @@ settingsRoutes.get('/connections', async (c) => {
       clientName: mcpConnections.clientName,
       callbackTarget: mcpConnections.callbackTarget,
       scopes: mcpConnections.scopes,
+      allWorkspaces: mcpConnections.allWorkspaces,
+      workspaceId: mcpConnections.workspaceId,
+      workspaceName: workspaces.name,
       createdAt: mcpConnections.createdAt,
       lastUsedAt: mcpConnections.lastUsedAt,
     })
     .from(mcpConnections)
+    .leftJoin(workspaces, eq(mcpConnections.workspaceId, workspaces.id))
     .where(
       and(
         eq(mcpConnections.workspaceId, workspaceId),
@@ -130,8 +134,37 @@ settingsRoutes.get('/connections', async (c) => {
     }
   }
 
+  // A connection covers one mirror row per granted workspace: report how many
+  // so the revoke confirmation can say what else dies with the grant.
+  const grantIds = [...new Set(rows.map((row) => row.grantId))];
+  const coverage = new Map<string, number>(
+    grantIds.map((grantId) => [grantId, 0]),
+  );
+  if (grantIds.length > 0) {
+    const counts = await db
+      .select({
+        grantId: mcpConnections.grantId,
+        count: sql<number>`count(*)`,
+      })
+      .from(mcpConnections)
+      .where(
+        and(
+          eq(mcpConnections.userId, userId),
+          inArray(mcpConnections.grantId, grantIds),
+          isNull(mcpConnections.revokedAt),
+        ),
+      )
+      .groupBy(mcpConnections.grantId);
+    for (const entry of counts) {
+      coverage.set(entry.grantId, Number(entry.count));
+    }
+  }
+
   return c.json({
-    connections: rows.map(({ grantId: _grantId, ...connection }) => connection),
+    connections: rows.map(({ grantId: _grantId, ...connection }) => ({
+      ...connection,
+      workspaceCount: coverage.get(_grantId) ?? 1,
+    })),
   });
 });
 
@@ -168,10 +201,18 @@ settingsRoutes.delete('/connections/:id', async (c) => {
     return c.json({ error: 'connection service unavailable' }, 503);
   }
   await c.env.OAUTH_PROVIDER.revokeGrant(connection.grantId, String(userId));
+  // The grant covers every workspace it was approved for: revoking kills all
+  // of them, not just the workspace this request rode on.
   await db
     .update(mcpConnections)
     .set({ revokedAt: Date.now() })
-    .where(eq(mcpConnections.id, connection.id));
+    .where(
+      and(
+        eq(mcpConnections.grantId, connection.grantId),
+        eq(mcpConnections.userId, userId),
+        isNull(mcpConnections.revokedAt),
+      ),
+    );
   console.log(
     JSON.stringify({
       event: 'mcp_connection_revoked',

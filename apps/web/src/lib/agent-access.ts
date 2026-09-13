@@ -43,7 +43,7 @@ export const AGENT_INSTALLS: AgentInstall[] = [
 export const AGENT_TOOLS: [name: string, description: string][] = [
   [
     'get_workspace_info',
-    'The brand, tracked competitors, prompts, and enabled AI surfaces for the workspace.',
+    'The connected workspaces and, for the selected one: brand, tracked competitors, prompts, and enabled AI surfaces.',
   ],
   [
     'get_visibility_overview',

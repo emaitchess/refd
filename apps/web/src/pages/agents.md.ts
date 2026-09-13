@@ -12,25 +12,25 @@ import { markdownResponse } from '../lib/markdown';
 
 const body = `# Build with refd: agent access
 
-> Connect an AI agent to refd's read-only MCP server. Read a brand's AI search visibility, competitors, citations, and answer evidence, scoped to one workspace.
+> Connect an AI agent to refd's read-only MCP server. Read a brand's AI search visibility, competitors, citations, and answer evidence, scoped to the workspaces the human authorizes.
 
 Canonical URL: https://refd.ai/agents
 
-refd exposes a workspace's AI search monitoring through a read-only remote MCP server at \`${MCP_ENDPOINT}\`. Connect Claude, ChatGPT, or any Model Context Protocol client and query visibility, competitors, citations, and the raw answers behind them.
+refd exposes AI search monitoring for your workspaces through a read-only remote MCP server at \`${MCP_ENDPOINT}\`. Connect Claude, ChatGPT, or any Model Context Protocol client and query visibility, competitors, citations, and the raw answers behind them.
 
 ## The connector
 
-Every connection is bound to a single workspace and is read-only. It cannot change data or start paid runs, and the owner can revoke it anytime from Settings. Web prompt-injection can, at worst, read within the one workspace the human authorized.
+Every connection is read-only and covers only the workspaces approved at consent: check any number of workspaces, or allow all so the agent also sees ones created later. It cannot change data or start paid runs, and the owner can revoke it anytime from Settings. Web prompt-injection can, at worst, read within the workspaces the human authorized.
 
 - Transport: stateless Streamable HTTP MCP at \`${MCP_ENDPOINT}\`.
-- Auth: OAuth 2.1 authorization code with PKCE, per-workspace revocable grants, \`data:read\` scope. Personal access tokens cover clients that have no browser.
+- Auth: OAuth 2.1 authorization code with PKCE, revocable grants, \`data:read\` scope. Personal access tokens (single-workspace) cover clients that have no browser.
 - Access: nine read tools plus a metric-glossary resource. No writes, no run triggers, no spend.
 
 ## Tools
 
 ${AGENT_TOOLS.map(([name, description]) => `- \`${name}\`: ${description}`).join('\n')}
 
-Call \`tools/list\` after connecting. Every tool resolves the workspace from the credential, never from arguments.
+Call \`tools/list\` after connecting. Every tool resolves the granted workspaces from the credential; an optional \`workspace\` argument only picks among them, and \`get_workspace_info\` lists the choices.
 
 ## Connect a client
 

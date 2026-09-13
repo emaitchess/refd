@@ -4,7 +4,7 @@ import type {
   GrantSummary,
   OAuthHelpers,
 } from '@cloudflare/workers-oauth-provider';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { app } from '../app';
 import { readRequestSession } from '../auth/session';
@@ -32,13 +32,18 @@ import {
 const grantMetadataSchema = z.object({
   connectionId: z.string().uuid(),
   workspaceId: z.number().int().positive(),
+  // Multi-workspace read grants: the consent-time checked set, or the
+  // all-workspace marker.
+  allWorkspaces: z.boolean().optional(),
+  workspaceIds: z.array(z.number().int().positive()).optional(),
 });
 const consentFormSchema = z.object({
   csrfToken: z.string().uuid(),
   decision: z.enum(['approve', 'deny']),
-  workspaceId: z
-    .union([z.string().regex(/^[1-9]\d*$/), z.literal('create')])
-    .optional(),
+  workspaceIds: z
+    .array(z.union([z.string().regex(/^[1-9]\d*$/), z.literal('create')]))
+    .max(100),
+  allWorkspaces: z.boolean(),
   newWorkspaceName: z.string().max(60).optional(),
   provisioningKey: z.string().uuid().optional(),
 });
@@ -46,7 +51,8 @@ export const parseConsentForm = (form: FormData | null) =>
   consentFormSchema.safeParse({
     csrfToken: form?.get('csrf_token'),
     decision: form?.get('decision'),
-    workspaceId: form?.get('workspace_id') ?? undefined,
+    workspaceIds: form ? form.getAll('workspace_id').map(String) : [],
+    allWorkspaces: form?.get('all_workspaces') === '1',
     newWorkspaceName: form?.get('new_workspace_name') ?? undefined,
     provisioningKey: form?.get('provisioning_key') ?? undefined,
   });
@@ -310,20 +316,37 @@ const listUserGrants = async (
   return grants;
 };
 
+// Prior grants of the same client are revoked when they overlap the newly
+// granted set: one connection per (client, workspace), so a grant covering a
+// workspace again never doubles up. Legacy metadata carries only the single
+// default id; dynamic all-workspace grants overlap everything.
+const overlapsGrantedWorkspaces = (
+  metadata: z.infer<typeof grantMetadataSchema>,
+  workspaceIds: number[],
+  coversAll: boolean,
+): boolean =>
+  coversAll ||
+  metadata.allWorkspaces === true ||
+  workspaceIds.includes(metadata.workspaceId) ||
+  (metadata.workspaceIds ?? []).some((id) => workspaceIds.includes(id));
+
 const revokePriorWorkspaceGrants = async (
   oauth: OAuthHelpers,
   env: AppEnv,
   userId: string,
   clientId: string,
-  workspaceId: number,
+  workspaceIds: number[],
+  coversAll: boolean,
 ): Promise<void> => {
   const grants = await listUserGrants(oauth, userId);
   const matching = grants.filter((grant) => {
+    if (grant.clientId !== clientId) {
+      return false;
+    }
     const metadata = grantMetadataSchema.safeParse(grant.metadata);
     return (
-      grant.clientId === clientId &&
       metadata.success &&
-      metadata.data.workspaceId === workspaceId
+      overlapsGrantedWorkspaces(metadata.data, workspaceIds, coversAll)
     );
   });
   for (const grant of matching) {
@@ -361,33 +384,33 @@ export const renderConsent = (
   const nonce = crypto.randomUUID();
   const action = new URL(request.url);
   const writeMode = scopes.includes(MCP_WRITE_SCOPE);
-  const workspaceRows = [
-    ...ownedWorkspaces.map(
+  const workspaceRows = ownedWorkspaces
+    .map(
       (workspace, index) => `
         <label class="workspace">
-          <input type="radio" name="workspace_id" value="${workspace.id}" ${!writeMode && index === 0 ? 'checked' : ''} required>
+          <input type="checkbox" name="workspace_id" value="${workspace.id}" ${index === 0 ? 'checked' : ''}>
           ${workspaceAvatar(workspace)}
-          <span><strong>${escapeHtml(workspace.name)}</strong><small>${workspace.onboarded ? 'Only this workspace' : 'Setup in progress'}</small></span>
+          <span><strong>${escapeHtml(workspace.name)}</strong><small>${workspace.onboarded ? (writeMode ? 'Read plus setup' : 'Read-only') : 'Setup in progress'}</small></span>
         </label>`,
-    ),
-    ...(writeMode
-      ? [
-          `
+    )
+    .join('');
+  const createWorkspaceRow = writeMode
+    ? [
+        `
         <label class="workspace">
-          <input type="radio" name="workspace_id" value="create" ${ownedWorkspaces.length === 0 ? 'checked' : ''}>
+          <input type="checkbox" name="workspace_id" value="create" ${ownedWorkspaces.length === 0 ? 'checked' : ''}>
           <span><strong>Create a new workspace with this agent</strong><small>An empty workspace is provisioned on approval</small></span>
         </label>`,
-        ]
-      : []),
-  ].join('');
+      ].join('')
+    : '';
   const name = escapeHtml(clientName(client));
   const target = escapeHtml(callbackTarget(callbackUrl) ?? 'unknown callback');
   const introCopy = writeMode
-    ? 'Approve access to one workspace. The app can read your monitored AI visibility evidence and set up a new workspace with you: it can configure tracking and start one provider-backed report, nothing more.'
-    : 'Approve read-only access to one workspace. The app receives your monitored AI visibility evidence, never account-wide access.';
+    ? 'Approve access to the workspaces you choose. Pick any number below, or allow all: the app can read your monitored AI visibility evidence and set up those workspaces with you, never account-wide access.'
+    : 'Approve read-only access to the workspaces you choose. Pick any number below, or allow all: the app receives your monitored AI visibility evidence for those workspaces, never account-wide access.';
   const permissionRows = writeMode
     ? `<div class="permission-row"><strong>Read your AI visibility data</strong><small>Visibility, citations, competitors, tracked prompts, changes, and answer evidence.</small></div>
-              <div class="permission-row"><strong>Configure tracking and start one report</strong><small>The app can set up the workspace: brand, competitors, prompts, and surfaces, and start one provider-backed onboarding report. It cannot delete data, manage billing, or start further runs.</small></div>`
+              <div class="permission-row"><strong>Configure tracking and start one report per approved workspace</strong><small>The app can set up the approved workspaces: brand, competitors, prompts, and surfaces, and start one provider-backed onboarding report per workspace. It cannot delete data, manage billing, or start further runs.</small></div>`
     : `<div class="permission-row"><strong>Read your AI visibility data</strong><small>Visibility, citations, competitors, tracked prompts, changes, and answer evidence. This app cannot change data or start paid runs.</small></div>`;
 
   return new Response(
@@ -406,6 +429,15 @@ export const renderConsent = (
 .new-name:focus{outline:none;border-color:var(--border-strong)}.workspace input{width:14px;height:14px;margin:0;accent-color:var(--primary)}.actions{display:flex;justify-content:flex-end;gap:10px;border-top:1px solid var(--border);background:var(--surface)}button.action{height:40px;border:1px solid var(--border-strong);padding:0 18px;background:var(--card);color:var(--primary);font:500 13px "Inter Variable",Inter,system-ui,sans-serif;cursor:pointer;transition:background 150ms,transform 150ms}.action:hover{background:var(--hover)}.action:active,.theme:active{transform:scale(.98)}.action.primary{border-color:var(--primary);background:var(--primary);color:var(--bg)}button:focus-visible,input:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}.foot{height:56px;display:flex;flex:none;align-items:center;justify-content:space-between;padding:0 32px;border-top:1px solid var(--border);font:10px "Departure Mono",ui-monospace,monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}@media(max-width:820px){header{height:56px;padding:0 20px}.layout{display:block}.intro{padding:64px 20px 40px;border-right:0;border-bottom:1px solid var(--border)}h1{font-size:34px}.safety{margin-top:32px}.form-shell{margin:32px 20px 64px}.foot{padding:0 20px}}@media(max-width:520px){.app-head,.form-body,.actions{padding:20px}.actions{flex-direction:column-reverse}.action{width:100%}.safety-row{grid-template-columns:76px 1fr}}
       .identity-warning{margin:0 20px;padding:14px 0;border-bottom:1px solid var(--border);color:var(--secondary);font-size:12px}.identity-warning strong{display:block;color:var(--accent);font:10px "Departure Mono",ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase}.identity-warning p{margin:6px 0 0}.identity-warning code{color:var(--primary);font:11px "Departure Mono",ui-monospace,monospace;overflow-wrap:anywhere}
       .ws-logo{width:20px;height:20px;border-radius:4px;flex:none}
+      .allow-all{position:relative;display:flex;gap:12px;align-items:flex-start;margin:0 0 12px;padding:12px 14px;border:1px solid var(--border);border-radius:6px;background:var(--hover);cursor:pointer}
+      .allow-all input{position:absolute;opacity:0;width:0;height:0}
+      .allow-all .switch{width:30px;height:18px;border-radius:9px;border:1px solid var(--border-strong);background:var(--card);position:relative;flex:none;margin-top:2px;transition:background 150ms,border-color 150ms}
+      .allow-all .switch::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--muted);transition:transform 150ms,background 150ms}
+      .allow-all input:checked~.switch{background:var(--primary);border-color:var(--primary)}
+      .allow-all input:checked~.switch::after{transform:translateX(12px);background:var(--bg)}
+      .allow-all input:focus-visible~.switch{outline:2px solid var(--primary);outline-offset:-2px}
+      .allow-all-text strong{display:block;font-weight:500}
+      .allow-all-text small{color:var(--secondary);font-size:12px}
     </style>
   </head>
   <body>
@@ -421,7 +453,7 @@ export const renderConsent = (
           <p>${escapeHtml(introCopy)}</p>
           <dl class="safety">
             <div class="safety-row"><dt>access</dt><dd>${writeMode ? 'Read plus bounded setup' : 'Read-only visibility data'}</dd></div>
-            <div class="safety-row"><dt>scope</dt><dd>One workspace per connection</dd></div>
+            <div class="safety-row"><dt>scope</dt><dd>The workspaces you check, or all of them</dd></div>
             <div class="safety-row"><dt>control</dt><dd>Revoke from Settings at any time</dd></div>
           </dl>
         </section>
@@ -431,8 +463,18 @@ export const renderConsent = (
           <div class="identity-warning"><strong>unverified app</strong><p>This app identity is self-reported and has not been verified by refd. Continue only if you started this connection. After approval, refd will return you to <code>${target}</code>.</p></div>
           <div class="form-body">
             <div class="permission">${permissionRows}</div>
-            <div class="section-label">choose a workspace</div>
-            <div class="workspaces">${workspaceRows}</div>
+            <div class="section-label">choose workspaces</div>
+            ${
+              ownedWorkspaces.length > 0
+                ? `
+            <label class="allow-all">
+              <input type="checkbox" name="all_workspaces" value="1" id="allow-all">
+              <span class="switch" aria-hidden="true"></span>
+              <span class="allow-all-text"><strong>Allow all workspaces</strong><small>This app sees every workspace on the account, including ones you create later. It always targets your default workspace: <strong>${escapeHtml(ownedWorkspaces[0]?.name ?? '')}</strong>.</small></span>
+            </label>`
+                : ''
+            }
+            <div class="workspaces">${workspaceRows}${createWorkspaceRow}</div>
             ${writeMode ? `<input class="new-name" id="new-workspace-name" type="text" name="new_workspace_name" maxlength="60" placeholder="Name for the new workspace" autocomplete="off" aria-label="New workspace name" hidden disabled>` : ''}
             <input type="hidden" name="provisioning_key" value="${crypto.randomUUID()}">
           </div>
@@ -444,7 +486,7 @@ export const renderConsent = (
       </main>
       <footer class="foot"><span>open-source AI search monitoring</span><span>OAuth 2.1</span></footer>
     </div>
-    <script nonce="${nonce}">const button=document.getElementById("theme-toggle");const setLabel=()=>{const current=document.documentElement.dataset.theme;button.textContent=current==="dark"?"light theme":"dark theme";button.setAttribute("aria-label",button.textContent)};setLabel();button.addEventListener("click",()=>{const next=document.documentElement.dataset.theme==="dark"?"light":"dark";document.documentElement.dataset.theme=next;try{localStorage.setItem("refd-theme",next)}catch{}setLabel()});const workspaceName=document.getElementById("new-workspace-name");if(workspaceName){const choices=document.querySelectorAll('input[name="workspace_id"]');const syncWorkspaceName=()=>{const creating=document.querySelector('input[name="workspace_id"]:checked')?.value==="create";workspaceName.hidden=!creating;workspaceName.disabled=!creating;workspaceName.required=creating};choices.forEach((choice)=>choice.addEventListener("change",syncWorkspaceName));syncWorkspaceName()}</script>
+    <script nonce="${nonce}">const button=document.getElementById("theme-toggle");const setLabel=()=>{const current=document.documentElement.dataset.theme;button.textContent=current==="dark"?"light theme":"dark theme";button.setAttribute("aria-label",button.textContent)};setLabel();button.addEventListener("click",()=>{const next=document.documentElement.dataset.theme==="dark"?"light":"dark";document.documentElement.dataset.theme=next;try{localStorage.setItem("refd-theme",next)}catch{}setLabel()});const allowAll=document.getElementById("allow-all");const nameBoxes=[...document.querySelectorAll('input[name="workspace_id"]')].filter((box)=>box.value!=="create");const createRow=[...document.querySelectorAll('input[name="workspace_id"]')].find((box)=>box.value==="create");if(allowAll){allowAll.addEventListener("change",()=>{nameBoxes.forEach((box)=>{box.disabled=allowAll.checked;if(allowAll.checked){box.checked=false}});if(allowAll.checked&&createRow){createRow.checked=false;createRow.disabled=true}if(createRow){createRow.disabled=allowAll.checked}})}if(createRow){createRow.addEventListener("change",()=>{if(createRow.checked){nameBoxes.forEach((box)=>{box.checked=false});if(allowAll){allowAll.checked=false}}})}nameBoxes.forEach((box)=>box.addEventListener("change",()=>{if(box.checked&&createRow){createRow.checked=false}if(box.checked&&allowAll){allowAll.checked=false}}));const workspaceName=document.getElementById("new-workspace-name");if(workspaceName){const syncWorkspaceName=()=>{const creating=createRow?.checked===true;workspaceName.hidden=!creating;workspaceName.disabled=!creating;workspaceName.required=creating};[...(createRow?[createRow]:[]),...nameBoxes].forEach((box)=>box.addEventListener("change",syncWorkspaceName));syncWorkspaceName()}</script>
   </body>
 </html>`,
     { headers: responseHeaders(csrfCookie(token), nonce, callbackUrl) },
@@ -554,10 +596,39 @@ const authorize = async (
     return errorPage(400, 'The authorization request is invalid.');
   }
 
+  const writeMode = scope.includes(MCP_WRITE_SCOPE);
+  const selection = parsed.data.workspaceIds;
   let workspaceId: number;
-  if (parsed.data.workspaceId === 'create') {
-    if (!scope.includes(MCP_WRITE_SCOPE)) {
-      return errorPage(400, 'This app cannot create a workspace.');
+  let workspaceIds: number[] | undefined;
+  let allWorkspaces = false;
+  let provisioned = false;
+  if (parsed.data.allWorkspaces) {
+    // Dynamic grant: default workspace is the consent-time first owned
+    // workspace; the set resolves at request time so future workspaces join
+    // with no re-approval.
+    const owned = await db
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(eq(workspaces.ownerUserId, user.id))
+      .orderBy(workspaces.id)
+      .limit(1);
+    if (!owned[0]) {
+      return errorPage(
+        409,
+        'Finish setting up a workspace before connecting this app.',
+      );
+    }
+    workspaceId = owned[0].id;
+    allWorkspaces = true;
+  } else if (writeMode && selection.includes('create')) {
+    // Never trust the form: provisioning is exclusive with checked ids, and
+    // creation happens only inside this CSRF-validated approval. Denial,
+    // invalid CSRF, or an exhausted entitlement creates nothing.
+    if (selection.length > 1) {
+      return errorPage(
+        400,
+        'Creating a workspace cannot combine with checked workspaces.',
+      );
     }
     const name = parsed.data.newWorkspaceName?.trim();
     if (!name) {
@@ -566,35 +637,44 @@ const authorize = async (
     if (!parsed.data.provisioningKey) {
       return errorPage(400, 'The approval expired. Restart the connection.');
     }
-    // Workspace creation happens only inside this CSRF-validated approval:
-    // denial, invalid CSRF, a read-only request, or an exhausted entitlement
-    // creates nothing.
-    const provisioned = await provisionWorkspace(
+    const created = await provisionWorkspace(
       env,
       { id: user.id, email: user.email },
       name,
       parsed.data.provisioningKey,
     );
-    if (!provisioned.ok) {
-      return errorPage(409, provisioned.error);
+    if (!created.ok) {
+      return errorPage(409, created.error);
     }
-    workspaceId = provisioned.id;
+    workspaceId = created.id;
+    provisioned = true;
   } else {
-    if (!parsed.data.workspaceId) {
-      return errorPage(400, 'Choose a workspace.');
+    // Never trust checked ids from the form: intersect with owned workspaces.
+    const checked = [
+      ...new Set(selection.filter((value) => value !== 'create').map(Number)),
+    ];
+    if (checked.length === 0) {
+      return errorPage(400, 'Choose at least one workspace.');
     }
-    const id = Number(parsed.data.workspaceId);
-    const workspace = (
-      await db
-        .select({ id: workspaces.id })
-        .from(workspaces)
-        .where(and(eq(workspaces.id, id), eq(workspaces.ownerUserId, user.id)))
-        .limit(1)
-    )[0];
-    if (!workspace) {
-      return errorPage(404, 'Workspace not found.');
+    const owned = await db
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(
+        and(
+          eq(workspaces.ownerUserId, user.id),
+          inArray(workspaces.id, checked),
+        ),
+      )
+      .orderBy(workspaces.id);
+    if (owned.length === 0) {
+      return errorPage(400, 'Choose at least one workspace.');
     }
-    workspaceId = workspace.id;
+    workspaceIds = owned.map((workspace) => workspace.id);
+    const first = workspaceIds[0];
+    if (first === undefined) {
+      return errorPage(400, 'Choose at least one workspace.');
+    }
+    workspaceId = first;
   }
   const oauthUserId = String(user.id);
   await revokePriorWorkspaceGrants(
@@ -602,7 +682,8 @@ const authorize = async (
     env,
     oauthUserId,
     client.clientId,
-    workspaceId,
+    workspaceIds ?? [workspaceId],
+    allWorkspaces,
   );
 
   const connectionId = crypto.randomUUID();
@@ -610,7 +691,12 @@ const authorize = async (
   const { redirectTo } = await oauth.completeAuthorization({
     request: boundRequest,
     userId: oauthUserId,
-    metadata: { connectionId, workspaceId },
+    metadata: {
+      connectionId,
+      workspaceId,
+      ...(workspaceIds ? { workspaceIds } : {}),
+      ...(allWorkspaces ? { allWorkspaces: true } : {}),
+    },
     scope,
     props: {
       callbackTarget: redirectTarget,
@@ -619,6 +705,8 @@ const authorize = async (
       scopes: scope,
       userId: user.id,
       workspaceId,
+      ...(workspaceIds ? { workspaceIds } : {}),
+      ...(allWorkspaces ? { allWorkspaces: true } : {}),
     },
     revokeExistingGrants: false,
   });
@@ -627,9 +715,10 @@ const authorize = async (
       event: 'mcp_authorization_approved',
       clientId: client.clientId,
       userId: user.id,
-      workspaceId,
+      allWorkspaces,
+      workspaceIds: workspaceIds ?? [workspaceId],
       scopes: scope,
-      provisioned: parsed.data.workspaceId === 'create',
+      provisioned,
     }),
   );
   return redirect(redirectTo, clearCsrfCookie());

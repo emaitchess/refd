@@ -106,9 +106,16 @@ export const mcpConnections = sqliteTable(
     id: integer('id').primaryKey({ autoIncrement: true }),
     grantId: text('grant_id').notNull(),
     connectionKey: text('connection_key').notNull(),
+    // One row per (grant, workspace): a multi-workspace read grant mirrors one
+    // row per checked workspace; a write or single-workspace grant mirrors one.
     workspaceId: integer('workspace_id')
       .notNull()
       .references(() => workspaces.id),
+    // All-workspace read grants resolve the owner's workspaces at request
+    // time; this row pins the consent-time default and carries the marker.
+    allWorkspaces: integer('all_workspaces', { mode: 'boolean' })
+      .notNull()
+      .default(false),
     userId: integer('user_id')
       .notNull()
       .references(() => users.id),
@@ -124,8 +131,8 @@ export const mcpConnections = sqliteTable(
     revokedAt: integer('revoked_at', { mode: 'number' }),
   },
   (t) => [
-    uniqueIndex('mcp_connections_grant_unique').on(t.grantId),
-    uniqueIndex('mcp_connections_key_unique').on(t.connectionKey),
+    uniqueIndex('mcp_connections_grant_unique').on(t.grantId, t.workspaceId),
+    index('mcp_connections_key_idx').on(t.connectionKey),
     index('mcp_connections_ws_idx').on(t.workspaceId),
   ],
 );
