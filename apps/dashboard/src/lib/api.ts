@@ -85,21 +85,38 @@ export const api = async <T>(path: string, init?: RequestInit): Promise<T> => {
 // chat when needed), then the socket watches it: everything that has already
 // happened replays first (steps, prose so far, or the terminal done/error),
 // then live events arrive until the exchange ends. Same event shapes the old
-// SSE frames carried, so rendering is unchanged. Resolves with the chat id
-// immediately after the POST, so a caller that detaches mid-stream (stop
-// button) still knows which thread to poll. Aborting detaches the watcher
-// only: the server exchange keeps running and stores its pair when done.
+// SSE frames carried, so rendering is unchanged.
+export interface ExchangeOutcome {
+  chatId: number;
+  // The terminal done frame, when the socket carried one.
+  done: Record<string, unknown> | null;
+  // Terminal exchange error the server reported, when it did.
+  failure: string | null;
+  // True when the watcher detached without a terminal frame: user abort, a
+  // socket that closed early, or one that never opened (the CSP failure
+  // mode). The exchange keeps running server-side and its pair lands in D1,
+  // so the caller polls instead of treating this as an error.
+  detached: boolean;
+  // The persisted question's row id, for the post-detach poll.
+  questionId: number | null;
+}
+
 export const apiExchange = async (
   path: string,
   body: unknown,
   onEvent: (event: Record<string, unknown>) => void,
   opts?: { signal?: AbortSignal },
-): Promise<number> => {
-  const started = await api<{ chatId: number }>(path, {
+): Promise<ExchangeOutcome> => {
+  const started = await api<{
+    chatId: number;
+    question?: { id?: number };
+  }>(path, {
     method: 'POST',
     body: JSON.stringify(body),
   });
   const chatId = started.chatId;
+  const questionId =
+    typeof started.question?.id === 'number' ? started.question.id : null;
   // Same-site subdomains, so the session cookie rides the upgrade exactly
   // like it rides the credentialed POSTs.
   const target = apiPath(`/chat/${chatId}/exchange`);
@@ -107,14 +124,20 @@ export const apiExchange = async (
     ? target.replace(/^http/, 'ws')
     : `${window.location.origin.replace(/^http/, 'ws')}${target}`;
   const socket = new WebSocket(url);
-  return new Promise<number>((resolve, reject) => {
+  const blank: ExchangeOutcome = {
+    chatId,
+    done: null,
+    failure: null,
+    detached: false,
+    questionId,
+  };
+  return new Promise<ExchangeOutcome>((resolve) => {
     // Held in an object because tsc narrows a let to its initial literal
     // when every write happens inside a closure.
-    const outcome: { failure: string | null; done: boolean; settled: boolean } =
-      { failure: null, done: false, settled: false };
+    const settled = { value: false };
     const settle = (fn: () => void) => {
-      if (!outcome.settled) {
-        outcome.settled = true;
+      if (!settled.value) {
+        settled.value = true;
         fn();
       }
     };
@@ -123,7 +146,7 @@ export const apiExchange = async (
       () => {
         socket.onclose = null;
         socket.close();
-        settle(() => resolve(chatId));
+        settle(() => resolve({ ...blank, detached: true }));
       },
       { once: true },
     );
@@ -136,26 +159,16 @@ export const apiExchange = async (
       }
       onEvent(event);
       if (event.type === 'done') {
-        outcome.done = true;
-        settle(() => resolve(chatId));
+        settle(() => resolve({ ...blank, done: event }));
       } else if (event.type === 'error' && typeof event.message === 'string') {
-        outcome.failure = event.message;
-        settle(() => reject(new ApiError(500, outcome.failure ?? 'failed')));
+        const failure = event.message;
+        settle(() => resolve({ ...blank, failure }));
       }
     };
     socket.onclose = () => {
-      settle(() => {
-        if (outcome.done) {
-          resolve(chatId);
-        } else {
-          reject(
-            new ApiError(
-              500,
-              outcome.failure ?? 'the answer stream ended unexpectedly',
-            ),
-          );
-        }
-      });
+      // A close without a terminal frame: the socket died early or never
+      // opened. The exchange keeps running server-side.
+      settle(() => resolve({ ...blank, detached: true }));
     };
     socket.onerror = () => {
       // A close event follows; the close handler settles the outcome.

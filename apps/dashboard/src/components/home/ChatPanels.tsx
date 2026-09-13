@@ -35,14 +35,17 @@ const dist = (v: unknown): SentimentDist => {
 
 const PanelFrame = ({
   label,
+  windowLabel,
   children,
 }: {
   label: string;
+  windowLabel?: string;
   children: React.ReactNode;
 }) => (
   <div className="overflow-hidden border border-border bg-bg-card">
     <p className="section-label border-border border-b bg-bg-elevated px-3 py-2">
       {label}
+      {windowLabel ? ` · ${windowLabel}` : ''}
     </p>
     <div className="overflow-x-auto p-3">{children}</div>
   </div>
@@ -120,7 +123,7 @@ const renderPanel = (
       return null;
     }
     return (
-      <PanelFrame label={`overview · ${windowLabel}`}>
+      <PanelFrame label="overview" windowLabel={windowLabel}>
         <StatRow
           items={[
             ['mention rate', pct(num(d.mentionRate))],
@@ -139,7 +142,7 @@ const renderPanel = (
       return null;
     }
     return (
-      <PanelFrame label="by surface">
+      <PanelFrame label="by surface" windowLabel={windowLabel}>
         <MiniTable
           head={['surface', 'mentioned', 'cited', 'position']}
           rows={rows.map((s) => [
@@ -158,7 +161,7 @@ const renderPanel = (
       return null;
     }
     return (
-      <PanelFrame label="you vs competitors">
+      <PanelFrame label="you vs competitors" windowLabel={windowLabel}>
         <MiniTable
           head={['entity', 'mentioned', 'SOV', 'position', 'sentiment']}
           rows={rows.map((e) => [
@@ -179,7 +182,7 @@ const renderPanel = (
     }
     const total = d.positive + d.neutral + d.negative;
     return (
-      <PanelFrame label="brand sentiment">
+      <PanelFrame label="brand sentiment" windowLabel={windowLabel}>
         <StatRow
           items={[
             ['positive', pct(total ? d.positive / total : null)],
@@ -199,7 +202,7 @@ const renderPanel = (
       return null;
     }
     return (
-      <PanelFrame label="sources">
+      <PanelFrame label="sources" windowLabel={windowLabel}>
         <div className="grid gap-4 sm:grid-cols-2">
           {top.length > 0 ? (
             <MiniTable
@@ -231,7 +234,7 @@ const renderPanel = (
       return null;
     }
     return (
-      <PanelFrame label="coverage">
+      <PanelFrame label="coverage" windowLabel={windowLabel}>
         <div className="flex flex-col gap-1 font-mono text-[12px] text-secondary">
           {aio ? (
             <p>
@@ -273,7 +276,7 @@ const renderPanel = (
       return null;
     }
     return (
-      <PanelFrame label="prompts">
+      <PanelFrame label="prompts" windowLabel={windowLabel}>
         <div className="grid gap-4 sm:grid-cols-2">
           {top.length > 0 ? (
             <MiniTable
@@ -297,7 +300,7 @@ const renderPanel = (
       return null;
     }
     return (
-      <PanelFrame label="recent runs">
+      <PanelFrame label="recent runs" windowLabel={windowLabel}>
         <MiniTable
           head={['run', 'answers', 'brand mentioned']}
           rows={rows.map((r) => [

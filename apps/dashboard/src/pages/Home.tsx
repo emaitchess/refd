@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import remarkGfm from 'remark-gfm';
@@ -149,6 +149,7 @@ const ChatSteps = ({
   compact?: boolean;
 }) => {
   const [open, setOpen] = useState(false);
+  const traceId = useId();
   if (!steps || steps.length === 0) {
     return null;
   }
@@ -165,8 +166,10 @@ const ChatSteps = ({
   }
   const list = (
     <ol className="flex flex-col gap-1 border-border border-l pl-3">
-      {steps.map((step) => (
-        <li key={step.label} className="font-mono text-[11px] text-muted">
+      {steps.map((step, index) => (
+        // Repeated labels are normal (repeated aggregate calls), so key by
+        // position: the list is append-only or stored-static.
+        <li key={index} className="font-mono text-[11px] text-muted">
           <span className="text-secondary">{step.label}</span>
           {step.detail ? <span> · {step.detail}</span> : null}
         </li>
@@ -181,13 +184,19 @@ const ChatSteps = ({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="font-mono text-[10px] text-muted uppercase tracking-[0.08em] transition-colors hover:text-primary"
+        aria-expanded={open}
+        aria-controls={traceId}
+        className="inline-flex min-h-8 items-center px-1 font-mono text-[10px] text-muted uppercase tracking-[0.08em] transition-colors hover:text-primary"
       >
         {open
           ? 'hide work'
           : `worked for ${durationMs != null ? (durationMs / 1000).toFixed(1) : '?'}s · ${steps.length} steps`}
       </button>
-      {open ? <div className="mt-2">{list}</div> : null}
+      {open ? (
+        <div id={traceId} className="mt-2">
+          {list}
+        </div>
+      ) : null}
     </div>
   );
 };
@@ -292,7 +301,7 @@ const AssistantMessage = ({
             type="button"
             onClick={copy}
             aria-label={copied ? 'Answer copied' : 'Copy answer'}
-            className="flex items-center gap-1 font-mono text-[10px] text-muted transition-colors hover:text-primary"
+            className="-my-2 flex min-h-8 items-center gap-1 px-1 font-mono text-[10px] text-muted transition-colors hover:text-primary"
           >
             <DitherIcon name={copied ? 'check' : 'copy'} size={10} />
             {copied ? 'copied' : 'copy'}
@@ -438,9 +447,12 @@ export const Home = () => {
     });
   }, [chatId, loadedId, runOpen, setDetached]);
 
-  // After a stop the exchange keeps running server-side; poll until the
-  // stored pair lands in D1, then refill the thread with the real answer.
-  const pollForStoredPair = (id: number) => {
+  // After a detach (stop, or a dropped socket) the exchange keeps running
+  // server-side; poll until the stored pair lands in D1, then refill the
+  // thread with the real answer. Only an assistant row written after this
+  // exchange's question counts: any older assistant row is a previous turn.
+  // 35 x 10s clears the server's 5-minute exchange alarm.
+  const pollForStoredPair = (id: number, questionId: number | null) => {
     const token = ++pollTokenRef.current;
     let attempt = 0;
     const next = () => {
@@ -452,8 +464,12 @@ export const Home = () => {
           if (pollTokenRef.current !== token) {
             return;
           }
-          const answered = res.messages.some((m) => m.role === 'assistant');
-          if (!answered && attempt < 12) {
+          const answered = res.messages.some(
+            (m) =>
+              m.role === 'assistant' &&
+              (questionId === null || m.id > questionId),
+          );
+          if (!answered && attempt < 35) {
             window.setTimeout(next, 10_000);
             return;
           }
@@ -507,13 +523,7 @@ export const Home = () => {
     void run(async () => {
       try {
         const path = chatId === null ? '/chat' : `/chat/${chatId}/messages`;
-        // Held in an object because tsc narrows a let to its initial literal
-        // when every write happens inside a closure.
-        const stream: {
-          done: Record<string, unknown> | null;
-          error: string | null;
-        } = { done: null, error: null };
-        const exchangeChatId = await apiExchange(
+        const outcome = await apiExchange(
           path,
           { message: text },
           (event) => {
@@ -537,34 +547,31 @@ export const Home = () => {
               setLive((cur) =>
                 cur ? { ...cur, content: cur.content + delta } : cur,
               );
-            } else if (event.type === 'done') {
-              stream.done = event;
-            } else if (
-              event.type === 'error' &&
-              typeof event.message === 'string'
-            ) {
-              stream.error = event.message;
             }
           },
           { signal: controller.signal },
         );
-        if (stream.error !== null) {
-          throw new ApiError(500, stream.error);
+        if (outcome.failure !== null) {
+          throw new ApiError(500, outcome.failure);
         }
-        if (controller.signal.aborted) {
-          // Detached watcher, running exchange: the user bubble is real (the
-          // POST succeeded), so keep it and poll for the stored pair instead
-          // of rolling it back.
-          setDetached(exchangeChatId);
-          if (chatId === null) {
-            setLoadedId(exchangeChatId);
-            navigate(`/home/${exchangeChatId}`, { replace: true });
+        if (outcome.detached) {
+          const id = outcome.chatId || chatId;
+          if (id === null) {
+            throw new ApiError(500, 'the answer stream ended unexpectedly');
           }
-          pollForStoredPair(exchangeChatId);
+          // The question was already persisted server-side, so keep the user
+          // bubble and land the stored pair by polling. Rolling the input
+          // back would invite a duplicate question.
+          setDetached(id);
+          if (chatId === null) {
+            setLoadedId(id);
+            navigate(`/home/${id}`, { replace: true });
+          }
+          pollForStoredPair(id, outcome.questionId);
           listQ.refetch();
           return;
         }
-        const parsed = doneFrame.safeParse(stream.done);
+        const parsed = doneFrame.safeParse(outcome.done);
         if (!parsed.success) {
           throw new ApiError(
             500,
@@ -572,7 +579,7 @@ export const Home = () => {
           );
         }
         const finished = parsed.data;
-        const answerId = finished.chatId || exchangeChatId;
+        const answerId = finished.chatId || outcome.chatId;
         const answerText = finished.messages.at(-1)?.content ?? '';
         setAnnounce(`answer ready: ${answerText.slice(0, 120)}`);
         if (chatId === null) {
@@ -688,18 +695,18 @@ export const Home = () => {
         className="w-full resize-none bg-transparent px-4 pt-3 text-[14px] text-primary outline-none placeholder:text-muted"
       />
       <div className="flex items-center justify-between gap-3 px-3 pb-2.5">
-        <span className="min-w-0 truncate font-mono text-[10px] text-muted uppercase tracking-[0.08em]">
-          workspace data only · last 30 days unless you name a range
+        <span className="min-w-0 font-mono text-[10px] text-muted uppercase tracking-[0.08em]">
+          your data plus web research · last 30 days unless you name a range
           {input.length > 800 ? ` · ${1000 - input.length} left` : ''}
         </span>
         {busy ? (
           <button
             type="button"
             onClick={stop}
-            aria-label="Stop answering"
+            aria-label="Stop watching (the server keeps answering)"
             className="btn-secondary h-8 shrink-0 px-3 font-mono text-[12px]"
           >
-            stop
+            stop watching
           </button>
         ) : (
           <button
@@ -764,7 +771,7 @@ export const Home = () => {
           <section>
             <SectionLabel>recent conversations</SectionLabel>
             <ul className="mt-2 border border-border bg-bg-card">
-              {recentChats.slice(0, 8).map((chat) => (
+              {recentChats.slice(0, 20).map((chat) => (
                 <li
                   key={chat.id}
                   className={cn(
