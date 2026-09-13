@@ -487,10 +487,11 @@ export const runExchange = async (
   const tools = availableTools(hasWebSearch);
   const toolDefs = tools.map(toolDefinition);
   const allSources: WebResult[] = [];
-  // URLs already carrying an S-number this exchange. Tools filter against it
-  // before numbering their own results, so the numbers they promise the model
-  // stay aligned with what actually gets registered here.
-  const knownSourceUrls = new Set<string>();
+  // Sources already registered this exchange, as URL to its 1-based S-number.
+  // Tools filter against it before numbering their own results and state the
+  // number in their output, so what the model cites always matches what is
+  // actually registered here.
+  const knownSourceUrls = new Map<string, number>();
   const seenCalls = new Set<string>();
   const toolMessages: unknown[] = [];
   let spent = 0;
@@ -579,8 +580,8 @@ export const runExchange = async (
       if (outcome.sources) {
         for (const source of outcome.sources) {
           if (!knownSourceUrls.has(source.url)) {
-            knownSourceUrls.add(source.url);
             allSources.push(source);
+            knownSourceUrls.set(source.url, allSources.length);
           }
         }
       }

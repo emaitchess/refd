@@ -16,7 +16,6 @@ import {
   type SQL,
   sql,
 } from 'drizzle-orm';
-import { getDomain } from 'tldts';
 import { type Db, getDb } from '../db/client';
 import {
   citations,
@@ -32,6 +31,7 @@ import { gunzipJson } from '../ingest/storage';
 import { searchWeb, type WebResult } from '../lib/exa';
 import { rangeLabel } from '../lib/range';
 import { fetchPageMarkdown } from '../lib/site-fetch';
+import { matchesDomainEntry } from '../lib/urls';
 import { buildDigest } from './digest';
 import {
   answerCount,
@@ -171,7 +171,7 @@ const runSearchWeb = async (
   env: AppEnv,
   args: unknown,
   sourceOffset: number,
-  knownSourceUrls: Set<string>,
+  knownSourceUrls: Map<string, number>,
 ): Promise<ToolOutcome> => {
   const parsed = searchArgs.safeParse(args);
   if (!parsed.success) {
@@ -884,16 +884,17 @@ const runGetCitations = async (
 
 // The allowlist IS the security boundary: a URL is fetchable only over
 // http(s), and only when it is already stored in this workspace's citations or
-// its registrable domain is one of the brand entity's tracked domains (the
-// agent must be able to read the brand's own robots.txt / llms.txt even
-// before anything cites it). Tracked domains are owner-configured apex
-// domains, so a fetched page can never wander into arbitrary territory.
+// its host matches one of the brand entity's tracked domains (the agent must
+// be able to read the brand's own robots.txt / llms.txt even before anything
+// cites it). Tracked domains are owner-configured, so a fetched page can never
+// wander into arbitrary territory.
 const runFetchUrl = async (
   env: AppEnv,
   db: Db,
   workspaceId: number,
   args: unknown,
-  knownSourceUrls: Set<string>,
+  sourceOffset: number,
+  knownSourceUrls: Map<string, number>,
 ): Promise<ToolOutcome> => {
   const parsed = fetchUrlArgs.safeParse(args);
   if (!parsed.success) {
@@ -935,10 +936,12 @@ const runFetchUrl = async (
       .limit(1)
   )[0];
   if (!stored) {
-    const registrable = getDomain(parsedUrl.hostname)?.toLowerCase() ?? '';
     const { brand } = await loadEntitiesWithBrand(db, workspaceId);
-    const onBrandDomain = (brand?.domains ?? []).some(
-      (domain) => domain.toLowerCase() === registrable,
+    // Entries are apex or specific host; matching uses the same host-suffix
+    // rule as scoring attribution, so both entry kinds work and nothing else
+    // does.
+    const onBrandDomain = (brand?.domains ?? []).some((domain) =>
+      matchesDomainEntry(parsedUrl.hostname, domain),
     );
     if (!onBrandDomain) {
       return {
@@ -963,6 +966,10 @@ const runFetchUrl = async (
   }
   const PAGE_MAX = 10000;
   const clipped = markdown.slice(0, PAGE_MAX);
+  // The page's S-number must be visible to the model: a citation is strictly
+  // numeric, so a source the model cannot number is a source it cannot cite.
+  const known = knownSourceUrls.get(url) ?? knownSourceUrls.get(alt);
+  const num = known ?? sourceOffset + 1;
   return {
     label: 'fetched a page',
     detail: parsedUrl.host,
@@ -971,12 +978,12 @@ const runFetchUrl = async (
       `URL: ${url}\n${clipped}` +
       (markdown.length > PAGE_MAX
         ? '\n(content truncated at 10000 characters)'
-        : ''),
-    // The fetched page becomes a citable source, unless it already carries an
-    // S-number from an earlier search or fetch.
-    sources: knownSourceUrls.has(url)
-      ? undefined
-      : [{ title: parsedUrl.host, url, snippet: '' }],
+        : '') +
+      `\n(this page is ${known === undefined ? 'registered as' : 'already registered as'} citable source S${num}; cite it as (S${num}) if the answer uses it)`,
+    sources:
+      known === undefined
+        ? [{ title: parsedUrl.host, url, snippet: '' }]
+        : undefined,
   };
 };
 
@@ -986,10 +993,11 @@ export const executeTool = async (
   name: string,
   args: unknown,
   sourceOffset: number,
-  // Source URLs already registered this exchange, so tools can avoid
-  // re-registering and keep their S-numbering aligned with what the caller
-  // actually keeps. Defaults to empty for callers that register nothing.
-  knownSourceUrls: Set<string> = new Set(),
+  // Sources already registered this exchange, as URL to 1-based S-number, so
+  // tools can avoid re-registering, keep their S-numbering aligned with what
+  // the caller actually keeps, and tell the model the number to cite.
+  // Defaults to empty for callers that register nothing.
+  knownSourceUrls: Map<string, number> = new Map(),
 ): Promise<ToolOutcome> => {
   const db = getDb(env);
   try {
@@ -1018,7 +1026,14 @@ export const executeTool = async (
       return await runGetCitations(db, workspaceId, args);
     }
     if (name === 'fetch_url') {
-      return await runFetchUrl(env, db, workspaceId, args, knownSourceUrls);
+      return await runFetchUrl(
+        env,
+        db,
+        workspaceId,
+        args,
+        sourceOffset,
+        knownSourceUrls,
+      );
     }
     if (name === 'get_digest') {
       return await runGetDigest(db, workspaceId, args);
