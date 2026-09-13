@@ -241,7 +241,7 @@ chatRoutes.post('/:id/messages', async (c) => {
     withTitle: false,
     receivedAt,
   });
-  return c.json({ ok: true, question });
+  return c.json({ ok: true, chatId: id, question });
 });
 
 // Confirmation gate for agent write proposals. Applying re-validates
