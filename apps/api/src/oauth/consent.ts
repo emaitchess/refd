@@ -368,6 +368,51 @@ const denyRedirect = (request: AuthRequest): Response => {
   return redirect(location.toString(), clearCsrfCookie());
 };
 
+// An acted-upon authorization request must never re-open its consent form:
+// approvals and denials mark the request consumed, keyed by a fingerprint of
+// the protocol fields (state and code challenge make every attempt unique).
+// Markers persist rather than expire: a stale link stays dead instead of
+// resurrecting consent days later, and volume is bounded by consent posts.
+export const authRequestFingerprint = async (authRequest: {
+  clientId: string;
+  redirectUri: string;
+  state: string;
+  scope: string[];
+  codeChallenge?: string;
+  resource?: string | string[];
+}): Promise<string> => {
+  const identity = JSON.stringify([
+    authRequest.clientId,
+    authRequest.redirectUri,
+    authRequest.state,
+    authRequest.scope,
+    authRequest.codeChallenge ?? null,
+    authRequest.resource ?? null,
+  ]);
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(identity),
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+};
+
+const consumedAuthKey = (fingerprint: string): string =>
+  `auth_consumed:${fingerprint}`;
+
+export const isAuthRequestConsumed = async (
+  env: AppEnv,
+  fingerprint: string,
+): Promise<boolean> =>
+  (await env.OAUTH_KV.get(consumedAuthKey(fingerprint))) !== null;
+
+const markAuthRequestConsumed = (
+  env: AppEnv,
+  fingerprint: string,
+): Promise<void> =>
+  env.OAUTH_KV.put(consumedAuthKey(fingerprint), new Date().toISOString());
+
 export const renderConsent = (
   request: Request,
   client: ClientInfo,
@@ -513,6 +558,13 @@ const authorize = async (
   if (!client) {
     return errorPage(400, 'The requesting app is not registered.');
   }
+  const fingerprint = await authRequestFingerprint(authRequest);
+  if (await isAuthRequestConsumed(env, fingerprint)) {
+    return errorPage(
+      409,
+      'This authorization link was already used and has expired. Start a new connection from your app.',
+    );
+  }
   const redirectTarget = callbackTarget(authRequest.redirectUri);
   if (!redirectTarget) {
     return errorPage(400, 'The app requested an insecure callback.');
@@ -581,6 +633,7 @@ const authorize = async (
     return errorPage(400, 'The approval expired. Restart the connection.');
   }
   if (parsed.data.decision === 'deny') {
+    await markAuthRequestConsumed(env, fingerprint);
     console.log(
       JSON.stringify({
         event: 'mcp_authorization_denied',
@@ -710,6 +763,7 @@ const authorize = async (
     },
     revokeExistingGrants: false,
   });
+  await markAuthRequestConsumed(env, fingerprint);
   console.log(
     JSON.stringify({
       event: 'mcp_authorization_approved',

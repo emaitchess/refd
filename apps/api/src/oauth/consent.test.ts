@@ -2,12 +2,64 @@ import { describe, expect, test } from 'bun:test';
 import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
 import type { AppEnv } from '../env';
 import {
+  authRequestFingerprint,
   handleOAuthDefault,
+  isAuthRequestConsumed,
   oauthAuthorizationErrorResponse,
   parseConsentForm,
   renderConsent,
 } from './consent';
 import { MCP_SCOPE, MCP_WRITE_SCOPE } from './constants';
+
+// Minimal KVNamespace stub: enough surface for the consumption marker.
+const kvStub = () => {
+  const store = new Map<string, string>();
+  return {
+    get: async (key: string) => store.get(key) ?? null,
+    put: async (key: string, value: string) => {
+      store.set(key, value);
+    },
+  } as unknown as KVNamespace;
+};
+
+describe('authorization request consumption', () => {
+  test('fingerprints are deterministic per request and unique per attempt', async () => {
+    const base = {
+      clientId: 'test-client',
+      redirectUri: 'http://127.0.0.1:19876/mcp/oauth/callback',
+      state: 'fe24f1de',
+      scope: [MCP_SCOPE, MCP_WRITE_SCOPE],
+      codeChallenge: 'RpGryYsTIQITuOlawIS0OqnUZLwIURDO5h7KsEvwa5o',
+    };
+    const first = await authRequestFingerprint(base);
+    const repeat = await authRequestFingerprint({ ...base });
+    const otherAttempt = await authRequestFingerprint({
+      ...base,
+      state: 'ff00aa11',
+    });
+
+    expect(first).toBe(repeat);
+    expect(first).not.toBe(otherAttempt);
+    expect(first).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test('a marked request reads as consumed; an unmarked one does not', async () => {
+    const env = { OAUTH_KV: kvStub() } as unknown as AppEnv;
+    const fingerprint = await authRequestFingerprint({
+      clientId: 'test-client',
+      redirectUri: 'http://127.0.0.1:19876/mcp/oauth/callback',
+      state: 'acted-on',
+      scope: [MCP_SCOPE],
+    });
+
+    expect(await isAuthRequestConsumed(env, fingerprint)).toBeFalse();
+    await env.OAUTH_KV.put(
+      `auth_consumed:${fingerprint}`,
+      new Date().toISOString(),
+    );
+    expect(await isAuthRequestConsumed(env, fingerprint)).toBeTrue();
+  });
+});
 
 describe('OAuth consent', () => {
   test('parses the fields required to provision a workspace', () => {
