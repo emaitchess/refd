@@ -5,7 +5,7 @@ import type { AppEnv } from '../env';
 
 const COOKIE_NAME = 'refd_session';
 const ALG = 'HS256';
-export const SESSION_SECONDS = 24 * 60 * 60; // 24h per plan
+export const SESSION_SECONDS = 7 * 24 * 60 * 60; // 7d per plan
 const RENEW_BELOW_SECONDS = SESSION_SECONDS / 2; // sliding renewal past half-life
 
 export interface SessionClaims {
