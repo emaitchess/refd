@@ -106,7 +106,7 @@ your browser and do not provide authentication.
 
 The `refd_session` cookie is strictly necessary for hosted sign-in. It is
 HTTP-only, secure, host-only to the API, uses `SameSite=Strict`, and expires
-after 24 hours with sliding renewal while the account remains active.
+after 7 days with sliding renewal while the account remains active.
 
 ## How we use information
 

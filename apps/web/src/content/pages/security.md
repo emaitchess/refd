@@ -56,7 +56,7 @@ Successful authentication creates a signed session token in a cookie that is:
 - Secure, so the browser sends it only over HTTPS.
 - Host-only to the API origin.
 - `SameSite=Strict`.
-- Limited to a 24-hour session with sliding renewal while the account remains
+- Limited to a 7-day session with sliding renewal while the account remains
   active.
 
 Login attempts are rate-limited. Password changes and account-security actions
