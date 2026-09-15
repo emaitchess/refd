@@ -754,9 +754,12 @@ export const registerSetupTools = (
           ok: true,
           revoked: {
             clientId: revoked.clientId,
-            workspacesCovered: revoked.workspaceIds,
+            coverage: revoked.coverage,
           },
-          note: 'Every token issued under this grant is now dead and the connection no longer accesses any workspace. Reconnect by re-running the OAuth authorize flow from your MCP client.',
+          note:
+            revoked.coverage.kind === 'allow-all'
+              ? 'Every token issued under this grant is now dead; the Allow-all grant reached every workspace the account owned at revocation time. Reconnect by re-running the OAuth authorize flow from your MCP client.'
+              : 'Every token issued under this grant is now dead and the connection no longer accesses any workspace. Reconnect by re-running the OAuth authorize flow from your MCP client.',
         });
       } catch (error) {
         console.error(
