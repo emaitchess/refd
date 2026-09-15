@@ -182,14 +182,23 @@ export const checkProgress = async (
 // connections that fail these downloads. A JSON array (BrightData's other
 // format) is still tolerated by buffering it whole, so a format change can't
 // silently empty a snapshot.
+//
+// The pending body is buffered as raw bytes and never accumulated as a JS
+// string. workerd flattens the accumulated string on every `+=`/`indexOf`, so
+// the previous text-buffered reader was quadratic in the length of an
+// unterminated line: AI Mode ships records as a single multi-MB line (an 11MB
+// one was observed in prod), and reads burned seconds of CPU per attempt,
+// repeatedly killing ingest invocations at the CPU limit. Newline search runs
+// on raw bytes (0x0A never occurs inside a multi-byte UTF-8 sequence) and only
+// a completed line is decoded, whole, exactly once — its bytes are complete
+// UTF-8 even when chunks split characters mid-line.
 export const readSnapshotRecords = async (
   body: ReadableStream<Uint8Array>,
 ): Promise<Record<string, unknown>[]> => {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   const records: Record<string, unknown>[] = [];
-  let buffer = '';
-  let mode: 'unknown' | 'ndjson' | 'array' = 'unknown';
+  const NEWLINE = 10;
 
   const pushLine = (line: string): void => {
     const trimmed = line.trim();
@@ -202,43 +211,113 @@ export const readSnapshotRecords = async (
     }
   };
 
+  // Bytes of the incomplete current line (ndjson) or of the whole body (array
+  // mode). Pieces are kept separate until a line completes.
+  let pending: Uint8Array[] = [];
+  // Index of the piece and offset within it already searched for newlines.
+  let scannedPiece = 0;
+  let scannedOffset = 0;
+  let arrayMode: boolean | null = null;
+
+  const joined = (upToPiece: number, upToOffset: number): Uint8Array => {
+    const last = pending[upToPiece];
+    if (!last) {
+      return new Uint8Array(0);
+    }
+    const parts = pending.slice(0, upToPiece);
+    parts.push(last.subarray(0, upToOffset));
+    let total = 0;
+    for (const part of parts) {
+      total += part.length;
+    }
+    const out = new Uint8Array(total);
+    let at = 0;
+    for (const part of parts) {
+      out.set(part, at);
+      at += part.length;
+    }
+    return out;
+  };
+
+  const drainLines = (): void => {
+    let piece = scannedPiece;
+    let offset = scannedOffset;
+    for (;;) {
+      while (piece < pending.length) {
+        const scan = pending[piece];
+        if (!scan) {
+          break;
+        }
+        const found = scan.indexOf(NEWLINE, offset);
+        if (found === -1) {
+          piece += 1;
+          offset = 0;
+          continue;
+        }
+        pushLine(decoder.decode(joined(piece, found)));
+        pending = [scan.subarray(found + 1)];
+        piece = 0;
+        offset = 0;
+      }
+      // Everything in `pending` is newline-free; resume from the end next time.
+      scannedPiece = piece;
+      scannedOffset = offset;
+      return;
+    }
+  };
+
+  const firstNonWhitespace = (): number | null => {
+    for (const piece of pending) {
+      for (const byte of piece) {
+        if (byte !== 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0d) {
+          return byte;
+        }
+      }
+    }
+    return null;
+  };
+
   for (;;) {
     const { done, value } = await reader.read();
-    // { stream: true } holds back a trailing partial multi-byte char; the
-    // argless flush at end-of-stream emits it.
-    buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
-    // The first non-whitespace byte disambiguates: '[' is a JSON array (buffer
-    // it whole), anything else is NDJSON (drain complete lines as they arrive).
-    if (mode === 'unknown' && buffer.trimStart()) {
-      mode = buffer.trimStart().startsWith('[') ? 'array' : 'ndjson';
+    if (value && value.length > 0) {
+      pending.push(value);
     }
-    if (mode === 'ndjson') {
-      let nl = buffer.indexOf('\n');
-      while (nl !== -1) {
-        pushLine(buffer.slice(0, nl));
-        buffer = buffer.slice(nl + 1);
-        nl = buffer.indexOf('\n');
+    if (arrayMode === null) {
+      const first = firstNonWhitespace();
+      if (first !== null) {
+        // The first non-whitespace byte disambiguates: '[' is a JSON array
+        // (buffer it whole), anything else is NDJSON.
+        arrayMode = first === 0x5b;
       }
+    }
+    if (arrayMode === false && pending.length > 0) {
+      drainLines();
     }
     if (done) {
       break;
     }
   }
 
-  if (mode === 'array') {
-    const parsed = JSON.parse(buffer);
+  const last = pending[pending.length - 1];
+  const rest =
+    pending.length === 0 || !last
+      ? new Uint8Array(0)
+      : joined(pending.length - 1, last.length);
+  if (arrayMode) {
+    const text = decoder.decode(rest);
+    const parsed = JSON.parse(text);
     if (!Array.isArray(parsed)) {
       // A non-array body is a status envelope, not records. Degrading it to []
       // once burned a whole surface as "no record for prompt" while the records
       // sat ready for download — so retry instead.
       throw new ProviderRetryableError(
-        `snapshot body: non-array JSON (${buffer.length} chars)`,
+        `snapshot body: non-array JSON (${text.length} chars)`,
       );
     }
     return parsed as Record<string, unknown>[];
   }
   // Flush the trailing line (NDJSON often omits a final newline).
-  pushLine(buffer);
+  pushLine(decoder.decode(rest));
   // A lone object with no prompt echo is a status/error envelope, not data —
   // the same case json mode's "non-array body" guard caught. Retry it rather
   // than burning every prompt as "no record for prompt in snapshot".

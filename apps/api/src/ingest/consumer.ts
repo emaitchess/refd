@@ -1,4 +1,5 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
+import type { Db } from '../db/client';
 import { getDb } from '../db/client';
 import { entityScores, results, snapshots } from '../db/schema';
 import type { AppEnv } from '../env';
@@ -101,6 +102,22 @@ export const failWholeSnapshot = async (
   await refreshRunStatus(db, runId);
 };
 
+// Recover re-triggers land on a snapshot that already went terminal (failed
+// by the DLQ, or ready with missing records). Reset it so the poll that the
+// trigger re-enqueues can resume the fetch; convergence is guaranteed because
+// ok results are check-then-skipped and failed rows are overwritten.
+export const resumeTerminalSnapshot = async (
+  db: Db,
+  snapshotId: number,
+): Promise<void> => {
+  await db
+    .update(snapshots)
+    .set({ status: 'triggered', finishedAt: null })
+    .where(
+      and(eq(snapshots.id, snapshotId), ne(snapshots.status, 'triggered')),
+    );
+};
+
 const handleTrigger = async (
   env: AppEnv,
   msg: Extract<IngestMessage, { kind: 'brightdata_trigger' }>,
@@ -120,10 +137,13 @@ const handleTrigger = async (
     );
 
   // Idempotency: a redelivered trigger never re-spends a batch — it resumes
-  // polling the snapshot that already exists.
+  // polling the snapshot that already exists. A terminal snapshot (failed by
+  // the DLQ, or ready with missing records) is reset so the poll below can
+  // re-drive the fetch: this is the recover path, and it is safe because ok
+  // results are check-then-skipped and failed rows are overwritten.
   const existingSnapshot = existing[0];
   let snapshotId = existingSnapshot?.externalId ?? null;
-  if (!snapshotId) {
+  if (!existingSnapshot?.externalId || snapshotId === null) {
     snapshotId = await triggerBatch(
       env,
       msg.surface,
@@ -155,14 +175,17 @@ const handleTrigger = async (
           externalId: snapshotId,
         },
       });
-  } else if (existingSnapshot && !existingSnapshot.promptSnapshot) {
-    await db
-      .update(snapshots)
-      .set({
-        promptIds: msg.prompts.map((p) => p.id),
-        promptSnapshot: msg.prompts,
-      })
-      .where(eq(snapshots.id, existingSnapshot.id));
+  } else {
+    if (!existingSnapshot.promptSnapshot) {
+      await db
+        .update(snapshots)
+        .set({
+          promptIds: msg.prompts.map((p) => p.id),
+          promptSnapshot: msg.prompts,
+        })
+        .where(eq(snapshots.id, existingSnapshot.id));
+    }
+    await resumeTerminalSnapshot(db, existingSnapshot.id);
   }
 
   await env.INGEST.send(

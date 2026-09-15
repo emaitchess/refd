@@ -265,4 +265,27 @@ describe('readSnapshotRecords', () => {
     );
     expect(records).toEqual([{ prompt: 'solo', answer_text: 'X' }]);
   });
+
+  test('a huge single-line record chunked finely parses, with later lines intact', async () => {
+    // Regression: the line search used to restart at 0 on every chunk, which
+    // made a multi-MB unterminated line quadratic (seconds of CPU in workerd,
+    // enough to kill ingest invocations at the CPU limit). AI Mode ships
+    // records like this (an 11MB single line was observed in prod).
+    const filler = 'x'.repeat(3_000_000);
+    const big = JSON.stringify({ prompt: 'a', answer_text: filler });
+    const body = `${big}\n{"prompt":"b","answer_text":"B"}\n`;
+    const chunks: string[] = [];
+    for (let i = 0; i < body.length; i += 8192) {
+      chunks.push(body.slice(i, i + 8192));
+    }
+    const records = await readSnapshotRecords(streamOf(chunks));
+    expect(records).toHaveLength(2);
+    const first = records[0];
+    if (!first || typeof first.answer_text !== 'string') {
+      throw new Error('expected the big record first');
+    }
+    expect(first.prompt).toBe('a');
+    expect(first.answer_text.length).toBe(filler.length);
+    expect(records[1]).toEqual({ prompt: 'b', answer_text: 'B' });
+  });
 });
