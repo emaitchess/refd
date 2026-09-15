@@ -2,7 +2,8 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { getDb } from '../db/client';
 import type { AppEnv } from '../env';
-import { singleLineText } from '../lib/sanitize';
+import { checkDomain, type DomainCheck } from '../lib/domain-check';
+import { domainField, singleLineText } from '../lib/sanitize';
 import { provisionWorkspace } from '../lib/workspace-provision';
 import { MCP_SCOPE, MCP_WRITE_SCOPE } from '../oauth/constants';
 import {
@@ -480,6 +481,43 @@ export const registerSetupTools = (
             });
           }
           return report;
+        },
+      );
+    },
+  );
+
+  const checkDomainBodySchema = z.object({ domain: domainField() });
+
+  server.registerTool(
+    'check_domain',
+    {
+      title: 'Verify a domain',
+      description:
+        'Checks whether a domain resolves, its HTTP status, and where a redirect chain lands (with a www fallback). Use it to verify brand or competitor domains before saving them: a wrong domain silently breaks citation matching forever. Reads no refd data and starts no collection.',
+      inputSchema: checkDomainBodySchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async (args) => {
+      const parsed = selectorArgs(args, checkDomainBodySchema);
+      if (!parsed) {
+        return invalidSetupArgs();
+      }
+      return runSetupTool(
+        env,
+        executionContext,
+        'check_domain',
+        { requireWrite: false },
+        async () => {
+          const check: DomainCheck = await checkDomain(parsed.body.domain);
+          const warning = check.resolved
+            ? undefined
+            : 'The domain did not answer. Double-check the spelling before saving it.';
+          return { ...check, ...(warning ? { warning } : {}) };
         },
       );
     },
