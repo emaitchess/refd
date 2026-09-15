@@ -4,7 +4,7 @@
     "title": "refd agent-facing API",
     "version": "0.2.0",
     "summary": "Public HTTP surface an agent uses to reach refd's MCP connector.",
-    "description": "refd's agent interface is a remote MCP server (Streamable HTTP) behind OAuth 2.1. This catalog documents the public endpoints: OAuth discovery and flow, and the MCP endpoint itself. Access is read-only by default; an optional phase-gated data:write scope adds bounded workspace setup. The nine read tools, the nine setup tools, and the metric-glossary resource are discovered at runtime via MCP `tools/list` and `resources/list`. A grant covers the workspaces selected at consent (or all of them). Workspace data routes used by the dashboard are session-authenticated and intentionally not part of the agent surface.",
+    "description": "refd's agent interface is a remote MCP server (Streamable HTTP) behind OAuth 2.1. This catalog documents the public endpoints: OAuth discovery and flow, and the MCP endpoint itself. Access is read-only by default; an optional data:write scope adds bounded workspace setup tools and a self-revocation tool. The nine read tools, the thirteen write tools, and the metric-glossary resource are discovered at runtime via MCP `tools/list` and `resources/list`. A grant covers the workspaces selected at consent (or all of them). Workspace data routes used by the dashboard are session-authenticated and intentionally not part of the agent surface.",
     "license": {
       "name": "MIT",
       "url": "https://github.com/emaitchess/refd/blob/main/LICENSE"

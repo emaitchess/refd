@@ -39,7 +39,8 @@ workspace tracks one brand.
   credential, never the tool arguments, defines what it may target.
   \`get_workspace_info\` lists the choices.
 - Scopes: \`data:read\` (nine analytics tools, the default) and \`data:write\`
-  (twelve setup tools; \`create_workspace\` needs an Allow all connection).
+  (twelve setup tools plus \`revoke_connection\`; \`create_workspace\` needs an
+  Allow all connection).
 
 ## Reading data (data:read)
 
