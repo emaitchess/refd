@@ -948,6 +948,7 @@ export const previewSetup = async (
       configurationHash: string;
       configurationSchemaVersion: number;
       expectedPromptSurfaceChecks: number;
+      expectedPerSurface: { surface: Surface; checks: number }[];
       warnings: string[];
     }
   | OnboardingFailure
@@ -958,6 +959,7 @@ export const previewSetup = async (
   }
   const limits = config(ctx).limits;
   const warnings: string[] = [];
+  const promptCount = normalizePrompts(built.profile.prompts ?? []).length;
   if (
     limits.maxActivePromptsPerWorkspace !== null &&
     built.profile.prompts &&
@@ -972,9 +974,11 @@ export const previewSetup = async (
     draftVersion: built.ws.version,
     configurationHash: built.hash,
     configurationSchemaVersion: CONFIGURATION_SCHEMA_VERSION,
-    expectedPromptSurfaceChecks:
-      normalizePrompts(built.profile.prompts ?? []).length *
-      built.surfaces.length,
+    expectedPromptSurfaceChecks: promptCount * built.surfaces.length,
+    expectedPerSurface: built.surfaces.map((surface) => ({
+      surface,
+      checks: promptCount,
+    })),
     warnings,
   };
 };

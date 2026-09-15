@@ -53,9 +53,13 @@ export const steeringRequestSchema = z.object({
   focus: multiLineText(0, 400).optional(),
 });
 
+// Caller-supplied idempotency keys pin duplicate submissions across retries.
+// Any stable opaque string works; agents do not need a UUID generator.
+const idempotencyKeyField = z.string().trim().min(8).max(64);
+
 export const generationRequestSchema = regenBody.extend({
   expectedVersion: expectedVersionField,
-  idempotencyKey: z.string().uuid().optional(),
+  idempotencyKey: idempotencyKeyField.optional(),
   steering: steeringRequestSchema.optional(),
 });
 
@@ -119,7 +123,7 @@ export const commitRequestSchema = z.object({
 export const confirmRequestSchema = z.object({
   expectedVersion: expectedVersionField,
   configurationHash: z.string().regex(/^[0-9a-f]{64}$/),
-  idempotencyKey: z.string().uuid(),
+  idempotencyKey: idempotencyKeyField,
 });
 
 export type OnboardingErrorBody =
