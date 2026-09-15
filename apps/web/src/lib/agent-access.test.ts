@@ -81,8 +81,10 @@ describe('shared agent-access facts', () => {
     expect(AGENT_INJECTION_BOUNDARY).toContain('no grant can delete data');
   });
 
-  test('setup tools list the nine registered tools in workflow order', () => {
+  test('setup tools list the twelve registered tools in workflow order', () => {
     expect(AGENT_SETUP_TOOLS.map(([name]) => name)).toEqual([
+      'create_workspace',
+      'check_domain',
       'get_setup_state',
       'set_brand',
       'draft_description',
@@ -92,9 +94,12 @@ describe('shared agent-access facts', () => {
       'preview_setup',
       'confirm_setup',
       'get_setup_report',
+      'complete_setup',
     ]);
     expect(AGENT_SETUP_WORKFLOW).toContain('preview_setup');
     expect(AGENT_SETUP_WORKFLOW).toContain('confirm_setup');
+    expect(AGENT_SETUP_WORKFLOW).toContain('check_domain');
+    expect(AGENT_SETUP_WORKFLOW).toContain('complete_setup');
   });
 
   test('discovery exposes the SKILL.md', () => {

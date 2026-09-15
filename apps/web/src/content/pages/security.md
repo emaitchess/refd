@@ -114,8 +114,9 @@ resulting grant carries that workspace entitlement and the scopes shown at
 consent.
 
 Access is read-only by default: the connector exposes analytics tools only. An
-optional, phase-gated `data:write` scope adds setup tools that can configure a
-workspace and start exactly one provider-backed onboarding report. No grant can
+optional `data:write` scope adds setup tools that cover the workspace
+lifecycle: verify domains, provision a workspace, configure it, start exactly
+one provider-backed onboarding report, and finish onboarding. No grant can
 delete data, manage billing, or start further runs. Every tool derives what it
 may target from the encrypted grant rather than accepting a workspace
 identifier from the caller, and tool arguments can only narrow that boundary,

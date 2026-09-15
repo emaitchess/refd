@@ -12,8 +12,8 @@ description: Work with refd AI search monitoring through its MCP server. Use whe
   a user asks about refd, AI search visibility, brand monitoring in ChatGPT /
   Perplexity / Gemini / Google AI answers, asks an agent to query refd data, or
   asks an agent to set up or onboard a refd workspace. Covers the nine read
-  tools, the bounded data:write setup flow, auth, and honest-interpretation
-  rules.
+  tools, the bounded data:write setup lifecycle, auth, and
+  honest-interpretation rules.
 ---
 
 # refd: AI search monitoring via MCP
@@ -39,7 +39,7 @@ workspace tracks one brand.
   credential, never the tool arguments, defines what it may target.
   \`get_workspace_info\` lists the choices.
 - Scopes: \`data:read\` (nine analytics tools, the default) and \`data:write\`
-  (nine setup tools).
+  (twelve setup tools; \`create_workspace\` needs an Allow all connection).
 
 ## Reading data (data:read)
 
@@ -63,16 +63,27 @@ ${AGENT_SETUP_TOOLS.map(([name, description]) => `- \`${name}\`: ${description}`
 Rules the server enforces, so do not fight them:
 
 - Every mutation carries \`expectedVersion\` from the latest setup state; a
-  stale version returns a structured conflict. Re-read and retry.
-- Drafts are budgeted: generation attempts per section, external setup calls
-  per user per day, and failed generation steps degrade to manual entry.
+  stale version returns a structured conflict that names which surface moved
+  the draft. Re-read and retry.
+- \`get_setup_state\` also carries the effective limits (prompt count, enabled
+  surfaces, workspace count, and an operator flag) and the generation budget
+  of the last 24h: plan the draft size and retries from it instead of
+  discovering the walls by hitting 409s and 429s.
+- Drafts are budgeted: generation attempts per section (a section refuses
+  generation after 3 failed attempts in 24h), external setup calls per user
+  per day, and failed generation steps degrade to manual entry. Failed drafts
+  do not consume the regeneration budget, so a retry is free.
+- Generation failures carry a \`detail\` cause and a \`guidance\` next action;
+  competitor failures may also list the raw candidate domains that back the
+  search - verify them with \`check_domain\` before saving.
 - \`confirm_setup\` is the only provider-spending action: it starts one
   provider-backed onboarding report per workspace (one per user per day, five
   lifetime). Always present the \`preview_setup\` result to the user and get
   explicit approval before calling it.
 - Onboarding completes only after the runs land: keep polling
   \`get_setup_report\` with its \`retryAfterSeconds\` until the report is
-  whole.
+  whole, review it with the user, then call \`complete_setup\` to mark the
+  workspace onboarded.
 
 ## Interpreting results honestly
 

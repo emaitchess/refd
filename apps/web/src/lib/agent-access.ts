@@ -9,20 +9,28 @@ export const AGENT_SCOPES: [scope: string, description: string][] = [
   ],
   [
     'data:write',
-    'Adds nine setup tools that can configure a workspace and start one provider-backed onboarding report.',
+    'Adds twelve setup tools that cover the whole lifecycle: verify domains, provision a workspace, configure it, start one provider-backed onboarding report, and finish onboarding.',
   ],
 ];
 
 export const AGENT_WORKSPACE_ENTITLEMENT =
-  'At consent you pick the workspaces the connection may target: check the ones you want, use Allow all to cover every workspace on the account (including ones you create later), or provision a new workspace for the agent to onboard. Every tool takes an optional workspace selector, and the credential, never the tool arguments, defines what it may target. Personal access tokens always cover exactly one workspace.';
+  'At consent you pick the workspaces the connection may target: check the ones you want, use Allow all to cover every workspace on the account (including ones you create later), or provision a new workspace for the agent to onboard (the create_workspace tool needs an Allow all connection, since only those can target workspaces created after approval). Every tool takes an optional workspace selector, and the credential, never the tool arguments, defines what it may target. Personal access tokens always cover exactly one workspace.';
 
 export const AGENT_INJECTION_BOUNDARY =
   'Web prompt-injection can, at worst, act inside the workspaces the human authorized: a setup-scoped agent can edit configuration and start the one onboarding report, and no grant can delete data, manage billing, or start further runs.';
 
 export const AGENT_SETUP_TOOLS: [name: string, description: string][] = [
   [
+    'create_workspace',
+    'Provisions a new workspace for the connection. Needs an Allow all connection: a checked grant could never target a workspace created after approval.',
+  ],
+  [
+    'check_domain',
+    'Verifies a domain resolves and where its redirect chain lands. Run it before saving any brand or competitor domain: a wrong domain silently breaks citation matching forever.',
+  ],
+  [
     'get_setup_state',
-    'The setup wizard state: phase, editable draft, version, and regeneration allowances.',
+    'The setup wizard state: phase, editable draft, version, regeneration allowances, plus the effective limits and the generation budget of the last 24h.',
   ],
   ['set_brand', 'Sets or updates the tracked brand: name, domains, aliases.'],
   [
@@ -31,11 +39,11 @@ export const AGENT_SETUP_TOOLS: [name: string, description: string][] = [
   ],
   [
     'suggest_competitors',
-    'Generates editable competitor candidates from indexed company search.',
+    'Generates editable competitor candidates from indexed company search; failures carry the cause and the raw candidate domains they saw.',
   ],
   [
     'suggest_prompts',
-    'Generates categorized, editable buyer-question candidates.',
+    'Generates categorized, editable buyer-question candidates, steerable by count and theme.',
   ],
   [
     'update_setup',
@@ -43,7 +51,7 @@ export const AGENT_SETUP_TOOLS: [name: string, description: string][] = [
   ],
   [
     'preview_setup',
-    'Returns the exact canonical configuration, its hash, and warnings.',
+    'Returns the exact canonical configuration, its hash, and a per-surface expected-check breakdown.',
   ],
   [
     'confirm_setup',
@@ -53,10 +61,14 @@ export const AGENT_SETUP_TOOLS: [name: string, description: string][] = [
     'get_setup_report',
     'Live progress and the pinned setup report for the run group.',
   ],
+  [
+    'complete_setup',
+    'Marks the workspace onboarded after the commit, the same gate the dashboard "enter dashboard" click passes.',
+  ],
 ];
 
 export const AGENT_SETUP_WORKFLOW =
-  'get_setup_state, set_brand, draft_description, suggest or update competitors and prompts, preview_setup, explicit user approval, confirm_setup, then get_setup_report until the runs land.';
+  'get_setup_state, check_domain on every candidate domain, set_brand, draft_description, suggest or update competitors and prompts (prompt generation is steerable by count and theme), preview_setup, explicit user approval, confirm_setup, then get_setup_report until the runs land, then complete_setup to finish.';
 
 // The editor-native server entry: the shape Cursor, VS Code, and Claude Code
 // all accept for a remote Streamable HTTP server. Encoded per client below.
