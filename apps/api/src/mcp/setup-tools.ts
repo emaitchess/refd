@@ -2,11 +2,13 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { getDb } from '../db/client';
 import type { AppEnv } from '../env';
-import { singleLineText } from '../lib/sanitize';
+import { checkDomain, type DomainCheck } from '../lib/domain-check';
+import { domainField, singleLineText } from '../lib/sanitize';
 import { provisionWorkspace } from '../lib/workspace-provision';
 import { MCP_SCOPE, MCP_WRITE_SCOPE } from '../oauth/constants';
 import {
   brandRequestSchema,
+  generationRequestSchema,
   type OnboardingFailure,
   type OnboardingState,
   patchRequestSchema,
@@ -48,16 +50,10 @@ const createWorkspaceBodySchema = z.object({
   idempotencyKey: z.string().uuid().optional(),
 });
 
-const generationBodySchema = z.object({
-  expectedVersion: z.number().int().nonnegative(),
-  regenerate: z.boolean().optional(),
-  idempotencyKey: z.string().uuid().optional(),
-});
-
 const confirmBodySchema = z.object({
   expectedVersion: z.number().int().nonnegative(),
   configurationHash: z.string().regex(/^[0-9a-f]{64}$/),
-  idempotencyKey: z.string().uuid(),
+  idempotencyKey: z.string().trim().min(8).max(64),
 });
 
 const reportBodySchema = z.object({
@@ -107,6 +103,7 @@ const contextFor = (
   userId: principal.userId,
   userEmail: principal.userEmail,
   adminEmails: env.ADMIN_EMAILS,
+  source: 'mcp',
 });
 
 const runSetupTool = async (
@@ -236,7 +233,9 @@ export const registerSetupTools = (
         'get_setup_state',
         { requireWrite: false, workspaceArg: parsed.workspaceArg },
         async (principal, workspace) =>
-          loadOnboardingState(contextFor(env, principal, workspace)),
+          loadOnboardingState(contextFor(env, principal, workspace), {
+            withBudget: true,
+          }),
       );
     },
   );
@@ -246,7 +245,7 @@ export const registerSetupTools = (
     {
       title: 'Set the tracked brand',
       description:
-        'Sets or updates the workspace brand: name, domains, and aliases. Requires expectedVersion from the latest setup state. With several approved workspaces, pass workspace to target one.',
+        'Sets or updates the workspace brand: name, domains, and aliases. Matching note: aliases and domains fold case-insensitively and separator-differences ("Coca-Cola" equals "coca cola") and the brand name always matches case-insensitively; each domain also acts as a mention alias, so a visible "example.com" in answer prose names the brand. Dictionary-word names cannot be safely narrowed from here (a caseSensitive override lives in Settings). Requires expectedVersion from the latest setup state. With several approved workspaces, pass workspace to target one.',
       inputSchema: brandRequestSchema.extend(workspaceSelectorSchema.shape),
       annotations: {
         readOnlyHint: false,
@@ -280,7 +279,7 @@ export const registerSetupTools = (
     idempotent: boolean,
     run: (
       ctx: OnboardingContext,
-      body: z.infer<typeof generationBodySchema>,
+      body: z.infer<typeof generationRequestSchema>,
     ) => Promise<unknown>,
   ) => {
     server.registerTool(
@@ -288,7 +287,9 @@ export const registerSetupTools = (
       {
         title,
         description,
-        inputSchema: generationBodySchema.extend(workspaceSelectorSchema.shape),
+        inputSchema: generationRequestSchema.extend(
+          workspaceSelectorSchema.shape,
+        ),
         annotations: {
           readOnlyHint: false,
           destructiveHint: false,
@@ -297,7 +298,7 @@ export const registerSetupTools = (
         },
       },
       async (args) => {
-        const parsed = selectorArgs(args, generationBodySchema);
+        const parsed = selectorArgs(args, generationRequestSchema);
         if (!parsed) {
           return invalidSetupArgs();
         }
@@ -328,7 +329,7 @@ export const registerSetupTools = (
   runGenerationTool(
     'suggest_competitors',
     'Suggest competitors',
-    'Generates editable competitor candidates from indexed company search. Suggestions replace the draft. Requires expectedVersion. With several approved workspaces, pass workspace to target one.',
+    'Generates editable competitor candidates from indexed company search. On failure the response names the cause (unconfigured, no_search_results, provider_error, unsuitable) and, when the index returned anything, lists candidates with the domains that back them - verify with check_domain, then save the real ones via update_setup. Suggestions replace the draft. Requires expectedVersion. With several approved workspaces, pass workspace to target one.',
     false,
     suggestCompetitors,
   );
@@ -336,7 +337,7 @@ export const registerSetupTools = (
   runGenerationTool(
     'suggest_prompts',
     'Suggest monitoring prompts',
-    'Generates categorized, editable monitoring prompt candidates. Suggestions replace the draft. Requires expectedVersion. With several approved workspaces, pass workspace to target one.',
+    'Generates categorized, editable monitoring prompt candidates: 25 prompts (5 per category) by default, steerable with optional steering.total (clamped to the workspace prompt limit) and steering.focus (a free-text emphasis). Suggestions replace the draft. Categories are one of Discovery, Evaluation, Comparison, Decision, Authority. Requires expectedVersion. With several approved workspaces, pass workspace to target one.',
     false,
     suggestPrompts,
   );
@@ -346,7 +347,7 @@ export const registerSetupTools = (
     {
       title: 'Update the setup draft',
       description:
-        'Applies explicit edits to any draft field: step, description, summary, target market, logo, competitors, prompts, and enabled surfaces. Stale expectedVersion returns a structured conflict with the current state. With several approved workspaces, pass workspace to target one.',
+        'Applies explicit edits to any draft field: step, description, summary, target market, logo, competitors, prompts, and enabled surfaces. Categories are one of Discovery, Evaluation, Comparison, Decision, Authority; surfaces are one of chatgpt, perplexity, gemini, google_ai_mode, google_aio. A draftId is optional on competitor and prompt entries; absent ids are generated. draft text is 8-500 chars. Stale expectedVersion returns a structured conflict (which names the writer) with the current state. With several approved workspaces, pass workspace to target one.',
       inputSchema: patchRequestSchema.extend(workspaceSelectorSchema.shape),
       annotations: {
         readOnlyHint: false,
@@ -481,6 +482,43 @@ export const registerSetupTools = (
             });
           }
           return report;
+        },
+      );
+    },
+  );
+
+  const checkDomainBodySchema = z.object({ domain: domainField() });
+
+  server.registerTool(
+    'check_domain',
+    {
+      title: 'Verify a domain',
+      description:
+        'Checks whether a domain resolves, its HTTP status, and where a redirect chain lands (with a www fallback). Use it to verify brand or competitor domains before saving them: a wrong domain silently breaks citation matching forever. Reads no refd data and starts no collection.',
+      inputSchema: checkDomainBodySchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async (args) => {
+      const parsed = selectorArgs(args, checkDomainBodySchema);
+      if (!parsed) {
+        return invalidSetupArgs();
+      }
+      return runSetupTool(
+        env,
+        executionContext,
+        'check_domain',
+        { requireWrite: false },
+        async () => {
+          const check: DomainCheck = await checkDomain(parsed.body.domain);
+          const warning = check.resolved
+            ? undefined
+            : 'The domain did not answer. Double-check the spelling before saving it.';
+          return { ...check, ...(warning ? { warning } : {}) };
         },
       );
     },

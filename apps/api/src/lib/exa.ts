@@ -301,23 +301,57 @@ const curateCandidates = async (
   return competitors;
 };
 
-// Best-effort: returns [] on any failure — missing key, network, no
-// candidates, unparseable curation — so onboarding degrades to manual entry
+// Named candidates straight from the index: evidence a human or agent can
+// curate manually when the model curation produced nothing usable.
+export interface DiscoveredCandidate {
+  domain: string;
+  label: string;
+  description: string;
+}
+
+export type DiscoveryOutcome =
+  | {
+      ok: true;
+      competitors: DiscoveredCompetitor[];
+      candidates: DiscoveredCandidate[];
+    }
+  | {
+      ok: false;
+      cause:
+        | 'unconfigured'
+        | 'no_search_results'
+        | 'provider_error'
+        | 'unsuitable';
+      candidates: DiscoveredCandidate[];
+    };
+
+// Best-effort recce: every failure names its cause and carries whatever
+// candidate evidence exists, so the step degrades to guided manual entry
 // rather than dead-ending.
 export const discoverCompetitors = async (
   env: AppEnv,
   input: { brand: string; domains: string[]; summary: string },
-): Promise<DiscoveredCompetitor[]> => {
+): Promise<DiscoveryOutcome> => {
   if (!env.EXA_API_KEY) {
-    return [];
+    return { ok: false, cause: 'unconfigured', candidates: [] };
+  }
+  let candidates: Candidate[];
+  try {
+    candidates = await searchCandidates(env, input);
+  } catch {
+    return { ok: false, cause: 'provider_error', candidates: [] };
+  }
+  if (candidates.length === 0) {
+    return { ok: false, cause: 'no_search_results', candidates: [] };
   }
   try {
-    const candidates = await searchCandidates(env, input);
-    if (candidates.length === 0) {
-      return [];
-    }
-    return await curateCandidates(env, input, candidates);
+    const competitors = await curateCandidates(env, input, candidates);
+    return {
+      ok: true,
+      competitors,
+      candidates,
+    };
   } catch {
-    return [];
+    return { ok: false, cause: 'provider_error', candidates };
   }
 };

@@ -48,9 +48,19 @@ export const brandRequestSchema = z.object({
 });
 export type BrandInput = z.infer<typeof brandRequestSchema>;
 
+export const steeringRequestSchema = z.object({
+  total: z.number().int().min(1).max(100).optional(),
+  focus: multiLineText(0, 400).optional(),
+});
+
+// Caller-supplied idempotency keys pin duplicate submissions across retries.
+// Any stable opaque string works; agents do not need a UUID generator.
+const idempotencyKeyField = z.string().trim().min(8).max(64);
+
 export const generationRequestSchema = regenBody.extend({
   expectedVersion: expectedVersionField,
-  idempotencyKey: z.string().uuid().optional(),
+  idempotencyKey: idempotencyKeyField.optional(),
+  steering: steeringRequestSchema.optional(),
 });
 
 export const aliasSchema = z.object({
@@ -113,7 +123,7 @@ export const commitRequestSchema = z.object({
 export const confirmRequestSchema = z.object({
   expectedVersion: expectedVersionField,
   configurationHash: z.string().regex(/^[0-9a-f]{64}$/),
-  idempotencyKey: z.string().uuid(),
+  idempotencyKey: idempotencyKeyField,
 });
 
 export type OnboardingErrorBody =
@@ -122,6 +132,8 @@ export type OnboardingErrorBody =
       code: 'draft_version_conflict';
       message: string;
       currentVersion: number;
+      heldVersion?: number;
+      changedBy?: 'dashboard' | 'mcp';
       state: OnboardingState;
     }
   | {
@@ -167,4 +179,24 @@ export interface OnboardingState {
   };
   regenLimit: number;
   regen: { describe: number; competitors: number; prompts: number };
+  // Present only when the caller asks for planning data (the state GETs);
+  // mutation echoes stay lean. limits are the caller's effective policy and
+  // budget mirrors the setup_usage ledger over the last 24h.
+  limits?: {
+    isAdmin: boolean;
+    maxWorkspaces: number | null;
+    maxActivePromptsPerWorkspace: number | null;
+    maxEnabledSurfacesPerWorkspace: number;
+  };
+  budget?: {
+    sections: {
+      describe: { attempts: number; failures: number };
+      competitors: { attempts: number; failures: number };
+      prompts: { attempts: number; failures: number };
+    };
+    generationsUsed24h: number;
+    // null = the per-user daily cap does not apply (administrators); the
+    // global daily circuit breaker always applies.
+    generationsPerDay: number | null;
+  };
 }

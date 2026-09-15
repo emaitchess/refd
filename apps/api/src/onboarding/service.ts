@@ -1,6 +1,6 @@
 import { promptLimitMessage, surfaceLimitMessage } from '@refd/core/config';
 import { siteMetadataSchema } from '@refd/core/site-metadata';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import {
   entities,
@@ -12,7 +12,7 @@ import {
 } from '../db/schema';
 import type { AppEnv } from '../env';
 import { createRun } from '../ingest/runs';
-import { discoverCompetitors } from '../lib/exa';
+import { type DiscoveredCandidate, discoverCompetitors } from '../lib/exa';
 import { describeBrand, generatePrompts, PROMPT_CATEGORIES } from '../lib/llm';
 import { insertActivePrompt } from '../lib/prompt-limit';
 import { domainField, multiLineText, singleLineText } from '../lib/sanitize';
@@ -25,6 +25,7 @@ import {
   type GenerationSection,
   releaseReportClaim,
   settleGenerationAttempt,
+  setupBudgetSnapshot,
 } from './budget';
 import {
   CONFIGURATION_SCHEMA_VERSION,
@@ -41,6 +42,10 @@ import {
   type UpdateDraftInput,
 } from './contracts';
 
+// Which surface a draft mutation enters through, threaded into conflict
+// payloads so an agent or user can tell which writer moved the version.
+export type OnboardingSource = 'dashboard' | 'mcp';
+
 export interface OnboardingContext {
   db: Db;
   env: AppEnv;
@@ -49,6 +54,7 @@ export interface OnboardingContext {
   userId: number;
   userEmail: string;
   adminEmails: string | undefined;
+  source: OnboardingSource;
 }
 
 const config = (ctx: OnboardingContext) =>
@@ -164,6 +170,7 @@ const brandFor = async (db: Db, wsId: number) =>
 
 export const loadOnboardingState = async (
   ctx: OnboardingContext,
+  planning: { withBudget?: boolean } = {},
 ): Promise<OnboardingState> => {
   const { db, workspaceId } = ctx;
   const ws = (
@@ -171,14 +178,15 @@ export const loadOnboardingState = async (
   )[0];
   const brand = await brandFor(db, workspaceId);
   const profile = (ws?.profile ?? {}) as WorkspaceProfile;
-  return {
+  const applied = config(ctx);
+  const state: OnboardingState = {
     onboardingCompleted: ws?.onboardingCompleted ?? false,
     committed: profile.committed ?? false,
     step: profile.step ?? (brand ? 'describe' : 'brand'),
     version: ws?.onboardingDraftVersion ?? 0,
     surfaces: enabledSurfaces(
       ws?.surfaces ?? null,
-      config(ctx).limits.maxEnabledSurfacesPerWorkspace,
+      applied.limits.maxEnabledSurfacesPerWorkspace,
     ),
     brand: brand
       ? {
@@ -204,16 +212,31 @@ export const loadOnboardingState = async (
       prompts: profile.regen?.prompts ?? 0,
     },
   };
+  if (!planning.withBudget) {
+    return state;
+  }
+  state.limits = {
+    isAdmin: applied.isAdmin,
+    ...applied.limits,
+  };
+  state.budget = await setupBudgetSnapshot(db, {
+    userId: ctx.userId,
+    isAdmin: applied.isAdmin,
+  });
+  return state;
 };
 
 const conflictFailure = async (
   ctx: OnboardingContext,
   currentVersion: number,
+  heldVersion?: number,
 ): Promise<OnboardingFailure> => ({
   error: {
     code: 'draft_version_conflict',
     message: 'The setup changed since it was read.',
     currentVersion,
+    heldVersion,
+    changedBy: ctx.source,
     state: await loadOnboardingState(ctx),
   },
   status: 409,
@@ -273,7 +296,7 @@ const loadDraftForMutation = async (
     return { error: 'workspace not found', status: 404 };
   }
   if (ws.version !== expectedVersion) {
-    return conflictFailure(ctx, ws.version);
+    return conflictFailure(ctx, ws.version, expectedVersion);
   }
   return {
     profile: (ws.profile ?? {}) as WorkspaceProfile,
@@ -295,6 +318,26 @@ const mutateDraft = async (
     return loaded;
   }
   const patch = mutate(loaded.profile);
+  const { db, workspaceId } = ctx;
+  // A wizard step change is navigation, not a content edit: it moves the
+  // pointer with a scoped json_set instead of a whole-document CAS write, so
+  // navigating never bumps the draft version and never collides with a
+  // concurrent content edit (which would defeat the point of resuming walks).
+  const patchKeys = Object.keys(patch);
+  if (
+    patchKeys.length === 1 &&
+    patchKeys[0] === 'step' &&
+    surfaces === undefined
+  ) {
+    const targetStep = patch.step ?? loaded.profile.step ?? 'brand';
+    await db
+      .update(workspaces)
+      .set({
+        profile: sql`json_set(coalesce(profile, '{}'), '$.step', ${targetStep})`,
+      })
+      .where(eq(workspaces.id, workspaceId));
+    return loadOnboardingState(ctx);
+  }
   const merged: WorkspaceProfile = {
     ...loaded.profile,
     ...patch,
@@ -307,7 +350,6 @@ const mutateDraft = async (
       normalizePrompts(patch.prompts ?? loaded.profile.prompts ?? []),
     ),
   };
-  const { db, workspaceId } = ctx;
   const updated = await db
     .update(workspaces)
     .set({
@@ -329,7 +371,11 @@ const mutateDraft = async (
         .from(workspaces)
         .where(eq(workspaces.id, workspaceId))
     )[0];
-    return conflictFailure(ctx, ws?.version ?? expectedVersion);
+    return conflictFailure(
+      ctx,
+      ws?.version ?? expectedVersion,
+      expectedVersion,
+    );
   }
   return loadOnboardingState(ctx);
 };
@@ -411,6 +457,7 @@ type GenerationOpts = {
   regenerate?: boolean;
   expectedVersion: number;
   idempotencyKey?: string;
+  steering?: { total?: number; focus?: string };
 };
 
 const prepareGeneration = async (
@@ -491,12 +538,24 @@ const casWrite = async (
 // Step 2 (AI): fetch the brand's site and draft an editable description. Every
 // failure is soft (ok:false) so the client falls back to manual entry — the
 // wizard must never dead-end on a flaky site or model call.
+// Soft-fail responses carry a detail cause and a next-action guidance: an
+// agent has to decide between retrying (free) and writing the section by
+// hand, and the dashboard surfaces the guidance line.
+const FAILED_DRAFT_GUIDANCE =
+  'A retry is free: failed drafts do not consume the per-step regeneration budget. Generation is refused for a section after 3 failed attempts in 24h.';
+
 export const draftDescription = async (
   ctx: OnboardingContext,
   opts: GenerationOpts,
 ): Promise<
   | { ok: true; source: string; state: OnboardingState }
-  | { ok: false; reason: 'fetch' | 'llm'; state: OnboardingState }
+  | {
+      ok: false;
+      reason: 'fetch' | 'llm';
+      detail: string;
+      guidance: string;
+      state: OnboardingState;
+    }
   | OnboardingFailure
 > => {
   const prepared = await prepareGeneration(ctx, 'describe', opts);
@@ -511,6 +570,8 @@ export const draftDescription = async (
     return {
       ok: false,
       reason: 'fetch',
+      detail: 'brand_missing',
+      guidance: 'Set the brand with set_brand first.',
       state: await loadOnboardingState(ctx),
     };
   }
@@ -520,6 +581,8 @@ export const draftDescription = async (
     return {
       ok: false,
       reason: 'fetch',
+      detail: 'site_unreachable',
+      guidance: `The brand site (${domain}) could not be read. Write the description, summary, and target market manually with update_setup, or retry.`,
       state: await loadOnboardingState(ctx),
     };
   }
@@ -530,7 +593,13 @@ export const draftDescription = async (
   });
   if (!drafted) {
     await settleGenerationAttempt(db, prepared.claimId, 'failed');
-    return { ok: false, reason: 'llm', state: await loadOnboardingState(ctx) };
+    return {
+      ok: false,
+      reason: 'llm',
+      detail: 'model_output_unusable',
+      guidance: `The model produced nothing usable from the fetched site. ${FAILED_DRAFT_GUIDANCE} Alternatively, write the section manually via update_setup.`,
+      state: await loadOnboardingState(ctx),
+    };
   }
   const saved = await casWrite(ctx, opts.expectedVersion, {
     description: drafted.description,
@@ -558,7 +627,14 @@ export const suggestCompetitors = async (
   opts: GenerationOpts,
 ): Promise<
   | { ok: true; state: OnboardingState }
-  | { ok: false; reason: 'search' | 'llm'; state: OnboardingState }
+  | {
+      ok: false;
+      reason: 'search' | 'llm';
+      detail: string;
+      guidance: string;
+      candidates?: DiscoveredCandidate[];
+      state: OnboardingState;
+    }
   | OnboardingFailure
 > => {
   const prepared = await prepareGeneration(ctx, 'competitors', opts);
@@ -573,16 +649,28 @@ export const suggestCompetitors = async (
   }
   // Exa returns real indexed company pages; the model curates by candidate
   // number, so every suggested domain is backed by an actual search result.
-  const discovered = await discoverCompetitors(env, {
+  const discovery = await discoverCompetitors(env, {
     brand: brand.name,
     domains: brand.domains,
     summary: prepared.profile.summary ?? '',
   });
-  if (discovered.length === 0) {
+  if (!discovery.ok) {
     await settleGenerationAttempt(db, prepared.claimId, 'failed');
+    const detail = discovery.cause;
+    const guidance =
+      discovery.cause === 'unconfigured'
+        ? 'The server has no Exa key (EXA_API_KEY), so competitor search is unavailable. Add competitors manually with update_setup, using domains you have verified.'
+        : discovery.cause === 'unsuitable'
+          ? 'Search returned candidate pages but curation produced nothing usable. Inspect candidates for real domains and add competitors manually with update_setup, or retry.'
+          : `Search could not produce candidates. ${FAILED_DRAFT_GUIDANCE} Retry or add competitors manually with update_setup.`;
     return {
       ok: false,
       reason: 'search',
+      detail,
+      guidance,
+      ...(discovery.candidates.length > 0
+        ? { candidates: discovery.candidates }
+        : {}),
       state: await loadOnboardingState(ctx),
     };
   }
@@ -595,7 +683,7 @@ export const suggestCompetitors = async (
   const seenDomains = new Set<string>();
   const seenNames = new Set<string>([brand.name.toLowerCase()]);
   const competitors: DraftCompetitor[] = [];
-  for (const item of discovered) {
+  for (const item of discovery.competitors) {
     const name = item.name.trim();
     if (!name || seenNames.has(name.toLowerCase())) {
       continue;
@@ -651,7 +739,14 @@ export const suggestCompetitors = async (
   }
   if (competitors.length === 0) {
     await settleGenerationAttempt(db, prepared.claimId, 'failed');
-    return { ok: false, reason: 'llm', state: await loadOnboardingState(ctx) };
+    return {
+      ok: false,
+      reason: 'llm',
+      detail: 'all_candidates_invalid',
+      guidance: `Curation returned competitors but every domain failed validation against the brand's tracked domains. ${FAILED_DRAFT_GUIDANCE} Add competitors manually with update_setup.`,
+      candidates: discovery.candidates,
+      state: await loadOnboardingState(ctx),
+    };
   }
   const saved = await casWrite(ctx, opts.expectedVersion, {
     competitors,
@@ -671,7 +766,13 @@ export const suggestPrompts = async (
   opts: GenerationOpts,
 ): Promise<
   | { ok: true; state: OnboardingState }
-  | { ok: false; reason: 'llm'; state: OnboardingState }
+  | {
+      ok: false;
+      reason: 'llm';
+      detail: string;
+      guidance: string;
+      state: OnboardingState;
+    }
   | OnboardingFailure
 > => {
   const prepared = await prepareGeneration(ctx, 'prompts', opts);
@@ -684,20 +785,41 @@ export const suggestPrompts = async (
     await settleGenerationAttempt(db, prepared.claimId, 'failed');
     return { error: 'set up your brand first', status: 400 };
   }
+  const promptLimit = config(ctx).limits.maxActivePromptsPerWorkspace;
+  const total = Math.min(
+    Math.max(opts.steering?.total ?? 25, PROMPT_CATEGORIES.length),
+    promptLimit ?? 100,
+  );
   const generated = await generatePrompts(env, {
     brand: brand.name,
     domain: brand.domains[0] ?? '',
     summary: prepared.profile.summary ?? '',
     competitors: (prepared.profile.competitors ?? []).map((x) => x.name),
+    total,
+    focus: opts.steering?.focus,
   });
-  // Sanitise: 8-500 char text, valid category, dedupe, <=5 per category.
+  if (!generated.ok) {
+    await settleGenerationAttempt(db, prepared.claimId, 'failed');
+    return {
+      ok: false,
+      reason: 'llm',
+      detail: generated.cause,
+      guidance: `The model produced no usable buyer questions. ${FAILED_DRAFT_GUIDANCE} Alternatively, write the question set manually via update_setup.`,
+      state: await loadOnboardingState(ctx),
+    };
+  }
+  // Sanitise: 8-500 char text, valid category, dedupe, with per-category room
+  // for the requested spread (a larger total needs a larger share of each).
   const textCheck = multiLineText(8, 500);
   const categories = new Set<string>(PROMPT_CATEGORIES);
+  const perCategoryCap = Math.max(
+    5,
+    Math.ceil(total / PROMPT_CATEGORIES.length),
+  );
   const perCat = new Map<string, number>();
   const seen = new Set<string>();
   const out: { text: string; category: string }[] = [];
-  const promptLimit = config(ctx).limits.maxActivePromptsPerWorkspace;
-  for (const p of generated) {
+  for (const p of generated.prompts) {
     const category = p.category.trim();
     const parsedText = textCheck.safeParse(p.text);
     if (!parsedText.success || !categories.has(category)) {
@@ -705,7 +827,7 @@ export const suggestPrompts = async (
     }
     const t = parsedText.data;
     const dupeKey = t.toLowerCase();
-    if (seen.has(dupeKey) || (perCat.get(category) ?? 0) >= 5) {
+    if (seen.has(dupeKey) || (perCat.get(category) ?? 0) >= perCategoryCap) {
       continue;
     }
     seen.add(dupeKey);
@@ -717,7 +839,13 @@ export const suggestPrompts = async (
   }
   if (out.length === 0) {
     await settleGenerationAttempt(db, prepared.claimId, 'failed');
-    return { ok: false, reason: 'llm', state: await loadOnboardingState(ctx) };
+    return {
+      ok: false,
+      reason: 'llm',
+      detail: 'all_rejected_by_validation',
+      guidance: `The model returned ${generated.prompts.length} candidates but none passed validation (text length, category, dedupe). ${FAILED_DRAFT_GUIDANCE} Write the question set manually via update_setup.`,
+      state: await loadOnboardingState(ctx),
+    };
   }
   const saved = await casWrite(ctx, opts.expectedVersion, {
     prompts: out,
@@ -820,6 +948,7 @@ export const previewSetup = async (
       configurationHash: string;
       configurationSchemaVersion: number;
       expectedPromptSurfaceChecks: number;
+      expectedPerSurface: { surface: Surface; checks: number }[];
       warnings: string[];
     }
   | OnboardingFailure
@@ -830,6 +959,7 @@ export const previewSetup = async (
   }
   const limits = config(ctx).limits;
   const warnings: string[] = [];
+  const promptCount = normalizePrompts(built.profile.prompts ?? []).length;
   if (
     limits.maxActivePromptsPerWorkspace !== null &&
     built.profile.prompts &&
@@ -844,9 +974,11 @@ export const previewSetup = async (
     draftVersion: built.ws.version,
     configurationHash: built.hash,
     configurationSchemaVersion: CONFIGURATION_SCHEMA_VERSION,
-    expectedPromptSurfaceChecks:
-      normalizePrompts(built.profile.prompts ?? []).length *
-      built.surfaces.length,
+    expectedPromptSurfaceChecks: promptCount * built.surfaces.length,
+    expectedPerSurface: built.surfaces.map((surface) => ({
+      surface,
+      checks: promptCount,
+    })),
     warnings,
   };
 };
