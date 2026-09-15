@@ -36,6 +36,7 @@ const context = (c: Context<WorkspaceBindings>): OnboardingContext => ({
   userId: c.get('user').id,
   userEmail: c.get('user').email,
   adminEmails: c.env.ADMIN_EMAILS,
+  source: 'dashboard',
 });
 
 // Soft-failure bodies are 200s by design; only hard failures map to a status.

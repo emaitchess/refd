@@ -1,6 +1,6 @@
 import { promptLimitMessage, surfaceLimitMessage } from '@refd/core/config';
 import { siteMetadataSchema } from '@refd/core/site-metadata';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import {
   entities,
@@ -42,6 +42,10 @@ import {
   type UpdateDraftInput,
 } from './contracts';
 
+// Which surface a draft mutation enters through, threaded into conflict
+// payloads so an agent or user can tell which writer moved the version.
+export type OnboardingSource = 'dashboard' | 'mcp';
+
 export interface OnboardingContext {
   db: Db;
   env: AppEnv;
@@ -50,6 +54,7 @@ export interface OnboardingContext {
   userId: number;
   userEmail: string;
   adminEmails: string | undefined;
+  source: OnboardingSource;
 }
 
 const config = (ctx: OnboardingContext) =>
@@ -224,11 +229,14 @@ export const loadOnboardingState = async (
 const conflictFailure = async (
   ctx: OnboardingContext,
   currentVersion: number,
+  heldVersion?: number,
 ): Promise<OnboardingFailure> => ({
   error: {
     code: 'draft_version_conflict',
     message: 'The setup changed since it was read.',
     currentVersion,
+    heldVersion,
+    changedBy: ctx.source,
     state: await loadOnboardingState(ctx),
   },
   status: 409,
@@ -288,7 +296,7 @@ const loadDraftForMutation = async (
     return { error: 'workspace not found', status: 404 };
   }
   if (ws.version !== expectedVersion) {
-    return conflictFailure(ctx, ws.version);
+    return conflictFailure(ctx, ws.version, expectedVersion);
   }
   return {
     profile: (ws.profile ?? {}) as WorkspaceProfile,
@@ -310,6 +318,26 @@ const mutateDraft = async (
     return loaded;
   }
   const patch = mutate(loaded.profile);
+  const { db, workspaceId } = ctx;
+  // A wizard step change is navigation, not a content edit: it moves the
+  // pointer with a scoped json_set instead of a whole-document CAS write, so
+  // navigating never bumps the draft version and never collides with a
+  // concurrent content edit (which would defeat the point of resuming walks).
+  const patchKeys = Object.keys(patch);
+  if (
+    patchKeys.length === 1 &&
+    patchKeys[0] === 'step' &&
+    surfaces === undefined
+  ) {
+    const targetStep = patch.step ?? loaded.profile.step ?? 'brand';
+    await db
+      .update(workspaces)
+      .set({
+        profile: sql`json_set(coalesce(profile, '{}'), '$.step', ${targetStep})`,
+      })
+      .where(eq(workspaces.id, workspaceId));
+    return loadOnboardingState(ctx);
+  }
   const merged: WorkspaceProfile = {
     ...loaded.profile,
     ...patch,
@@ -322,7 +350,6 @@ const mutateDraft = async (
       normalizePrompts(patch.prompts ?? loaded.profile.prompts ?? []),
     ),
   };
-  const { db, workspaceId } = ctx;
   const updated = await db
     .update(workspaces)
     .set({
@@ -344,7 +371,11 @@ const mutateDraft = async (
         .from(workspaces)
         .where(eq(workspaces.id, workspaceId))
     )[0];
-    return conflictFailure(ctx, ws?.version ?? expectedVersion);
+    return conflictFailure(
+      ctx,
+      ws?.version ?? expectedVersion,
+      expectedVersion,
+    );
   }
   return loadOnboardingState(ctx);
 };

@@ -128,6 +128,8 @@ export type OnboardingErrorBody =
       code: 'draft_version_conflict';
       message: string;
       currentVersion: number;
+      heldVersion?: number;
+      changedBy?: 'dashboard' | 'mcp';
       state: OnboardingState;
     }
   | {

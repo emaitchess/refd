@@ -103,6 +103,7 @@ const contextFor = (
   userId: principal.userId,
   userEmail: principal.userEmail,
   adminEmails: env.ADMIN_EMAILS,
+  source: 'mcp',
 });
 
 const runSetupTool = async (
