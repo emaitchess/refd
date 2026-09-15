@@ -465,13 +465,14 @@ export const renderConsent = (
       .ws-logo{width:20px;height:20px;flex:none}
       .allow-all{position:relative;display:flex;gap:12px;align-items:flex-start;margin:0 0 12px;padding:12px 14px;border:1px solid var(--border);background:var(--hover);cursor:pointer}
       .allow-all input{position:absolute;opacity:0;width:0;height:0}
-      .allow-all .switch{width:30px;height:18px;border-radius:9px;border:1px solid var(--border-strong);background:var(--card);position:relative;flex:none;margin-top:2px;transition:background 150ms,border-color 150ms}
-      .allow-all .switch::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--muted);transition:transform 150ms,background 150ms}
-      .allow-all input:checked~.switch{background:var(--primary);border-color:var(--primary)}
-      .allow-all input:checked~.switch::after{transform:translateX(12px);background:var(--bg)}
+      .allow-all .switch{width:36px;height:20px;border:1px solid var(--border);background:var(--bg);position:relative;flex:none;margin-top:2px;transition:border-color 150ms}
+      .allow-all .switch::after{content:"";position:absolute;top:3px;left:3px;width:12px;height:12px;background:var(--primary);transition:transform 150ms}
+      .allow-all input:checked~.switch{border-color:var(--border-strong);background:var(--accent-soft)}
+      .allow-all input:checked~.switch::after{transform:translateX(16px)}
       .allow-all input:focus-visible~.switch{outline:2px solid var(--primary);outline-offset:-2px}
       .allow-all-text strong{display:block;font-weight:500}
       .allow-all-text small{color:var(--secondary);font-size:12px}
+      .allow-all-text small strong{display:inline}
     </style>
   </head>
   <body>
