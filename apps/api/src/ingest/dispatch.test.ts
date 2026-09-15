@@ -31,6 +31,8 @@ const MIGRATIONS = [
   '0006_ancient_wildside.sql',
   '0007_dazzling_prima.sql',
   '0008_tricky_war_machine.sql',
+  '0009_amazing_hydra.sql',
+  '0010_nostalgic_swarm.sql',
 ];
 
 interface Fixture {

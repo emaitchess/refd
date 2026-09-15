@@ -1,16 +1,17 @@
-import { scheduledMonitoringEligible } from '@refd/core/workspaces';
 import { ChatExchange } from './chat/exchange-do';
-import { getDb } from './db/client';
-import { workspaces } from './db/schema';
 import type { AppEnv } from './env';
 import { handleIngestBatch } from './ingest/consumer';
 import { resumePendingRunDispatches } from './ingest/dispatch';
 import type { IngestMessage } from './ingest/messages';
-import { createRun } from './ingest/runs';
+import { runScheduledWorkspaces } from './ingest/scheduled-runs';
 import { oauthFetch } from './oauth/provider';
 
 // Durable Object classes must be exported from the Worker entrypoint.
 export { ChatExchange };
+
+// The schedule tick: fires each eligible workspace due per its run schedule
+// (workspaces.schedule; null = the default daily 06:00 UTC).
+const SCHEDULE_TICK_CRON = '*/15 * * * *';
 
 export default {
   // API-only Worker (api.refd.ai): API, OAuth, and MCP. The SPA and the public
@@ -36,46 +37,10 @@ export default {
     } catch (error) {
       console.error('scheduled run dispatch recovery failed', error);
     }
-    if (controller.cron !== '0 6 * * *') {
+    if (controller.cron !== SCHEDULE_TICK_CRON) {
       return;
     }
-
-    const date = new Date().toISOString().slice(0, 10);
-    const now = Date.now();
-    const candidates = await getDb(env)
-      .select({
-        id: workspaces.id,
-        monitoringTier: workspaces.monitoringTier,
-        monitoringEndsAt: workspaces.monitoringEndsAt,
-      })
-      .from(workspaces);
-    const eligibleWorkspaces = candidates.filter((workspace) =>
-      scheduledMonitoringEligible(
-        workspace,
-        env.SCHEDULED_MONITORING_POLICY,
-        now,
-      ),
-    );
-    for (const ws of eligibleWorkspaces) {
-      try {
-        const { runId, created, dispatchState } = await createRun(
-          env,
-          ws.id,
-          'cron',
-          `cron:${ws.id}:${date}`,
-          date,
-        );
-        console.log(
-          created
-            ? `cron: ws ${ws.id} run ${runId} ${dispatchState}`
-            : `cron: ws ${ws.id} run ${runId} already exists (${dispatchState})`,
-        );
-      } catch (error) {
-        // A workspace with no prompts (or a transient failure) must not
-        // block the other workspaces' runs.
-        console.error(`cron: ws ${ws.id} failed`, error);
-      }
-    }
+    await runScheduledWorkspaces(env);
   },
 
   async queue(batch: MessageBatch<IngestMessage>, env: AppEnv): Promise<void> {

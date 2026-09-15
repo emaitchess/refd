@@ -152,7 +152,7 @@ export const GLOSSARY_TERMS: GlossaryDefinition<TermCategory>[] = [
     category: 'Collection and scoring',
     definition: 'The event that started a collection run.',
     details:
-      'Scheduled runs start automatically each day. Manual runs are started by a user, onboarding runs build the first report, and imported runs preserve historical data.',
+      'Scheduled runs fire on the workspace run schedule: daily, or weekly on chosen weekdays. Manual runs are started by a user, onboarding runs build the first report, and imported runs preserve historical data.',
   },
   {
     id: 'collection-unit',

@@ -45,7 +45,7 @@ const CONTEXT: Record<
   },
   report: {
     title: 'Review the system before the first answers arrive.',
-    copy: 'We will check a representative set now, then finish the rest in the background and monitor it daily.',
+    copy: 'We will check a representative set now, then finish the rest in the background and keep monitoring on your schedule.',
     meta: 'ready check',
   },
 };

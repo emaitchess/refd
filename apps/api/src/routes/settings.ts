@@ -3,6 +3,12 @@ import type {
   OAuthHelpers,
 } from '@cloudflare/workers-oauth-provider';
 import { surfaceLimitMessage } from '@refd/core/config';
+import {
+  DEFAULT_RUN_SCHEDULE,
+  parseRunSchedule,
+  runScheduleSchema,
+} from '@refd/core/schedule';
+import { scheduledMonitoringEligible } from '@refd/core/workspaces';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -36,21 +42,37 @@ export const isStaleConnection = (
 
 export const settingsRoutes = new Hono<WorkspaceBindings>();
 
-// Workspace-level run settings. Currently just the enabled AI surfaces; shared
-// by the onboarding prompts step and the dashboard Settings page.
+// Workspace-level run settings: enabled AI surfaces and the run schedule.
+// Shared by the onboarding prompts step and the dashboard Settings page.
 settingsRoutes.get('/', async (c) => {
   const db = getDb(c.env);
   const maxSurfaces = configForUser(c.get('user').email, c.env.ADMIN_EMAILS)
     .limits.maxEnabledSurfacesPerWorkspace;
   const ws = (
     await db
-      .select({ surfaces: workspaces.surfaces })
+      .select({
+        surfaces: workspaces.surfaces,
+        schedule: workspaces.schedule,
+        monitoringTier: workspaces.monitoringTier,
+        monitoringEndsAt: workspaces.monitoringEndsAt,
+      })
       .from(workspaces)
       .where(eq(workspaces.id, c.get('workspace').id))
   )[0];
   return c.json({
     surfaces: enabledSurfaces(ws?.surfaces ?? null, maxSurfaces),
     available: SURFACES,
+    schedule: parseRunSchedule(ws?.schedule) ?? DEFAULT_RUN_SCHEDULE,
+    // The monitoring policy (tier), not the schedule toggle, decides whether
+    // scheduled runs fire at all; the UI states this instead of implying the
+    // toggle controls it.
+    scheduleActive: ws
+      ? scheduledMonitoringEligible(
+          ws,
+          c.env.SCHEDULED_MONITORING_POLICY,
+          Date.now(),
+        )
+      : false,
   });
 });
 
@@ -74,6 +96,18 @@ settingsRoutes.patch('/', async (c) => {
     .set({ surfaces })
     .where(eq(workspaces.id, c.get('workspace').id));
   return c.json({ surfaces });
+});
+
+// The schema output is the canonical stored form: daily collapses interval and
+// days; weekly days are deduped and sorted.
+settingsRoutes.patch('/schedule', async (c) => {
+  const schedule = await parseBody(c, runScheduleSchema);
+  const db = getDb(c.env);
+  await db
+    .update(workspaces)
+    .set({ schedule })
+    .where(eq(workspaces.id, c.get('workspace').id));
+  return c.json({ schedule });
 });
 
 const listUserGrants = async (
