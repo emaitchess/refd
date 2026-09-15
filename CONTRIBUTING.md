@@ -49,7 +49,7 @@ either). Highlights:
   declarations.
 - **Validate data at trust boundaries with Zod** (`safeParse`), never bare
   `as` casts — request bodies, LLM output, and external API responses.
-- **UI work follows [`docs/DESIGN.md`](docs/DESIGN.md).** Charts are dither-kit
+- **UI work follows [`DESIGN.md`](docs/DESIGN.md).** Charts are dither-kit
   only; monochrome chrome, hue belongs to data; no em dashes in UI copy.
 - Any user-facing metric change must also update the glossary
   (`packages/core/src/metric-copy.ts`) and its tests.

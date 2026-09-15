@@ -8,7 +8,7 @@ Guidance for AI coding agents working in this repository.
 
 refd (refd.ai) — open-source AI search monitoring. Each workspace tracks one brand's visibility, mentions, citations, and rank across AI answer surfaces: ChatGPT, Perplexity, Gemini, Google AI Mode (BrightData dataset scrapers), and Google AI Overviews (BrightData SERP API). BrightData is the **only** data provider. Available hosted (refd.ai) or self-hosted; born tracking mrmr, since generalized. Public copy never pairs "refd" with "aeo".
 
-Reference docs: `docs/DESIGN.md` (design system — all UI work follows it), `docs/METRICS.md` (scoring and aggregation contract), and `docs/mcp.md` (remote MCP and OAuth usage).
+Reference docs: `DESIGN.md` (design system — all UI work follows it), `docs/METRICS.md` (scoring and aggregation contract), and `docs/mcp.md` (remote MCP and OAuth usage).
 
 ## Monorepo layout
 
@@ -84,7 +84,7 @@ recovery cron (every 5m) → resume due initial-dispatch plans without creating 
 - Onboarding setup spend is budgeted in the `setup_usage` ledger: generation attempts per section (max 3 failures/24h), 18 external setup calls per standard user/24h, one report per workspace, one report per user/24h, five lifetime, plus global daily circuit breakers (`SETUP_GENERATION_DAILY_LIMIT`, `SETUP_REPORT_DAILY_LIMIT`). Claims are settled before and after external work; admins skip only the user-level caps. The setup state reads (dashboard GET and MCP `get_setup_state`) attach the caller's effective limits and a 24h ledger snapshot; generation failures carry a detail cause plus a guidance line naming the free-retry rule, and competitor search failures carry the raw indexed candidate domains. `suggest_prompts` takes optional steering (`total` clamped to the prompt limit, `focus` free text); the AI-path per-category cap widens to the requested spread. The setup report is pinned to the `setup_commits` run group and served to both the dashboard (`/onboarding/report/:setupId`) and MCP (`get_setup_report`).
 - The local DB's run `import:2026-07-14` is back-imported legacy Oxylabs data (provider `oxylabs-import`, no R2 raw); the import script itself has been removed.
 
-## UI rules (see docs/DESIGN.md for full detail)
+## UI rules (see DESIGN.md for full detail)
 
 - Charts are dither-kit only, vendored under `apps/dashboard/src/components/dither-kit/`. The kit is **not** charts-only: it also ships standalone non-chart items (`gradient` — dithered background washes, used on the landing footer; `avatar`) that install without the chart engine. Add them **by hand**, never via `bunx @dither-kit/cli add` — those items co-ship `palette.ts`/`lib.ts`, which the CLI would overwrite, reverting the arrow-function codemod. Fetch the registry JSON (`components.json` → `@dither-kit`), take only the new files, codemod, add the `@ts-nocheck` vendor header; the dir is Biome-excluded. `gradient`'s `from` takes a palette name or a hue (fixed 85% saturation), so **`grey` is its only achromatic option** — what a monochrome wash must use.
 - **No shadcn/ui** — `components.json` + `cn()` exist solely for the dither-kit registry; build components by hand with Tailwind.
