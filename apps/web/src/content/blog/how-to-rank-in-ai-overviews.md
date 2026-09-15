@@ -4,12 +4,16 @@ description: "What two live AI Overviews actually cited on 4 September 2026, wha
 eyebrow: "Guide"
 answer: "Getting cited in an AI answer depends on which pattern the query follows. For commercial queries, AI Overviews largely cite third-party comparison articles, so inclusion is won by appearing in other people's lists. For definitional and product queries, they cite vendor pages directly, so a page structured around a plain definition, separated named measures, and stated limitations can be quoted. Measure the outcome per query rather than assuming either pattern holds."
 publishedAt: 2026-09-04
+updatedAt: 2026-09-14
 author:
   name: "Mohammad Hamza Suhail"
   url: "https://emaitchess.com"
 order: 13
 draft: false
 related:
+  - href: "/ai-visibility-checker"
+    title: "AI visibility checker"
+    description: "Check whether AI answers name and cite your brand, with the evidence behind every number."
   - href: "/google-ai-overview-tracker"
     title: "Google AI Overview tracking"
     description: "Track whether an AI Overview fires for your queries, whether you are cited, and who is cited instead."
@@ -87,7 +91,9 @@ sources both overviews drew on.
    justification for the whole category. Explicit limits get cited more readily
    than claims do, which inverts the usual marketing instinct.
 4. **Comparison tables with a rubric and a visible test date.** Undated
-   comparisons were consistently passed over for dated ones.
+   comparisons were consistently passed over for dated ones. Our
+   [AI visibility tools comparison](/compare/ai-visibility-tools) is built that
+   way on purpose: dated, with the method and its limits stated above the table.
 5. **Unambiguous entity language.** Put the brand name and the measure in the
    same sentence. Pronouns and implied subjects break attribution.
 6. **Crawlable HTML.** A plain-text or Markdown representation and an `llms.txt`
@@ -97,6 +103,25 @@ sources both overviews drew on.
 What did not appear to matter: keyword density, publishing frequency, and page
 count. Every cited source was a substantial page, and the overviews cited eight
 to ten of them rather than dozens.
+
+## Making the facts extractable
+
+The six properties above are about how a page reads. Three mechanics determine
+whether the facts survive the trip into an answer builder at all.
+
+- **Schema that matches the shape of the fact.** `FAQPage` for question-shaped
+  facts, `HowTo` where there are real steps, `Product` with an `Offer` for
+  pricing. Schema does not make a page rank, and both overviews we captured
+  cited pages with and without it. What it does is mark where the discrete,
+  listable facts live, which is the form the answer rewrites into bullets.
+- **A plain-text twin for every page.** Served at its own URL with `.md`
+  appended and listed in `llms.txt`, so a retriever that prefers text can take
+  the content without parsing HTML. This site does both. The twin supplements
+  crawlable HTML. It does not replace it.
+- **Internal links from pages that are already indexed.** A page sitting in the
+  sitemap with nothing pointing at it can stay in "discovered, currently not
+  indexed" for weeks. We watched exactly that happen to one of our own pages,
+  and the fix was ordinary internal links, not a resubmission.
 
 ## The same principles apply in ChatGPT and Perplexity
 
@@ -136,6 +161,9 @@ queries. Four things to record, per query, over time:
   from citation, and the two move independently.
 - **Who is cited instead.** The specific competing domains, which is your
   outreach list.
+
+All four are recorded per query, per run, by the
+[Google AI Overview tracker](/google-ai-overview-tracker).
 
 A missing AI Overview is a valid observation, not a collection failure. Tools
 that discard the empty case will overstate how often you were absent from

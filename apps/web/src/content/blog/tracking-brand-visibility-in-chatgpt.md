@@ -1,9 +1,10 @@
 ---
-title: "How ChatGPT decides which brands to name, and how to track it"
-description: "ChatGPT answers from model memory, from web search, or from both. Each path changes what a brand mention means and what you can do about it."
+title: "How to track brand mentions in ChatGPT, and which mechanism produced them"
+description: "How to track brand mentions in ChatGPT by separating model-association mentions from retrieval-driven ones, and why the citation signal tells you which mechanism is moving."
 eyebrow: "Surface guide"
 answer: "ChatGPT can answer a buyer question from what the model already associates with a category, from pages it retrieves at answer time, or from a blend of the two. Mentions driven by model association respond to broad third-party coverage over months. Mentions driven by retrieval respond to specific pages. Tracking the two together without separating citations from mentions hides which one is actually moving."
 publishedAt: 2026-09-04
+updatedAt: 2026-09-14
 author:
   name: "Mohammad Hamza Suhail"
   url: "https://emaitchess.com"
@@ -93,14 +94,18 @@ questions, over how many runs, compared with which competitors.
 
 1. **Fix your prompt set before you measure.** Twenty to thirty questions real
    buyers ask, held constant. Changing the set mid-campaign destroys the
-   comparison.
+   comparison. [How to build an AI prompt set](/blog/how-to-build-an-ai-prompt-set)
+   covers the design.
 2. **Read the sources, not just the score.** The cited domains are your outreach
    list. They are a short, specific, verifiable list, which is rare in this work.
+   The [ChatGPT visibility tracker](/chatgpt-visibility-tracker) shows the
+   underlying answer behind every metric it reports.
 3. **Separate the two mechanisms.** If your mentions come with no citations,
    more content on your own site is the wrong lever. Third-party presence is the
    right one.
 4. **Compare completed runs, never single answers.** And require a floor of
-   observations before calling any movement a change.
+   observations before calling any movement a change. The [surface trackers](/trackers)
+   report each engine separately rather than blending them into one score.
 
 ## The limit worth stating
 

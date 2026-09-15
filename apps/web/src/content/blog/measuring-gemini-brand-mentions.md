@@ -1,8 +1,8 @@
 ---
-title: "Measuring brand mentions in Gemini, and why it is not Google Search"
-description: "Gemini, Google AI Mode, and Google AI Overviews are three different products from one company. Treating them as one Google number loses the distinction that matters."
+title: "How to track brand mentions in Gemini, and why it is not Google Search"
+description: "How to track brand mentions in Gemini, and why Gemini, Google AI Mode, and Google AI Overviews are three different Google products that must be measured separately."
 eyebrow: "Surface guide"
-answer: "Gemini is a standalone assistant, not a search feature. It differs from Google AI Mode and Google AI Overviews in interface, retrieval behavior, and the shape of the answers it returns, so a brand's visibility in one says little about the other two. Merging them into a single Google figure hides which of the three is actually moving."
+answer: "Gemini is a standalone assistant, not a search feature. It differs from Google AI Mode and Google AI Overviews in interface, retrieval behavior, and the shape of the answers it returns, so a brand's visibility in one says little about the other two. Merging them into a single Google figure hides which of the three is actually moving. Track first-mention position, share of voice, and sentiment; a high mention rate with a flat share of voice is a listing, not a recommendation."
 publishedAt: 2026-09-04
 author:
   name: "Mohammad Hamza Suhail"
@@ -62,7 +62,9 @@ signals shift:
   named brand for the characterization to be meaningful.
 
 If your Gemini mention rate is high and your share of voice is unremarkable, you
-are being listed rather than recommended. Those need different responses.
+are being listed rather than recommended. Those need different responses. The
+[Gemini visibility tracker](/gemini-visibility-tracker) reports all three
+measures on collected answers, with the raw response behind each number.
 
 ## Phrasing sensitivity
 
@@ -73,7 +75,8 @@ return different companies.
 This is a prompt-set design problem, not a measurement problem. Write the
 questions the way buyers actually type them into an assistant, in full sentences,
 and hold them constant. A prompt set of three-word search queries measures
-something real, but it is not what people ask Gemini.
+something real, but it is not what people ask Gemini. [How to build an AI prompt
+set](/blog/how-to-build-an-ai-prompt-set) covers that design in full.
 
 ## The measurement caution
 
@@ -83,5 +86,7 @@ all ten, which makes the metric look stable while telling you very little.
 
 Watch position and share of voice on this surface, use mention rate as a floor
 rather than a headline, and compare completed runs rather than single answers.
+The [mention versus citation distinction](/blog/ai-mentions-vs-citations)
+applies on this surface as much as anywhere.
 The general rule holds here as everywhere: one answer is an observation, not a
 ranking.
