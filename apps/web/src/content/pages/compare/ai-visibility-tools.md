@@ -1,9 +1,10 @@
 ---
 title: "AI visibility tools compared, on facts you can check yourself"
-description: "Twelve AI visibility platforms compared on surfaces tracked, published pricing, raw answer evidence, open source status, and API access. Checked 5 September 2026."
+description: "Fourteen AI visibility platforms compared on surfaces tracked, published pricing, raw answer evidence, open source status, and API access. Checked 5 September 2026."
 eyebrow: "Comparison"
-answer: "Twelve AI visibility platforms compared on five publicly checkable criteria: how many AI answer surfaces each tracks, whether pricing is published, whether the product states that it shows the raw AI answer behind each metric, whether it is open source or self-hostable, and whether it offers API or MCP access. Every claim comes from the vendor's own public pages, checked on 5 September 2026, with the method and its limits stated in full."
+answer: "Fourteen AI visibility platforms compared on five publicly checkable criteria: how many AI answer surfaces each tracks, whether pricing is published, whether the product states that it shows the raw AI answer behind each metric, whether it is open source or self-hostable, and whether it offers API or MCP access. Every claim comes from the vendor's own public pages, checked on 5 September 2026, with the method and its limits stated in full."
 publishedAt: 2026-09-05
+updatedAt: 2026-09-14
 author:
   name: "Mohammad Hamza Suhail"
   url: "https://emaitchess.com"
@@ -26,7 +27,8 @@ related:
 
 Most comparisons in this category are written by one of the vendors, and the
 vendor wins. This one is too, so start with the method and decide for yourself
-how much to trust the rest.
+how much to trust the rest. The same questions, made reusable, are in
+[how to audit an AI visibility tool](/blog/how-to-audit-an-ai-visibility-tool).
 
 ## How this comparison was made
 
@@ -104,7 +106,10 @@ SaaS.
 
 ## Where each one is strongest
 
-These are positioning readings, not test results.
+These are positioning readings, not test results. For the queries where lists
+like this one are what AI answers cite, [how to get cited in AI
+Overviews](/blog/how-to-rank-in-ai-overviews) covers what inclusion takes on
+both patterns.
 
 - **Profound** is the enterprise default in the United States. Highest brand
   demand in the category by a wide margin, deepest analytics, priced for teams
