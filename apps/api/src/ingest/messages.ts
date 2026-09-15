@@ -42,6 +42,21 @@ export const ingestMessageSchema = z.discriminatedUnion('kind', [
     snapshotId: z.string(),
     prompts: z.array(runPromptSchema),
   }),
+  // BrightData pushes the scraped records themselves to the webhook endpoint
+  // (gzipped, snapshot id in the dca-collection-id header). The handler stashes
+  // the raw bytes in R2 — queue messages cap well below the delivery size —
+  // and this message processes them later with the same record pipeline.
+  z.object({
+    kind: z.literal('brightdata_delivered'),
+    runId: z.number(),
+    workspaceId: z.number(),
+    surface: z.enum(DATASET_SURFACES),
+    sample: z.number(),
+    chunk: z.number().default(0),
+    snapshotId: z.string(),
+    deliveryKey: z.string(),
+    prompts: z.array(runPromptSchema),
+  }),
   z.object({
     kind: z.literal('serp_aio_fetch'),
     runId: z.number(),
