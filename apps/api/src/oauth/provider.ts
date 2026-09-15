@@ -13,7 +13,6 @@ import { createRefdMcpServer } from '../mcp/server';
 import { connectionPropsSchema } from './connection-props';
 import { handleOAuthDefault } from './consent';
 import {
-  advertisedScopes,
   MCP_SCOPES,
   OAUTH_PROTOCOL_OPTIONS,
   oauthResourceUrl,
@@ -163,7 +162,6 @@ export const createOAuthOptions = (
               'Redirect URIs must use HTTPS, a loopback HTTP address, or an app-specific URI scheme.',
           },
     ...OAUTH_PROTOCOL_OPTIONS,
-    scopesSupported: advertisedScopes(env),
     onError: (error) => {
       const current = new URL(request.url);
       const entry = JSON.stringify({
@@ -183,7 +181,7 @@ export const createOAuthOptions = (
     resourceMetadata: {
       resource,
       authorization_servers: [authorizationServer],
-      scopes_supported: advertisedScopes(env),
+      scopes_supported: [...MCP_SCOPES],
       bearer_methods_supported: ['header'],
       resource_name: 'refd AI visibility data',
     },

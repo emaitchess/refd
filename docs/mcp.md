@@ -29,9 +29,8 @@ Two scopes exist:
   can draft, edit, and preview a workspace's setup, and `confirm_setup`
   starts exactly one provider-backed onboarding report per workspace; the
   same per-workspace draft versions and spend budgets that bound the
-  dashboard apply. No other provider run is reachable over MCP. The scope is
-  phase-gated server-side (`MCP_SETUP_TOOLS_ENABLED`) and the consent screen
-  discloses what write access allows before approval.
+  dashboard apply. No other provider run is reachable over MCP. The consent
+  screen discloses what write access allows before approval.
 
 Write integrity does not rest on the token: setup mutations carry an
 optimistic-concurrency version, and `confirm_setup` verifies a canonical
@@ -202,9 +201,7 @@ granted set is rejected. The server also publishes
 `refd://glossary/metrics`, a read-only resource with the definitions used by
 the dashboard.
 
-With the `data:write` scope (phase-gated off by default on the hosted
-service; self-hosters enable it with `MCP_SETUP_TOOLS_ENABLED=true`), nine
-setup tools onboard a workspace end to end:
+With the `data:write` scope, nine setup tools onboard a workspace end to end:
 
 | Tool | Purpose |
 | --- | --- |

@@ -29,9 +29,6 @@ export type AppEnv = Omit<
   // sane defaults; zero/negative values fall back to the defaults.
   SETUP_GENERATION_DAILY_LIMIT?: string;
   SETUP_REPORT_DAILY_LIMIT?: string;
-  // Phase-gates the data:write OAuth scope and the MCP setup tools. Default
-  // off; flip in wrangler vars for the bounded production test.
-  MCP_SETUP_TOOLS_ENABLED?: string;
 };
 
 export type AppBindings = { Bindings: AppEnv };
