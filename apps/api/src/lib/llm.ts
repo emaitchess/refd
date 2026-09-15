@@ -557,6 +557,35 @@ const generatedPromptsSchema = z.object({
     .catch([]),
 });
 
+// 25 prompt objects per response: a token cap that binds here truncates the
+// array mid-item and parseJson loses the whole draft, so the json_schema
+// bounds the shape and no token ceiling applies (see extractMeta).
+const generatedPromptsResponseFormat = {
+  type: 'json_schema' as const,
+  json_schema: {
+    name: 'prompts',
+    schema: {
+      type: 'object',
+      properties: {
+        prompts: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              text: { type: 'string' },
+              category: { type: 'string' },
+            },
+            required: ['text', 'category'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['prompts'],
+      additionalProperties: false,
+    },
+  },
+};
+
 export interface GeneratedPrompt {
   text: string;
   category: string;
@@ -599,7 +628,10 @@ export const generatePrompts = async (
         { role: 'system', content: system },
         { role: 'user', content: user },
       ],
-      { maxTokens: 2000 },
+      {
+        maxTokens: null,
+        responseFormat: generatedPromptsResponseFormat,
+      },
     );
     return parseJson(text, generatedPromptsSchema)?.prompts ?? [];
   } catch {
