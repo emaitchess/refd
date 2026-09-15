@@ -47,6 +47,20 @@ describe('parseJson', () => {
     expect(parseJson('{"a":1', schema)).toBeNull();
     expect(parseJson('{"a":"not a number"}', schema)).toBeNull();
   });
+
+  // A token ceiling that truncates a multi-item array mid-item loses the
+  // whole draft — generatePrompts moved to a json_schema response instead.
+  test('truncated array output parses as nothing', () => {
+    const prompts = z.object({
+      prompts: z.array(z.object({ text: z.string() })),
+    });
+    expect(
+      parseJson(
+        '{"prompts":[{"text":"one"},{"text":"two"},{"text":"thr',
+        prompts,
+      ),
+    ).toBeNull();
+  });
 });
 
 describe('tokenInputs', () => {

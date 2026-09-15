@@ -217,6 +217,7 @@ export interface SetupReport {
     received: number;
     succeeded: number;
     failed: number;
+    outstanding: number;
     sentimentPending: number;
   };
   runs: RunRow[];

@@ -39,6 +39,7 @@ export interface SetupReport {
     received: number;
     succeeded: number;
     failed: number;
+    outstanding: number;
     sentimentPending: number;
   };
   runs: {
@@ -278,7 +279,7 @@ export const getSetupReport = async (
       );
       return {
         surface,
-        answers: scope.length,
+        answers: answerCount(scope),
         mentionRate: cellRate(scope, brand.id, 'mentioned'),
         citationRate: cellRate(scope, brand.id, 'cited'),
       };
@@ -311,7 +312,8 @@ export const getSetupReport = async (
       expected,
       received: resultRows.length,
       succeeded,
-      failed: expected - succeeded,
+      failed: resultRows.filter((row) => !row.ok).length,
+      outstanding: expected - resultRows.length,
       sentimentPending,
     },
     runs: runRows,
