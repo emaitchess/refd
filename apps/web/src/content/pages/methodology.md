@@ -70,8 +70,8 @@ result observed at that time; it does not claim to reproduce every answer every
 person could receive.
 
 The hosted deployment currently takes one sample of each prompt and surface in
-every scheduled run. This keeps daily collection cost bounded while preserving
-the prompt and surface coverage needed for trend reporting.
+every scheduled run. This keeps per-run collection cost bounded while
+preserving the prompt and surface coverage needed for trend reporting.
 
 One sample does not make an AI answer deterministic. refd therefore treats a
 completed run as one observation and compares trends across runs instead of

@@ -570,6 +570,9 @@ or random background particles. Dither texture already provides identity.
 - Group related fields with continuous dividers rather than stacking many
   floating cards.
 - Do not use placeholder text as the only label.
+- Switches are square monochrome tracks with a square knob that slides; expose
+  `role="switch"` and `aria-checked`, and signal state by knob position and
+  border strength, never by color.
 
 ### Onboarding
 

@@ -26,9 +26,10 @@ complete platform yourself.
 
 ## How it works
 
-Each workspace tracks a single brand and its competitors. On a daily schedule,
-refd runs your active prompts once across every enabled AI answer surface and
-scores the results. Because AI answers are
+Each workspace tracks a single brand and its competitors. On its run schedule
+(daily by default, or weekly on chosen days), refd runs your active prompts
+once across every enabled AI answer surface and scores the results. Because AI
+answers are
 non-deterministic, refd compares trends across runs rather than trusting a single
 answer.
 
