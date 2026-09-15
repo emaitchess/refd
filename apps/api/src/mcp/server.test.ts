@@ -71,6 +71,12 @@ describe('MCP tool catalog', () => {
     expect(MCP_INSTRUCTIONS).toContain('confirm_setup');
     expect(MCP_INSTRUCTIONS).toContain('expectedVersion');
     expect(MCP_INSTRUCTIONS).toContain('provider-backed report');
+    expect(MCP_INSTRUCTIONS).toContain('complete_setup');
+  });
+
+  test('server instructions state the provisioning rule', () => {
+    expect(MCP_INSTRUCTIONS).toContain('create_workspace');
+    expect(MCP_INSTRUCTIONS).toContain('Allow all workspaces');
   });
 });
 

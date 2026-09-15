@@ -1,6 +1,7 @@
 import type { Alias } from '@refd/core/mentions';
 import type { SiteMetadata } from '@refd/core/site-metadata';
 import { z } from 'zod';
+import { PROMPT_CATEGORIES } from '../lib/llm';
 import { domainField, multiLineText, singleLineText } from '../lib/sanitize';
 import { SURFACES, type Surface } from '../providers/types';
 
@@ -13,6 +14,18 @@ export const STEPS = [
 ] as const;
 
 export type OnboardingStep = (typeof STEPS)[number];
+
+// The brand step seeds the pointer forward, never backward: re-saving brand
+// details while the wizard already sits on a later step must not rewind it.
+export const stepAfterBrandSave = (
+  step: OnboardingStep | undefined,
+): OnboardingStep => {
+  const order = STEPS as readonly OnboardingStep[];
+  const current = step ?? 'brand';
+  return order.indexOf(current) > order.indexOf('describe')
+    ? current
+    : 'describe';
+};
 
 // Each AI step drafts itself once on entry for free; a manual regenerate is a
 // second model call, so it's allowed once per step and then refused. The client
@@ -55,10 +68,25 @@ export const competitorDraft = z.object({
   aliases: z.array(aliasSchema).max(8).default([]),
 });
 
+// Categories become the prompt's only tag and drive the onboarding report's
+// 1-prompt-per-category selection, so a mistyped one would silently fragment
+// grouping. Fold case onto the canonical set before enum validation.
+export const canonicalPromptCategory = (value: string) =>
+  PROMPT_CATEGORIES.find(
+    (category) => category.toLowerCase() === value.trim().toLowerCase(),
+  );
+const categorySchema = singleLineText(1, 40)
+  .transform((value) => canonicalPromptCategory(value) ?? value)
+  .pipe(
+    z.enum(PROMPT_CATEGORIES, {
+      message: `category must be one of ${PROMPT_CATEGORIES.join(', ')}`,
+    }),
+  );
+
 export const promptDraft = z.object({
   draftId: draftIdField.optional(),
   text: multiLineText(8, 500),
-  category: singleLineText(1, 40),
+  category: categorySchema,
 });
 
 // A high request-shape ceiling protects parsing even when an administrator has

@@ -37,6 +37,7 @@ import {
   type OnboardingFailure,
   type OnboardingState,
   REGEN_LIMIT,
+  stepAfterBrandSave,
   type UpdateDraftInput,
 } from './contracts';
 
@@ -401,7 +402,7 @@ export const saveBrand = async (
       .where(eq(workspaces.id, workspaceId));
   }
   return mutateDraft(ctx, data.expectedVersion, () => ({
-    step: 'describe',
+    step: stepAfterBrandSave(loaded.profile.step),
     siteMetadata: undefined,
   }));
 };
