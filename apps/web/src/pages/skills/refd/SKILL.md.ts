@@ -38,9 +38,8 @@ workspace tracks one brand.
   ones created later). Every tool takes an optional \`workspace\` selector; the
   credential, never the tool arguments, defines what it may target.
   \`get_workspace_info\` lists the choices.
-- Scopes: \`data:read\` (nine analytics tools, the default) and a phase-gated
-  \`data:write\` (nine setup tools, disabled by default on the hosted service;
-  self-hosters enable it with \`MCP_SETUP_TOOLS_ENABLED=true\`).
+- Scopes: \`data:read\` (nine analytics tools, the default) and \`data:write\`
+  (nine setup tools).
 
 ## Reading data (data:read)
 

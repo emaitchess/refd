@@ -32,9 +32,6 @@
     // Setup spend circuit breakers (dashboard + MCP share them).
     "SETUP_GENERATION_DAILY_LIMIT": "500",
     "SETUP_REPORT_DAILY_LIMIT": "100",
-    // data:write OAuth scope + MCP setup tools stay disabled until the
-    // bounded production test flips this to "true".
-    "MCP_SETUP_TOOLS_ENABLED": "false",
     // The API Worker's own public origin: the base for BrightData notify
     // callbacks (with BRIGHTDATA_WEBHOOK_SECRET) and the canonical MCP resource
     // URL (<PUBLIC_BASE_URL>/mcp) and OAuth discovery.

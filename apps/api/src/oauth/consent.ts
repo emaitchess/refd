@@ -13,12 +13,7 @@ import { entities, mcpConnections, users, workspaces } from '../db/schema';
 import type { AppEnv } from '../env';
 import { dashboardOriginForRequest } from '../lib/cors';
 import { provisionWorkspace } from '../lib/workspace-provision';
-import {
-  MCP_SCOPE,
-  MCP_SCOPES,
-  MCP_WRITE_SCOPE,
-  setupToolsEnabled,
-} from './constants';
+import { MCP_SCOPE, MCP_SCOPES, MCP_WRITE_SCOPE } from './constants';
 import {
   callbackTarget,
   clearCsrfCookie,
@@ -270,17 +265,11 @@ const authenticatedUser = async (request: Request, env: AppEnv) => {
   return user && user.tokenVersion === claims.tv ? user : null;
 };
 
-const grantedScopes = (
-  request: AuthRequest,
-  writeEnabled: boolean,
-): string[] | null => {
+const grantedScopes = (request: AuthRequest): string[] | null => {
   const scopes = request.scope.length > 0 ? request.scope : [MCP_SCOPE];
   const unique = [...new Set(scopes)];
   const known = MCP_SCOPES as readonly string[];
   if (!unique.every((scope) => known.includes(scope))) {
-    return null;
-  }
-  if (unique.includes(MCP_WRITE_SCOPE) && !writeEnabled) {
     return null;
   }
   // Canonical order; an omitted scope defaults to read-only.
@@ -572,14 +561,13 @@ const authorize = async (
   if (!resourceRequest(authRequest, resourceUrl)) {
     return errorPage(400, 'The app requested a different protected resource.');
   }
-  const writeEnabled = setupToolsEnabled(env);
-  if (!grantedScopes(authRequest, writeEnabled)) {
+  if (!grantedScopes(authRequest)) {
     return errorPage(400, 'The app requested an unsupported permission.');
   }
 
   const db = getDb(env);
   if (request.method === 'GET') {
-    const scope = grantedScopes(authRequest, writeEnabled);
+    const scope = grantedScopes(authRequest);
     const ownedWorkspaces = await db
       .select({
         id: workspaces.id,
@@ -643,7 +631,7 @@ const authorize = async (
     );
     return denyRedirect(authRequest);
   }
-  const scope = grantedScopes(authRequest, writeEnabled);
+  const scope = grantedScopes(authRequest);
   const boundRequest = resourceRequest(authRequest, resourceUrl);
   if (!scope || !boundRequest) {
     return errorPage(400, 'The authorization request is invalid.');

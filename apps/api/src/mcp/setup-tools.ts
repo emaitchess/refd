@@ -2,11 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { getDb } from '../db/client';
 import type { AppEnv } from '../env';
-import {
-  MCP_SCOPE,
-  MCP_WRITE_SCOPE,
-  setupToolsEnabled,
-} from '../oauth/constants';
+import { MCP_SCOPE, MCP_WRITE_SCOPE } from '../oauth/constants';
 import {
   brandRequestSchema,
   type OnboardingFailure,
@@ -197,10 +193,6 @@ export const registerSetupTools = (
   env: AppEnv,
   executionContext: ExecutionContext,
 ): void => {
-  if (!setupToolsEnabled(env)) {
-    return;
-  }
-
   server.registerTool(
     'get_setup_state',
     {

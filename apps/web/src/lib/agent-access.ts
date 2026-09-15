@@ -9,7 +9,7 @@ export const AGENT_SCOPES: [scope: string, description: string][] = [
   ],
   [
     'data:write',
-    'Adds nine setup tools that can configure a workspace and start one provider-backed onboarding report. Phase-gated: disabled by default on the hosted service; self-hosters enable it with MCP_SETUP_TOOLS_ENABLED=true.',
+    'Adds nine setup tools that can configure a workspace and start one provider-backed onboarding report.',
   ],
 ];
 
