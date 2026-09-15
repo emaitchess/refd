@@ -33,6 +33,10 @@ export interface McpPrincipal {
   // Every workspace this connection may target; the selector validates
   // against this set and nothing else.
   workspaces: McpWorkspace[];
+  // True only when the grant resolves workspaces created after approval
+  // (OAuth Allow-all connections): the gate that decides whether a new
+  // workspace provisioned by a tool would be targetable at all.
+  allWorkspaces: boolean;
 }
 
 export class McpAccessError extends Error {}
@@ -177,6 +181,7 @@ const resolvePatPrincipal = async (
     workspaceId: workspace.id,
     workspaceName: workspace.name,
     workspaces: [workspace],
+    allWorkspaces: false,
   };
 };
 
@@ -311,5 +316,6 @@ export const resolveMcpPrincipal = async (
     workspaceId: selected.id,
     workspaceName: selected.name,
     workspaces: granted,
+    allWorkspaces: row.allWorkspaces && props.allWorkspaces === true,
   };
 };

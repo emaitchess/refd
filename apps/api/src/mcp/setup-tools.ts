@@ -2,6 +2,8 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { getDb } from '../db/client';
 import type { AppEnv } from '../env';
+import { singleLineText } from '../lib/sanitize';
+import { provisionWorkspace } from '../lib/workspace-provision';
 import { MCP_SCOPE, MCP_WRITE_SCOPE } from '../oauth/constants';
 import {
   brandRequestSchema,
@@ -11,6 +13,7 @@ import {
 } from '../onboarding/contracts';
 import { getSetupReport } from '../onboarding/report';
 import {
+  completeOnboarding,
   confirmSetup,
   draftDescription,
   loadOnboardingState,
@@ -39,6 +42,11 @@ export const workspaceSelectorSchema = z.object({
 });
 
 const emptyBodySchema = z.object({});
+
+const createWorkspaceBodySchema = z.object({
+  name: singleLineText(1, 60),
+  idempotencyKey: z.string().uuid().optional(),
+});
 
 const generationBodySchema = z.object({
   expectedVersion: z.number().int().nonnegative(),
@@ -72,6 +80,16 @@ const invalidSetupArgs = () =>
       message: 'The tool arguments did not match the published schema.',
     },
   });
+
+// A provisioned workspace must be targetable by the very next call, so only
+// grants that resolve workspaces created after approval may provision one:
+// checked sets and PATs pin their entitlement at approval time.
+export const createWorkspaceRefusal = (
+  principal: Pick<McpPrincipal, 'allWorkspaces'>,
+): string | null =>
+  principal.allWorkspaces
+    ? null
+    : 'This connection was approved for a fixed set of workspaces, so a created workspace could not be targeted afterwards. Re-approve with Allow all workspaces, or check "Create a new workspace with this agent" at consent time.';
 
 const failureResult = (failure: OnboardingFailure) =>
   errorResult({ error: failure.error, status: failure.status });
@@ -413,7 +431,12 @@ export const registerSetupTools = (
         'confirm_setup',
         { ...mutate, workspaceArg: parsed.workspaceArg },
         async (principal, workspace) =>
-          confirmSetup(contextFor(env, principal, workspace), parsed.body),
+          unwrapState(
+            await confirmSetup(
+              contextFor(env, principal, workspace),
+              parsed.body,
+            ),
+          ),
       );
     },
   );
@@ -460,6 +483,136 @@ export const registerSetupTools = (
           return report;
         },
       );
+    },
+  );
+
+  server.registerTool(
+    'complete_setup',
+    {
+      title: 'Finish onboarding',
+      description:
+        'Marks the workspace onboarded once its setup is committed (the report step is done). Idempotent and gated exactly like the dashboard "enter dashboard" button: the setup must be committed, but the report runs need not be complete. Review get_setup_report first. With several approved workspaces, pass workspace to target one.',
+      inputSchema: emptyBodySchema.extend(workspaceSelectorSchema.shape),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (args) => {
+      const parsed = selectorArgs(args, emptyBodySchema);
+      if (!parsed) {
+        return invalidSetupArgs();
+      }
+      return runSetupTool(
+        env,
+        executionContext,
+        'complete_setup',
+        { ...mutate, workspaceArg: parsed.workspaceArg },
+        async (principal, workspace) =>
+          unwrapState(
+            await completeOnboarding(contextFor(env, principal, workspace)),
+          ),
+      );
+    },
+  );
+
+  // Provisioning targets no granted workspace, so this tool resolves the
+  // principal directly instead of through runSetupTool's workspace selector.
+  server.registerTool(
+    'create_workspace',
+    {
+      title: 'Create a workspace',
+      description:
+        "Provisions a new workspace owned by the connection's user, naming it; the optional idempotencyKey makes duplicate calls resolve to one workspace. Only connections approved with Allow all workspaces may call it, because a created workspace must join the grant for the next call to target it. Nothing is collected until the setup tools onboard it.",
+      inputSchema: createWorkspaceBodySchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (args) => {
+      const parsed = createWorkspaceBodySchema.safeParse(args);
+      if (!parsed.success) {
+        return invalidSetupArgs();
+      }
+      const startedAt = Date.now();
+      try {
+        const principal = await resolveMcpPrincipal(env, executionContext);
+        const logEvent = (
+          outcome: 'ok' | 'denied' | 'error',
+          error?: string,
+          workspaceId?: number,
+        ) =>
+          console.log(
+            JSON.stringify({
+              event: 'mcp_tool_call',
+              tool: 'create_workspace',
+              clientId: principal.clientId,
+              connectionId: principal.connectionRowId,
+              userId: principal.userId,
+              durationMs: Date.now() - startedAt,
+              outcome,
+              ...(workspaceId !== undefined ? { workspaceId } : {}),
+              ...(error !== undefined ? { error } : {}),
+            }),
+          );
+        if (!principal.scopes.includes(MCP_WRITE_SCOPE)) {
+          logEvent('denied', 'missing data:write scope');
+          return errorResult({
+            error: {
+              code: 'forbidden',
+              message:
+                'This tool requires data:write on the connected workspace.',
+            },
+          });
+        }
+        const refusal = createWorkspaceRefusal(principal);
+        if (refusal !== null) {
+          logEvent('denied', 'grant is not all-workspaces');
+          return errorResult({
+            error: { code: 'grant_not_all_workspaces', message: refusal },
+          });
+        }
+        const created = await provisionWorkspace(
+          env,
+          { id: principal.userId, email: principal.userEmail },
+          parsed.data.name,
+          parsed.data.idempotencyKey ?? null,
+        );
+        if (!created.ok) {
+          logEvent('error', 'limit_reached');
+          return errorResult({
+            error: { code: 'limit_reached', message: created.error },
+          });
+        }
+        logEvent('ok', undefined, created.id);
+        return textResult({
+          ok: true,
+          workspace: { id: created.id, name: created.name },
+          next: 'Onboard it with get_setup_state, set_brand, and the rest of the setup tools; it already belongs to this connection.',
+        });
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            event: 'mcp_tool_call',
+            tool: 'create_workspace',
+            durationMs: Date.now() - startedAt,
+            outcome: error instanceof McpAccessError ? 'denied' : 'error',
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+        return errorResult({
+          error: {
+            code: error instanceof McpAccessError ? 'forbidden' : 'setup_error',
+            message:
+              error instanceof Error ? error.message : 'The setup tool failed.',
+          },
+        });
+      }
     },
   );
 };
