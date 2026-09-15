@@ -10,6 +10,7 @@ import {
   normalizeDatasetRecord,
   notifyEnabled,
   ProviderRetryableError,
+  readSnapshotRecords,
   recordPrompt,
   triggerBatch,
 } from '../providers/brightdata';
@@ -210,7 +211,7 @@ const handleTrigger = async (
 
 type DatasetFetchMessage = Extract<
   IngestMessage,
-  { kind: 'brightdata_poll' | 'brightdata_fetch' }
+  { kind: 'brightdata_poll' | 'brightdata_fetch' | 'brightdata_delivered' }
 >;
 
 type SnapshotRow = typeof snapshots.$inferSelect;
@@ -226,7 +227,9 @@ const snapshotKeyFor = (msg: DatasetFetchMessage) =>
 
 const loadTriggeredSnapshot = async (
   env: AppEnv,
-  msg: DatasetFetchMessage,
+  msg:
+    | DatasetFetchMessage
+    | Extract<IngestMessage, { kind: 'brightdata_delivered' }>,
 ): Promise<SnapshotRow | null> => {
   const snap = (
     await getDb(env).select().from(snapshots).where(snapshotKeyFor(msg))
@@ -237,29 +240,20 @@ const loadTriggeredSnapshot = async (
   return snap;
 };
 
-const fetchAndStore = async (
+// The shared tail of every records path (snapshot download, webhook data
+// delivery): group the provider's records by echoed prompt and store one
+// result per expected prompt. Sentiment follow-ups enqueue here.
+const storeDatasetRecords = async (
   env: AppEnv,
-  msg: DatasetFetchMessage,
-  snap: SnapshotRow,
+  db: ReturnType<typeof getDb>,
+  msg: Extract<
+    IngestMessage,
+    { kind: 'brightdata_poll' | 'brightdata_fetch' | 'brightdata_delivered' }
+  >,
+  snapAt: number,
+  records: Record<string, unknown>[],
 ): Promise<void> => {
-  const db = getDb(env);
-  const snapshotKey = and(
-    snapshotKeyFor(msg),
-    eq(snapshots.externalId, msg.snapshotId),
-  );
   const entitiesToScore = await entitiesForRun(env, msg.runId, msg.workspaceId);
-  console.log(
-    `brightdata fetch: ${msg.kind === 'brightdata_fetch' ? 'webhook' : 'poll'} snapshot ${msg.snapshotId}`,
-  );
-  const records = await fetchSnapshot(env, msg.snapshotId);
-  // Ready-but-empty is transport weirdness, not data — prompts were
-  // submitted, so records must exist. Retry; a snapshot that stays empty
-  // dead-letters once retries exhaust instead of failing prompts instantly.
-  if (records.length === 0 && msg.prompts.length > 0) {
-    throw new ProviderRetryableError(
-      `snapshot ${msg.snapshotId} ready but returned 0 records`,
-    );
-  }
 
   // Records echo their input prompt; group then assign one per expected prompt.
   const byPrompt = new Map<string, Record<string, unknown>[]>();
@@ -300,7 +294,7 @@ const fetchAndStore = async (
     // Per-prompt isolation: one bad record must not fail the whole snapshot.
     // Duration = snapshot trigger → this result stored (batch answers share
     // one provider round-trip).
-    const durationMs = Date.now() - snap.createdAt;
+    const durationMs = Date.now() - snapAt;
     try {
       const stored = await storeScoredResult(
         env,
@@ -331,6 +325,45 @@ const fetchAndStore = async (
       })),
     );
   }
+};
+
+const finishDatasetSnapshot = async (
+  db: Db,
+  snapshotKey: ReturnType<typeof snapshotKeyFor>,
+  runId: number,
+  polls: number | null,
+): Promise<void> => {
+  await db
+    .update(snapshots)
+    .set({ status: 'ready', finishedAt: Date.now(), polls })
+    .where(snapshotKey);
+  await refreshRunStatus(db, runId);
+};
+
+const fetchAndStore = async (
+  env: AppEnv,
+  msg: DatasetFetchMessage,
+  snap: SnapshotRow,
+): Promise<void> => {
+  const db = getDb(env);
+  const snapshotKey = and(
+    snapshotKeyFor(msg),
+    eq(snapshots.externalId, msg.snapshotId),
+  );
+  console.log(
+    `brightdata fetch: ${msg.kind === 'brightdata_fetch' ? 'webhook' : 'poll'} snapshot ${msg.snapshotId}`,
+  );
+  const records = await fetchSnapshot(env, msg.snapshotId);
+  // Ready-but-empty is transport weirdness, not data — prompts were
+  // submitted, so records must exist. Retry; a snapshot that stays empty
+  // dead-letters once retries exhaust instead of failing prompts instantly.
+  if (records.length === 0 && msg.prompts.length > 0) {
+    throw new ProviderRetryableError(
+      `snapshot ${msg.snapshotId} ready but returned 0 records`,
+    );
+  }
+
+  await storeDatasetRecords(env, db, msg, snap.createdAt, records);
 
   await db
     .update(snapshots)
@@ -341,6 +374,55 @@ const fetchAndStore = async (
     })
     .where(snapshotKey);
   await refreshRunStatus(db, msg.runId);
+};
+
+// A webhook data delivery carries the scraped records as gzipped JSON (their
+// format is json by default, so a JSON array) with the snapshot id only in the
+// dca-collection-id header — that is why the message carries the R2 key of the
+// stashed bytes instead of re-downloading. Default json bodies parse as
+// arrays; ndjson and envelopes still route through readSnapshotRecords' guards.
+const handleDelivered = async (
+  env: AppEnv,
+  msg: Extract<IngestMessage, { kind: 'brightdata_delivered' }>,
+): Promise<void> => {
+  const snap = await loadTriggeredSnapshot(env, msg);
+  if (!snap) {
+    return;
+  }
+  const db = getDb(env);
+  const object = await env.RAW.get(msg.deliveryKey);
+  if (!object?.body) {
+    // Written before the message was enqueued; absence is a lost object, and
+    // a redelivery race settles by retry, not by failing the prompts.
+    throw new ProviderRetryableError(
+      `delivery object missing: ${msg.deliveryKey}`,
+    );
+  }
+  const bytes = new Uint8Array(await object.arrayBuffer());
+  const blob = new Blob([bytes]);
+  // Content-Encoding may or may not survive third-party plumbing; the gzip
+  // magic (0x1f 0x8b) is authoritative.
+  const stream =
+    bytes.length > 1 && bytes[0] === 0x1f && bytes[1] === 0x8b
+      ? blob.stream().pipeThrough(new DecompressionStream('gzip'))
+      : blob.stream();
+  const records = await readSnapshotRecords(
+    stream as ReadableStream<Uint8Array>,
+  );
+  if (records.length === 0 && msg.prompts.length > 0) {
+    throw new ProviderRetryableError(
+      `delivery ${msg.deliveryKey} contained 0 records`,
+    );
+  }
+
+  await storeDatasetRecords(env, db, msg, snap.createdAt, records);
+
+  await finishDatasetSnapshot(
+    db,
+    and(snapshotKeyFor(msg), eq(snapshots.externalId, msg.snapshotId)),
+    msg.runId,
+    snap.polls,
+  );
 };
 
 const handlePoll = async (
@@ -641,6 +723,8 @@ export const handleIngestBatch = async (
         await handlePoll(env, body);
       } else if (body.kind === 'brightdata_fetch') {
         await handleFetch(env, body);
+      } else if (body.kind === 'brightdata_delivered') {
+        await handleDelivered(env, body);
       } else if (body.kind === 'serp_aio_fetch') {
         await handleSerpFetch(env, body);
       } else if (body.kind === 'sentiment_score') {

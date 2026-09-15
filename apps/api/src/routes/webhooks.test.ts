@@ -34,6 +34,7 @@ const request = (
   env: AppEnv,
   body: unknown,
   authorization = 'callback-secret',
+  headers: Record<string, string> = {},
 ) =>
   routes.request(
     'http://local/brightdata',
@@ -42,8 +43,30 @@ const request = (
       headers: {
         Authorization: authorization,
         'Content-Type': 'application/json',
+        ...headers,
       },
       body: JSON.stringify(body),
+    },
+    env,
+  );
+
+const deliveryRequest = (
+  routes: ReturnType<typeof createWebhookRoutes>,
+  env: AppEnv,
+  body: Uint8Array | string,
+  headers: Record<string, string> = {},
+  authorization = 'callback-secret',
+) =>
+  routes.request(
+    'http://local/brightdata',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: authorization,
+        'Content-Type': 'application/json',
+        ...headers,
+      },
+      body: body === undefined ? null : (body as BodyInit),
     },
     env,
   );
@@ -53,6 +76,7 @@ const setup = (
 ) => {
   const sent: IngestMessage[] = [];
   const failed: { batch: RunPrompt[]; snapshotId: string }[] = [];
+  const stashed: { key: string; meta?: unknown }[] = [];
   let lookups = 0;
   const found = overrides.found === undefined ? snapshot : overrides.found;
   const routes = createWebhookRoutes({
@@ -73,8 +97,13 @@ const setup = (
         sent.push(message);
       },
     },
+    RAW: {
+      put: async (key: string, _body: ReadableStream, meta?: unknown) => {
+        stashed.push({ key, meta });
+      },
+    },
   } as unknown as AppEnv;
-  return { env, failed, lookups: () => lookups, routes, sent };
+  return { env, failed, lookups: () => lookups, routes, sent, stashed };
 };
 
 describe('BrightData webhook', () => {
@@ -191,6 +220,116 @@ describe('BrightData webhook', () => {
     expect(runningResponse.status).toBe(200);
     expect(terminal.sent).toEqual([]);
     expect(running.sent).toEqual([]);
+  });
+});
+
+describe('BrightData data delivery', () => {
+  const records = [
+    { prompt: 'best tools', answer_text: 'A' },
+    { prompt: 'more tools', answer_text: 'B' },
+  ];
+
+  test('a JSON array body is stashed in R2 and enqueued as a delivered message', async () => {
+    const state = setup();
+    const response = await deliveryRequest(
+      state.routes,
+      state.env,
+      JSON.stringify(records),
+      { 'dca-collection-id': 'snap_delivered', 'dca-filename': 'part-1.json' },
+    );
+
+    expect(response.status).toBe(200);
+    expect(state.stashed).toEqual([
+      { key: 'deliveries/snap_delivered/part-1.json', meta: expect.anything() },
+    ]);
+    expect(state.sent).toEqual([
+      {
+        kind: 'brightdata_delivered',
+        runId: 34,
+        workspaceId: 56,
+        surface: 'chatgpt',
+        sample: 2,
+        chunk: 3,
+        snapshotId: 'snap_delivered',
+        deliveryKey: 'deliveries/snap_delivered/part-1.json',
+        prompts: [{ id: 78, text: 'best tools' }],
+      },
+    ]);
+  });
+
+  test('a gzip body routes as data even when its decompressed shape would not parse as JSON', async () => {
+    const state = setup();
+    // A gzip header on arbitrary bytes routes to the delivery path: the
+    // snapshot lookup happens before the stash.
+    const key = 'deliveries/snap_delivered/binary';
+    const bytes = new Uint8Array([0x1f, 0x8b, 0x00]);
+    const response = await deliveryRequest(state.routes, state.env, bytes, {
+      'dca-collection-id': 'snap_delivered',
+      'dca-filename': 'binary',
+    });
+
+    expect(response.status).toBe(200);
+    expect(state.stashed).toEqual([
+      { key: 'deliveries/snap_delivered/binary', meta: expect.anything() },
+    ]);
+    expect(state.sent[0]?.kind).toBe('brightdata_delivered');
+    expect(key.startsWith('deliveries/snap_delivered/')).toBe(true);
+  });
+
+  test('an unknown snapshot is acknowledged without stashing', async () => {
+    const state = setup({ found: null });
+    const response = await deliveryRequest(
+      state.routes,
+      state.env,
+      JSON.stringify(records),
+      { 'dca-collection-id': 'unknown' },
+    );
+
+    expect(response.status).toBe(200);
+    expect(state.stashed).toEqual([]);
+    expect(state.sent).toEqual([]);
+  });
+
+  test('a terminal snapshot does not stash or enqueue', async () => {
+    const state = setup({ found: { ...snapshot, status: 'ready' } });
+    const response = await deliveryRequest(
+      state.routes,
+      state.env,
+      JSON.stringify(records),
+      { 'dca-collection-id': 'snap_delivered' },
+    );
+
+    expect(response.status).toBe(200);
+    expect(state.stashed).toEqual([]);
+    expect(state.sent).toEqual([]);
+  });
+
+  test('a data-shaped body without a dca-collection-id header is refused', async () => {
+    const state = setup();
+    const response = await deliveryRequest(
+      state.routes,
+      state.env,
+      JSON.stringify(records),
+    );
+
+    expect(response.status).toBe(400);
+    expect(state.stashed).toEqual([]);
+    expect(state.sent).toEqual([]);
+  });
+
+  test('unauthenticated deliveries are refused before any lookup', async () => {
+    const state = setup();
+    const response = await deliveryRequest(
+      state.routes,
+      state.env,
+      JSON.stringify(records),
+      { 'dca-collection-id': 'snap_delivered' },
+      'wrong-secret',
+    );
+
+    expect(response.status).toBe(401);
+    expect(state.lookups()).toBe(0);
+    expect(state.stashed).toEqual([]);
   });
 });
 

@@ -4,8 +4,21 @@ import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import type { Db } from '../db/client';
 import * as schema from '../db/schema';
-import { prompts, runs, snapshots, users, workspaces } from '../db/schema';
-import { isQueueOverload, resumeTerminalSnapshot } from './consumer';
+import {
+  prompts,
+  results,
+  runs,
+  snapshots,
+  users,
+  workspaces,
+} from '../db/schema';
+import type { AppEnv } from '../env';
+import {
+  handleIngestBatch,
+  isQueueOverload,
+  resumeTerminalSnapshot,
+} from './consumer';
+import type { IngestMessage } from './messages';
 
 // Migrations applied to an in-memory SQLite so the terminal-snapshot reset
 // runs as real conditional SQL, not mocks.
@@ -23,8 +36,40 @@ const MIGRATIONS = [
   '0010_nostalgic_swarm.sql',
 ];
 
+// bun:sqlite facade speaking the D1 API for the consumer handlers, which build
+// their own drizzle from env.DB (drizzle-orm/d1). Same three-call shape the
+// agent-tools tests use.
+let lastD1: unknown = null;
+
+const makeD1 = (sqlite: Database) => ({
+  prepare: (query: string) => {
+    const stmt = sqlite.prepare(query);
+    const all = stmt.all.bind(stmt) as (
+      ...params: unknown[]
+    ) => Record<string, unknown>[];
+    const runStmt = stmt.run.bind(stmt) as (...params: unknown[]) => {
+      changes: number;
+      lastInsertRowid: number | bigint;
+    };
+    return {
+      bind: (...params: unknown[]) => ({
+        all: async () => ({ results: all(...params) }),
+        run: async () => {
+          const info = runStmt(...params);
+          return {
+            success: true,
+            meta: { changes: info.changes, last_row_id: info.lastInsertRowid },
+          };
+        },
+        raw: async () => all(...params).map((row) => Object.values(row)),
+      }),
+    };
+  },
+});
+
 const setup = async (): Promise<Db> => {
   const sqlite = new Database(':memory:');
+  lastD1 = makeD1(sqlite);
   for (const file of MIGRATIONS) {
     const raw = await Bun.file(
       new URL(`../../../../drizzle/${file}`, import.meta.url),
@@ -150,5 +195,113 @@ describe('resumeTerminalSnapshot', () => {
     const row = await snapshotOf(db);
     expect(row?.status).toBe('triggered');
     expect(row?.finishedAt).toBeNull();
+  });
+});
+
+const batchFor = (body: IngestMessage) =>
+  ({
+    queue: 'refd-ingest',
+    messages: [
+      {
+        body,
+        attempts: 1,
+        ack: () => {},
+        retry: () => {},
+      },
+    ],
+  }) as unknown as Parameters<typeof handleIngestBatch>[0];
+
+describe('handleDelivered', () => {
+  const seedDelivery = async (db: Db) => {
+    await db.insert(snapshots).values({
+      runId: 60,
+      provider: 'brightdata',
+      surface: 'chatgpt',
+      sample: 1,
+      chunk: 0,
+      promptIds: [86, 87],
+      promptSnapshot: [
+        { id: 86, text: 'p86' },
+        { id: 87, text: 'p87' },
+      ],
+      externalId: 'sd_delivered',
+    });
+  };
+
+  const deliveryMessage = (key: string): IngestMessage => ({
+    kind: 'brightdata_delivered',
+    runId: 60,
+    workspaceId: 9,
+    surface: 'chatgpt',
+    sample: 1,
+    chunk: 0,
+    snapshotId: 'sd_delivered',
+    deliveryKey: key,
+    prompts: [
+      { id: 86, text: 'p86' },
+      { id: 87, text: 'p87' },
+    ],
+  });
+
+  test('stores gzipped records from the stashed object and marks the snapshot ready', async () => {
+    const db = await setup();
+    const sent: IngestMessage[] = [];
+    const records = [
+      { prompt: 'p86', answer_text: 'refd tracks visibility' },
+      { prompt: 'p87', answer_text: 'also visibility' },
+    ];
+    const gz = Bun.gzipSync(Buffer.from(JSON.stringify(records)));
+    const gzBytes = new Uint8Array(gz);
+    const fakeEnv = {
+      DB: lastD1,
+      RAW: {
+        get: async () => ({
+          arrayBuffer: async () => gzBytes.buffer,
+          body: new Blob([gzBytes]).stream(),
+        }),
+        put: async () => ({}),
+      },
+      INGEST: {
+        send: async (message: IngestMessage) => {
+          sent.push(message);
+        },
+        sendBatch: async (batch: { body: IngestMessage }[]) => {
+          sent.push(...batch.map((message) => message.body));
+        },
+      },
+    } as unknown as AppEnv;
+    await seedDelivery(db);
+
+    await handleIngestBatch(
+      batchFor(deliveryMessage('deliveries/sd/data.json.gz')),
+      fakeEnv,
+    );
+
+    const stored = await db.select().from(results);
+    expect(stored).toHaveLength(2);
+    expect(stored.every((row) => Boolean(row.ok))).toBe(true);
+    const row = await snapshotOf(db);
+    expect(row?.status).toBe('ready');
+    expect(row?.finishedAt).not.toBeNull();
+  });
+
+  test('a missing delivery object is retryable, not a prompt failure', async () => {
+    const db = await setup();
+    const sent: IngestMessage[] = [];
+    const env = {
+      DB: lastD1,
+      RAW: {
+        get: async () => null,
+      },
+      INGEST: {
+        send: async () => {},
+        sendBatch: async () => {},
+      },
+    } as unknown as AppEnv;
+    await seedDelivery(db);
+
+    await handleIngestBatch(batchFor(deliveryMessage('deliveries/gone')), env);
+
+    expect(sent).toEqual([]);
   });
 });
