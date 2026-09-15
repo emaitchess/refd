@@ -9,7 +9,7 @@ export const AGENT_SCOPES: [scope: string, description: string][] = [
   ],
   [
     'data:write',
-    'Adds twelve setup tools that cover the whole lifecycle: verify domains, provision a workspace, configure it, start one provider-backed onboarding report, and finish onboarding.',
+    'Adds twelve setup tools plus revoke_connection covering the whole lifecycle: verify domains, provision a workspace, configure it, start one provider-backed onboarding report, finish onboarding, and revoke the connection when it is no longer needed.',
   ],
 ];
 
@@ -65,10 +65,14 @@ export const AGENT_SETUP_TOOLS: [name: string, description: string][] = [
     'complete_setup',
     'Marks the workspace onboarded after the commit, the same gate the dashboard "enter dashboard" click passes.',
   ],
+  [
+    'revoke_connection',
+    'Revokes this connection: the grant, every token under it, and access to every approved workspace die together, after an explicit confirm argument. Only ever touches the connection the credential belongs to.',
+  ],
 ];
 
 export const AGENT_SETUP_WORKFLOW =
-  'get_setup_state, check_domain on every candidate domain, set_brand, draft_description, suggest or update competitors and prompts (prompt generation is steerable by count and theme), preview_setup, explicit user approval, confirm_setup, then get_setup_report until the runs land, then complete_setup to finish.';
+  'get_setup_state, check_domain on every candidate domain, set_brand, draft_description, suggest or update competitors and prompts (prompt generation is steerable by count and theme), preview_setup, explicit user approval, confirm_setup, then get_setup_report until the runs land, then complete_setup to finish. When the connection is no longer wanted, revoke_connection ends the access it had.';
 
 // The editor-native server entry: the shape Cursor, VS Code, and Claude Code
 // all accept for a remote Streamable HTTP server. Encoded per client below.

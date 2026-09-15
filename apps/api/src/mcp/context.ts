@@ -37,6 +37,9 @@ export interface McpPrincipal {
   // (OAuth Allow-all connections): the gate that decides whether a new
   // workspace provisioned by a tool would be targetable at all.
   allWorkspaces: boolean;
+  // OAuth grant mirror row vs personal access token: the revoke tool refuses
+  // PATs because their revocation lives in Settings' token list.
+  tokenKind: 'oauth' | 'pat';
 }
 
 export class McpAccessError extends Error {}
@@ -182,6 +185,7 @@ const resolvePatPrincipal = async (
     workspaceName: workspace.name,
     workspaces: [workspace],
     allWorkspaces: false,
+    tokenKind: 'pat',
   };
 };
 
@@ -317,5 +321,6 @@ export const resolveMcpPrincipal = async (
     workspaceName: selected.name,
     workspaces: granted,
     allWorkspaces: row.allWorkspaces && props.allWorkspaces === true,
+    tokenKind: 'oauth',
   };
 };

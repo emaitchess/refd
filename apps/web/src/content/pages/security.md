@@ -120,7 +120,8 @@ one provider-backed onboarding report, and finish onboarding. No grant can
 delete data, manage billing, or start further runs. Every tool derives what it
 may target from the encrypted grant rather than accepting a workspace
 identifier from the caller, and tool arguments can only narrow that boundary,
-never widen it. The owner can review and revoke connections from Settings.
+never widen it. The owner can review and revoke connections from Settings, or
+an agent can revoke only its own connection with the `revoke_connection` tool.
 
 Connection metadata and instructions are available on the
 [agent access page](/agents).
