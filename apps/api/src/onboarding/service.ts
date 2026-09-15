@@ -426,6 +426,7 @@ type GenerationOpts = {
   regenerate?: boolean;
   expectedVersion: number;
   idempotencyKey?: string;
+  steering?: { total?: number; focus?: string };
 };
 
 const prepareGeneration = async (
@@ -753,11 +754,18 @@ export const suggestPrompts = async (
     await settleGenerationAttempt(db, prepared.claimId, 'failed');
     return { error: 'set up your brand first', status: 400 };
   }
+  const promptLimit = config(ctx).limits.maxActivePromptsPerWorkspace;
+  const total = Math.min(
+    Math.max(opts.steering?.total ?? 25, PROMPT_CATEGORIES.length),
+    promptLimit ?? 100,
+  );
   const generated = await generatePrompts(env, {
     brand: brand.name,
     domain: brand.domains[0] ?? '',
     summary: prepared.profile.summary ?? '',
     competitors: (prepared.profile.competitors ?? []).map((x) => x.name),
+    total,
+    focus: opts.steering?.focus,
   });
   if (!generated.ok) {
     await settleGenerationAttempt(db, prepared.claimId, 'failed');
@@ -769,13 +777,17 @@ export const suggestPrompts = async (
       state: await loadOnboardingState(ctx),
     };
   }
-  // Sanitise: 8-500 char text, valid category, dedupe, <=5 per category.
+  // Sanitise: 8-500 char text, valid category, dedupe, with per-category room
+  // for the requested spread (a larger total needs a larger share of each).
   const textCheck = multiLineText(8, 500);
   const categories = new Set<string>(PROMPT_CATEGORIES);
+  const perCategoryCap = Math.max(
+    5,
+    Math.ceil(total / PROMPT_CATEGORIES.length),
+  );
   const perCat = new Map<string, number>();
   const seen = new Set<string>();
   const out: { text: string; category: string }[] = [];
-  const promptLimit = config(ctx).limits.maxActivePromptsPerWorkspace;
   for (const p of generated.prompts) {
     const category = p.category.trim();
     const parsedText = textCheck.safeParse(p.text);
@@ -784,7 +796,7 @@ export const suggestPrompts = async (
     }
     const t = parsedText.data;
     const dupeKey = t.toLowerCase();
-    if (seen.has(dupeKey) || (perCat.get(category) ?? 0) >= 5) {
+    if (seen.has(dupeKey) || (perCat.get(category) ?? 0) >= perCategoryCap) {
       continue;
     }
     seen.add(dupeKey);

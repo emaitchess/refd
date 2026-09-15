@@ -605,16 +605,21 @@ export const generatePrompts = async (
     domain: string;
     summary: string;
     competitors: string[];
+    total?: number;
+    focus?: string;
   },
 ): Promise<PromptGeneration> => {
   const cats = PROMPT_CATEGORIES.map(
     (c) => `- ${c}: ${CATEGORY_HINTS[c]}`,
   ).join('\n');
+  const total = input.total ?? 25;
+  const perCategory = Math.ceil(total / PROMPT_CATEGORIES.length);
   const system =
     `You generate the questions a potential buyer asks an AI assistant (ChatGPT, Perplexity, Gemini) while researching a purchase in ${input.brand}'s category. ` +
     'They measure whether AI answers surface the brand, so **most questions must NOT name the brand** — they are generic problem/category questions (only some Comparison questions may name the brand and a competitor). ' +
     'Return ONLY a JSON object {"prompts":[{"text":string,"category":string}]}. ' +
-    `Generate exactly 5 per category, 25 total. category must be one of these exact words:\n${cats}\n` +
+    `Generate ${total} prompts, roughly ${perCategory} per category spread across all of them. category must be one of these exact words:\n${cats}\n` +
+    (input.focus ? `Weigh the set toward: ${input.focus}\n` : '') +
     'Each text is a natural, standalone question a real person would type.';
   const competitorsLine = input.competitors.length
     ? `Competitors: ${input.competitors.join(', ')}\n`
@@ -623,7 +628,7 @@ export const generatePrompts = async (
     `Brand: ${input.brand} (${input.domain})\n` +
     (input.summary ? `About: ${input.summary}\n` : '') +
     competitorsLine +
-    '\nGenerate 25 prompts (5 per category).';
+    `\nGenerate ${total} prompts (~${perCategory} per category).`;
 
   try {
     const text = await runChat(

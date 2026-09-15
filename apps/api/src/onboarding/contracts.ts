@@ -48,9 +48,15 @@ export const brandRequestSchema = z.object({
 });
 export type BrandInput = z.infer<typeof brandRequestSchema>;
 
+export const steeringRequestSchema = z.object({
+  total: z.number().int().min(1).max(100).optional(),
+  focus: multiLineText(0, 400).optional(),
+});
+
 export const generationRequestSchema = regenBody.extend({
   expectedVersion: expectedVersionField,
   idempotencyKey: z.string().uuid().optional(),
+  steering: steeringRequestSchema.optional(),
 });
 
 export const aliasSchema = z.object({

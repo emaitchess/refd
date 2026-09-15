@@ -7,6 +7,7 @@ import { provisionWorkspace } from '../lib/workspace-provision';
 import { MCP_SCOPE, MCP_WRITE_SCOPE } from '../oauth/constants';
 import {
   brandRequestSchema,
+  generationRequestSchema,
   type OnboardingFailure,
   type OnboardingState,
   patchRequestSchema,
@@ -45,12 +46,6 @@ const emptyBodySchema = z.object({});
 
 const createWorkspaceBodySchema = z.object({
   name: singleLineText(1, 60),
-  idempotencyKey: z.string().uuid().optional(),
-});
-
-const generationBodySchema = z.object({
-  expectedVersion: z.number().int().nonnegative(),
-  regenerate: z.boolean().optional(),
   idempotencyKey: z.string().uuid().optional(),
 });
 
@@ -282,7 +277,7 @@ export const registerSetupTools = (
     idempotent: boolean,
     run: (
       ctx: OnboardingContext,
-      body: z.infer<typeof generationBodySchema>,
+      body: z.infer<typeof generationRequestSchema>,
     ) => Promise<unknown>,
   ) => {
     server.registerTool(
@@ -290,7 +285,9 @@ export const registerSetupTools = (
       {
         title,
         description,
-        inputSchema: generationBodySchema.extend(workspaceSelectorSchema.shape),
+        inputSchema: generationRequestSchema.extend(
+          workspaceSelectorSchema.shape,
+        ),
         annotations: {
           readOnlyHint: false,
           destructiveHint: false,
@@ -299,7 +296,7 @@ export const registerSetupTools = (
         },
       },
       async (args) => {
-        const parsed = selectorArgs(args, generationBodySchema);
+        const parsed = selectorArgs(args, generationRequestSchema);
         if (!parsed) {
           return invalidSetupArgs();
         }
