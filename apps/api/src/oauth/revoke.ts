@@ -1,5 +1,5 @@
 import { and, eq, isNull } from 'drizzle-orm';
-import { getDb } from '../db/client';
+import { type Db, getDb } from '../db/client';
 import { mcpConnections } from '../db/schema';
 import type { AppEnv } from '../env';
 
@@ -45,4 +45,74 @@ export const revokeOwnedConnections = async (
       }),
     );
   }
+};
+
+export interface RevokedConnection {
+  clientId: string;
+  grantId: string;
+  workspaceIds: number[];
+}
+
+// Revokes the OAuth grant behind one mirror row and every mirror row of the
+// same grant: the Settings route and the MCP revoke_connection tool share this
+// single path, so both kill exactly what the connection was approved for.
+export const revokeConnectionByRowId = async (
+  env: AppEnv,
+  db: Db,
+  input: { connectionRowId: number; userId: number; reason: string },
+): Promise<RevokedConnection | null> => {
+  const row = (
+    await db
+      .select({
+        id: mcpConnections.id,
+        grantId: mcpConnections.grantId,
+        clientId: mcpConnections.clientId,
+        userId: mcpConnections.userId,
+        revokedAt: mcpConnections.revokedAt,
+      })
+      .from(mcpConnections)
+      .where(eq(mcpConnections.id, input.connectionRowId))
+      .limit(1)
+  )[0];
+  if (!row || row.userId !== input.userId || row.revokedAt !== null) {
+    return null;
+  }
+  if (!env.OAUTH_PROVIDER) {
+    throw new Error('connection service unavailable');
+  }
+  const covered = await db
+    .select({ workspaceId: mcpConnections.workspaceId })
+    .from(mcpConnections)
+    .where(
+      and(
+        eq(mcpConnections.grantId, row.grantId),
+        eq(mcpConnections.userId, input.userId),
+        isNull(mcpConnections.revokedAt),
+      ),
+    );
+  await env.OAUTH_PROVIDER.revokeGrant(row.grantId, String(input.userId));
+  await db
+    .update(mcpConnections)
+    .set({ revokedAt: Date.now() })
+    .where(
+      and(
+        eq(mcpConnections.grantId, row.grantId),
+        eq(mcpConnections.userId, input.userId),
+        isNull(mcpConnections.revokedAt),
+      ),
+    );
+  console.log(
+    JSON.stringify({
+      event: 'mcp_connection_revoked',
+      clientId: row.clientId,
+      connectionId: row.id,
+      userId: input.userId,
+      reason: input.reason,
+    }),
+  );
+  return {
+    clientId: row.clientId,
+    grantId: row.grantId,
+    workspaceIds: covered.map((entry) => entry.workspaceId),
+  };
 };

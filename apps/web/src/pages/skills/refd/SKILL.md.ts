@@ -39,7 +39,8 @@ workspace tracks one brand.
   credential, never the tool arguments, defines what it may target.
   \`get_workspace_info\` lists the choices.
 - Scopes: \`data:read\` (nine analytics tools, the default) and \`data:write\`
-  (twelve setup tools; \`create_workspace\` needs an Allow all connection).
+  (twelve setup tools plus \`revoke_connection\`; \`create_workspace\` needs an
+  Allow all connection).
 
 ## Reading data (data:read)
 
@@ -84,6 +85,10 @@ Rules the server enforces, so do not fight them:
   \`get_setup_report\` with its \`retryAfterSeconds\` until the report is
   whole, review it with the user, then call \`complete_setup\` to mark the
   workspace onboarded.
+- \`revoke_connection\` (with \`confirm: true\`) ends the connection itself:
+  the grant, every token under it, and access to all approved workspaces die
+  together. Only ever revokes the connection the credential belongs to, so
+  ask the user before calling it.
 
 ## Interpreting results honestly
 

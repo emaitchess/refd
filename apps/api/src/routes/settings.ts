@@ -24,6 +24,7 @@ import {
   hashPersonalAccessToken,
   MAX_ACTIVE_TOKENS_PER_WORKSPACE,
 } from '../oauth/pat';
+import { revokeConnectionByRowId } from '../oauth/revoke';
 import { enabledSurfaces, SURFACES } from '../providers/types';
 
 // `listUserGrants` reads OAUTH_KV via an eventually-consistent list, so a
@@ -207,55 +208,19 @@ settingsRoutes.delete('/connections/:id', async (c) => {
   if (id === null) {
     return c.json({ error: 'invalid connection' }, 400);
   }
-  const workspaceId = c.get('workspace').id;
   const userId = c.get('user').id;
   const db = getDb(c.env);
-  const connection = (
-    await db
-      .select({
-        id: mcpConnections.id,
-        grantId: mcpConnections.grantId,
-        clientId: mcpConnections.clientId,
-      })
-      .from(mcpConnections)
-      .where(
-        and(
-          eq(mcpConnections.id, id),
-          eq(mcpConnections.workspaceId, workspaceId),
-          eq(mcpConnections.userId, userId),
-          isNull(mcpConnections.revokedAt),
-        ),
-      )
-      .limit(1)
-  )[0];
-  if (!connection) {
-    return c.json({ error: 'connection not found' }, 404);
-  }
   if (!c.env.OAUTH_PROVIDER) {
     return c.json({ error: 'connection service unavailable' }, 503);
   }
-  await c.env.OAUTH_PROVIDER.revokeGrant(connection.grantId, String(userId));
-  // The grant covers every workspace it was approved for: revoking kills all
-  // of them, not just the workspace this request rode on.
-  await db
-    .update(mcpConnections)
-    .set({ revokedAt: Date.now() })
-    .where(
-      and(
-        eq(mcpConnections.grantId, connection.grantId),
-        eq(mcpConnections.userId, userId),
-        isNull(mcpConnections.revokedAt),
-      ),
-    );
-  console.log(
-    JSON.stringify({
-      event: 'mcp_connection_revoked',
-      clientId: connection.clientId,
-      connectionId: connection.id,
-      userId,
-      workspaceId,
-    }),
-  );
+  const revoked = await revokeConnectionByRowId(c.env, db, {
+    connectionRowId: id,
+    userId,
+    reason: 'settings_revoked',
+  });
+  if (!revoked) {
+    return c.json({ error: 'connection not found' }, 404);
+  }
   return c.json({ ok: true });
 });
 

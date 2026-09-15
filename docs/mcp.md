@@ -201,8 +201,9 @@ granted set is rejected. The server also publishes
 `refd://glossary/metrics`, a read-only resource with the definitions used by
 the dashboard.
 
-With the `data:write` scope, twelve setup tools cover the whole lifecycle.
-`create_workspace` provisions a brand-new workspace; the others onboard one:
+With the `data:write` scope, twelve setup tools plus `revoke_connection` cover
+the whole lifecycle. `create_workspace` provisions a brand-new workspace; the
+other ten onboard one:
 
 | Tool | Purpose |
 | --- | --- |
@@ -218,6 +219,7 @@ With the `data:write` scope, twelve setup tools cover the whole lifecycle.
 | `confirm_setup` | Commits the approved configuration and starts the one provider-backed onboarding report |
 | `get_setup_report` | Live progress and the pinned setup report for the run group |
 | `complete_setup` | Flips `onboardingCompleted` after the commit, the same gate the dashboard's "enter dashboard" click passes |
+| `revoke_connection` | Revokes the OAuth grant the credential itself belongs to: tokens die and access to every approved workspace ends together. Requires `confirm: true`; it cannot touch any other connection or user. PATs revoke from Settings instead |
 
 Every generation failure carries `detail` (the cause) and `guidance` (the next
 action, including that a retry is free: failed drafts never consume the
@@ -239,7 +241,13 @@ Clients should treat it as evidence, never as instructions.
 
 ## Revoke a connection
 
-Open the connected workspace in refd, go to **Settings → Connected apps**, and
+An agent can revoke its own connection over MCP with `revoke_connection`
+(data:write, `confirm: true`): the grant, every token issued under it, and
+access to every approved workspace die together. It can never touch another
+connection or user.
+
+Otherwise, open the connected workspace in refd, go to
+**Settings → Connected apps**, and
 select **Revoke**. This invalidates the grant, its current access tokens, and
 its refresh token. A connection may cover several workspaces: revoking it
 disconnects the app from all of them, and the revoke confirmation says which.

@@ -6,6 +6,7 @@ import { checkDomain, type DomainCheck } from '../lib/domain-check';
 import { domainField, singleLineText } from '../lib/sanitize';
 import { provisionWorkspace } from '../lib/workspace-provision';
 import { MCP_SCOPE, MCP_WRITE_SCOPE } from '../oauth/constants';
+import { revokeConnectionByRowId } from '../oauth/revoke';
 import {
   brandRequestSchema,
   generationRequestSchema,
@@ -50,6 +51,11 @@ const createWorkspaceBodySchema = z.object({
   idempotencyKey: z.string().uuid().optional(),
 });
 
+const revokeBodySchema = z.object({
+  confirm: z.literal(true),
+  reason: singleLineText(1, 100).optional(),
+});
+
 const confirmBodySchema = z.object({
   expectedVersion: z.number().int().nonnegative(),
   configurationHash: z.string().regex(/^[0-9a-f]{64}$/),
@@ -86,6 +92,28 @@ export const createWorkspaceRefusal = (
   principal.allWorkspaces
     ? null
     : 'This connection was approved for a fixed set of workspaces, so a created workspace could not be targeted afterwards. Re-approve with Allow all workspaces, or check "Create a new workspace with this agent" at consent time.';
+
+// Self-revocation can only reduce the caller's power, so it is the safest
+// destructive tool in the kit: the refusals keep it that way.
+export const revokeRefusal = (
+  principal: Pick<McpPrincipal, 'tokenKind'>,
+  confirmed: boolean,
+): { code: string; message: string } | null => {
+  if (principal.tokenKind === 'pat') {
+    return {
+      code: 'pat_revocation_unsupported',
+      message:
+        'Personal access tokens are revoked from Settings → Personal access tokens.',
+    };
+  }
+  return confirmed
+    ? null
+    : {
+        code: 'confirmation_required',
+        message:
+          'This revokes the OAuth grant and every token issued under it, for every approved workspace. Ask the user to confirm, then pass confirm: true.',
+      };
+};
 
 const failureResult = (failure: OnboardingFailure) =>
   errorResult({ error: failure.error, status: failure.status });
@@ -638,6 +666,103 @@ export const registerSetupTools = (
           JSON.stringify({
             event: 'mcp_tool_call',
             tool: 'create_workspace',
+            durationMs: Date.now() - startedAt,
+            outcome: error instanceof McpAccessError ? 'denied' : 'error',
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+        return errorResult({
+          error: {
+            code: error instanceof McpAccessError ? 'forbidden' : 'setup_error',
+            message:
+              error instanceof Error ? error.message : 'The setup tool failed.',
+          },
+        });
+      }
+    },
+  );
+
+  // Self-revocation targets the connection the credential itself resolves to,
+  // so no workspace selector and no client-supplied connection identity exists
+  // here: the credential is both the subject and the only key.
+  server.registerTool(
+    'revoke_connection',
+    {
+      title: 'Revoke this connection',
+      description:
+        'Revokes THIS connection: the OAuth grant, every token issued under it, and access to every approved workspace die together. It cannot touch any other connection, user, or workspace, which makes it the only destructive action a connector can take: the connection destroying its own access. Ask the user to confirm first and pass confirm: true; personal access tokens are revoked from Settings instead. Idempotent: a second call fails because the token is already dead.',
+      inputSchema: revokeBodySchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (args) => {
+      const parsed = revokeBodySchema.safeParse(args);
+      if (!parsed.success) {
+        return invalidSetupArgs();
+      }
+      const startedAt = Date.now();
+      try {
+        const principal = await resolveMcpPrincipal(env, executionContext);
+        const logEvent = (outcome: 'ok' | 'denied' | 'error', error?: string) =>
+          console.log(
+            JSON.stringify({
+              event: 'mcp_tool_call',
+              tool: 'revoke_connection',
+              clientId: principal.clientId,
+              connectionId: principal.connectionRowId,
+              userId: principal.userId,
+              durationMs: Date.now() - startedAt,
+              outcome,
+              ...(error !== undefined ? { error } : {}),
+            }),
+          );
+        if (!principal.scopes.includes(MCP_WRITE_SCOPE)) {
+          logEvent('denied', 'missing data:write scope');
+          return errorResult({
+            error: {
+              code: 'forbidden',
+              message:
+                'This tool requires data:write on the connected workspace.',
+            },
+          });
+        }
+        const refusal = revokeRefusal(principal, parsed.data.confirm);
+        if (refusal !== null) {
+          logEvent('denied', refusal.code);
+          return errorResult({ error: refusal });
+        }
+        const revoked = await revokeConnectionByRowId(env, getDb(env), {
+          connectionRowId: principal.connectionRowId,
+          userId: principal.userId,
+          reason: parsed.data.reason
+            ? `mcp_self_revoked: ${parsed.data.reason}`
+            : 'mcp_self_revoked',
+        });
+        if (!revoked) {
+          logEvent('ok');
+          return textResult({
+            ok: true,
+            alreadyRevoked: true,
+            note: 'No live connection matched this credential; nothing to revoke (or the token was just spent revoking it).',
+          });
+        }
+        return textResult({
+          ok: true,
+          revoked: {
+            clientId: revoked.clientId,
+            workspacesCovered: revoked.workspaceIds,
+          },
+          note: 'Every token issued under this grant is now dead and the connection no longer accesses any workspace. Reconnect by re-running the OAuth authorize flow from your MCP client.',
+        });
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            event: 'mcp_tool_call',
+            tool: 'revoke_connection',
             durationMs: Date.now() - startedAt,
             outcome: error instanceof McpAccessError ? 'denied' : 'error',
             error: error instanceof Error ? error.message : String(error),
