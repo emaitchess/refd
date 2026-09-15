@@ -2,6 +2,8 @@
 // the planning loop, the answer phase, and the D1 persistence of the finished
 // rows. The DO owns the live transport; this file owns what it streams.
 // Deliberately free of durable-object types so the engine stays portable.
+
+import { normalizeDashes } from '@refd/core/dashes';
 import { desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Db } from '../db/client';
@@ -118,7 +120,7 @@ const toProposal = (
     const items = p.items
       .flatMap((item) => (item ? [item] : []))
       .map((item) => ({
-        text: item.text.trim(),
+        text: normalizeDashes(item.text).trim(),
         ...(PROMPT_CATEGORY_SET.has(item.category)
           ? { category: item.category }
           : {}),
@@ -129,7 +131,7 @@ const toProposal = (
       ? { kind: 'prompts', items, status: 'pending' }
       : null;
   }
-  const name = p.name.trim();
+  const name = normalizeDashes(p.name).trim();
   const domains = [
     ...new Set(
       p.domains
@@ -223,12 +225,14 @@ const systemPrompt = (): string =>
   'like (S2) only if you actually used it. The other numbered items are tool ' +
   'results, never citations; when there are no web results, use no citation ' +
   'markers.\n' +
+  '- Never write em dashes or en dashes; recast the sentence with a comma, ' +
+  'colon, or parentheses instead.\n' +
   '- Never mention tools, traces, or metadata in the prose.';
 
 // Model-written titles arrive with stray quotes and whitespace often enough
 // to launder them; empty after cleaning = no title, caller keeps its fallback.
 const cleanTitle = (raw: string): string | null => {
-  const cleaned = raw
+  const cleaned = normalizeDashes(raw)
     .replace(/\s+/g, ' ')
     .replace(/^["'“”\s]+|["'“”.\s]+$/g, '')
     .trim();
@@ -643,11 +647,14 @@ export const runExchange = async (
     if (!delta) {
       return;
     }
+    // Dashes are single UTF-16 code units, so one can never straddle two
+    // deltas; the final pass below only mops up cross-delta space artifacts.
+    const clean = normalizeDashes(delta);
     if (prose.length === 0) {
       await step('writing the answer', 'grounded to the gathered evidence');
     }
-    prose += delta;
-    await emit({ type: 'delta', text: delta });
+    prose += clean;
+    await emit({ type: 'delta', text: clean });
   };
   const onReasoning = async () => {
     if (!reasoning.announced) {
@@ -689,6 +696,10 @@ export const runExchange = async (
     });
   }
 
+  // Both the metadata call and the stored answer read this cleaned prose, so
+  // labels and titles copied from it inherit the dash-free form.
+  prose = normalizeDashes(prose);
+
   const meta = await extractMeta(
     env,
     question,
@@ -714,6 +725,7 @@ export const runExchange = async (
   ].slice(0, 2);
   const links = (meta?.links ?? [])
     .filter((l): l is NonNullable<typeof l> => l !== null && validLink(l.to))
+    .map((l) => ({ ...l, label: normalizeDashes(l.label) }))
     .slice(0, 2);
   const durationMs = Date.now() - started;
   await step(
