@@ -1,4 +1,5 @@
 import type { Alias } from '@refd/core/mentions';
+import type { RunSchedule } from '@refd/core/schedule';
 import type { SiteMetadata } from '@refd/core/site-metadata';
 import type { Surface } from '@refd/core/surfaces';
 import type { MonitoringTier } from '@refd/core/workspaces';
@@ -82,6 +83,9 @@ export const workspaces = sqliteTable(
     // Enabled AI surfaces for runs; null = the user's entitlement default. Set in
     // onboarding/Settings and bounded again when a run is created.
     surfaces: text('surfaces', { mode: 'json' }).$type<string[]>(),
+    // Run schedule: when this workspace's scheduled runs fire. Null = the
+    // default (daily 06:00 UTC). Written only through runScheduleSchema.
+    schedule: text('schedule', { mode: 'json' }).$type<RunSchedule>(),
     // Optimistic-concurrency version for the onboarding draft: every mutation
     // CAS-bumps it, so dashboard and MCP edits cannot silently overwrite one
     // another.

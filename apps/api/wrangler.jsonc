@@ -55,9 +55,10 @@
     "BRIGHTDATA_SERP_ZONE": "refd_serp"
   },
   "triggers": {
-    // Daily snapshot run at 06:00 UTC; five-minute dispatch recovery never
-    // creates a new run.
-    "crons": ["0 6 * * *", "*/5 * * * *"]
+    // 15-minute schedule tick: fires each eligible workspace due per its run
+    // schedule (workspaces.schedule; null = default daily 06:00 UTC).
+    // Five-minute dispatch recovery never creates a new run.
+    "crons": ["*/15 * * * *", "*/5 * * * *"]
   },
   "durable_objects": {
     // One instance per chat (idFromName(chatId)): owns the running exchange,

@@ -9,6 +9,7 @@
     "./surfaces": "./src/surfaces.ts",
     "./mentions": "./src/mentions.ts",
     "./workspaces": "./src/workspaces.ts",
+    "./schedule": "./src/schedule.ts",
     "./site-metadata": "./src/site-metadata.ts",
     "./blocks": "./src/blocks.ts",
     "./metric-copy": "./src/metric-copy.ts",

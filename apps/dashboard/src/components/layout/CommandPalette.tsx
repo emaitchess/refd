@@ -136,6 +136,15 @@ export const CommandPalette = ({
         icon: 'competitors',
         run: act(() => navigate('/competitors?new=1')),
       },
+      {
+        id: 'run-schedule',
+        group: 'Actions',
+        label: 'Edit run schedule',
+        description: 'Change when scheduled runs fire',
+        keywords: ['schedule', 'frequency', 'daily', 'weekly', 'time', 'cron'],
+        icon: 'runs',
+        run: act(() => navigate('/settings?schedule=1')),
+      },
       ...(limitReached(workspaces.length, config.limits.maxWorkspaces)
         ? []
         : [

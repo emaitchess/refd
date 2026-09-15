@@ -3,8 +3,16 @@ import {
   surfaceLimitMessage,
   workspaceLimitMessage,
 } from '@refd/core/config';
+import {
+  nextOccurrenceDates,
+  type RunSchedule,
+  SCHEDULE_WEEKDAYS,
+  scheduledTimeMs,
+  WEEKLY_INTERVAL_MAX,
+} from '@refd/core/schedule';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { Select } from '@/components/controls/Select';
 import { SurfaceChips } from '@/components/controls/SurfaceChips';
 import { DitherIcon } from '@/components/dither/DitherIcon';
 import { Tooltip } from '@/components/dither-kit/tooltip';
@@ -466,6 +474,390 @@ const SurfacesCard = () => {
         </p>
       ) : null}
     </Card>
+  );
+};
+
+const MINUTE_OPTIONS = ['00', '15', '30', '45'];
+
+const timeLabel = (schedule: RunSchedule): string =>
+  `${String(schedule.hourUtc).padStart(2, '0')}:${String(
+    schedule.minuteUtc,
+  ).padStart(2, '0')}`;
+
+const scheduleSummary = (schedule: RunSchedule): string => {
+  const time = `${timeLabel(schedule)} UTC`;
+  if (schedule.kind === 'daily') {
+    return `Every day at ${time}`;
+  }
+  const days = schedule.days.map((day) => SCHEDULE_WEEKDAYS[day]).join(', ');
+  const every =
+    schedule.interval === 1 ? '' : `, every ${schedule.interval} weeks`;
+  return `${days} at ${time}${every}`;
+};
+
+const occurrenceLabel = (schedule: RunSchedule, date: string): string => {
+  const day = new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  }).format(scheduledTimeMs(schedule, date));
+  return `${day}, ${timeLabel(schedule)} UTC`;
+};
+
+const localOccurrenceLabel = (schedule: RunSchedule, date: string): string =>
+  new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(scheduledTimeMs(schedule, date));
+
+const pad2 = (value: number): string => String(value).padStart(2, '0');
+
+const ScheduleDialog = ({
+  schedule,
+  scheduleActive,
+  onClose,
+  onSaved,
+}: {
+  schedule: RunSchedule;
+  scheduleActive: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) => {
+  const [draft, setDraft] = useState<RunSchedule>(schedule);
+  const { busy, error, run } = useAsyncAction();
+  const toast = useToast();
+  const weeklyWithoutDays = draft.kind === 'weekly' && draft.days.length === 0;
+  const [next, after] = nextOccurrenceDates(draft, Date.now(), 2);
+
+  const toggleDay = (day: number) => {
+    const days = draft.days.includes(day)
+      ? draft.days.filter((value) => value !== day)
+      : [...draft.days, day].sort((a, b) => a - b);
+    setDraft({ ...draft, days });
+  };
+
+  const save = () => {
+    if (weeklyWithoutDays) {
+      return;
+    }
+    void run(async () => {
+      await api<{ schedule: RunSchedule }>('/settings/schedule', {
+        method: 'PATCH',
+        body: JSON.stringify(draft),
+      });
+      onSaved();
+      toast('run schedule updated');
+      onClose();
+    });
+  };
+
+  return (
+    <Modal title="Run schedule" onClose={onClose}>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-[13px] text-primary">Automatic runs</p>
+          <p className="mt-0.5 max-w-[16rem] text-[12px] text-muted leading-relaxed">
+            {scheduleActive
+              ? 'Scheduled runs fire at the times configured below.'
+              : 'This workspace has no active monitoring plan, so scheduled runs stay paused regardless of this setting.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={draft.enabled}
+          aria-label="Automatic runs"
+          disabled={busy}
+          onClick={() => setDraft({ ...draft, enabled: !draft.enabled })}
+          className={cn(
+            'relative mt-0.5 h-5 w-9 shrink-0 border transition-colors duration-150',
+            draft.enabled
+              ? 'border-border-strong bg-accent-soft'
+              : 'border-border bg-bg',
+          )}
+        >
+          <span
+            className={cn(
+              'absolute top-[3px] h-3 w-3 bg-primary transition-all duration-150',
+              draft.enabled ? 'left-[19px]' : 'left-[3px]',
+            )}
+          />
+        </button>
+      </div>
+
+      {draft.enabled ? (
+        <>
+          <div className="mt-4 flex items-center justify-between border-border border-b py-3">
+            <span className="text-[13px] text-primary">Frequency</span>
+            <div className="flex border border-border">
+              {(['daily', 'weekly'] as const).map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  className={cn(
+                    'h-8 px-4 text-[13px] capitalize transition-colors duration-150',
+                    draft.kind === kind
+                      ? 'bg-accent-soft text-primary'
+                      : 'text-secondary hover:text-primary',
+                  )}
+                  onClick={() =>
+                    setDraft({
+                      ...draft,
+                      kind,
+                      ...(kind === 'daily'
+                        ? { interval: 1, days: [] }
+                        : {
+                            interval: draft.interval,
+                            days: draft.days.length > 0 ? draft.days : [1],
+                          }),
+                    })
+                  }
+                >
+                  {kind}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {draft.kind === 'weekly' ? (
+            <>
+              <div className="border-border border-b py-3">
+                <p className="field-label">days</p>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {SCHEDULE_WEEKDAYS.map((label, day) => {
+                    const selected = draft.days.includes(day);
+                    return (
+                      <button
+                        key={label}
+                        type="button"
+                        aria-pressed={selected}
+                        disabled={busy}
+                        className={cn(
+                          'h-8 border px-3 text-[13px] transition-colors duration-150',
+                          selected
+                            ? 'border-border-strong bg-accent-soft text-primary'
+                            : 'border-border text-secondary hover:text-primary',
+                        )}
+                        onClick={() => toggleDay(day)}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {weeklyWithoutDays ? (
+                  <p className="mt-2 text-[12px] text-error">
+                    Pick at least one day.
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex items-center justify-between border-border border-b py-3">
+                <span className="text-[13px] text-primary">Repeat every</span>
+                <div className="flex items-center gap-2">
+                  <div className="flex border border-border">
+                    <button
+                      type="button"
+                      aria-label="Fewer weeks between runs"
+                      disabled={busy || draft.interval <= 1}
+                      className="h-8 w-8 text-[13px] text-secondary transition-colors duration-150 hover:text-primary disabled:opacity-50"
+                      onClick={() =>
+                        setDraft({
+                          ...draft,
+                          interval: Math.max(1, draft.interval - 1),
+                        })
+                      }
+                    >
+                      −
+                    </button>
+                    <span className="flex h-8 w-10 items-center justify-center border-border border-x font-mono text-[13px] text-primary">
+                      {draft.interval}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="More weeks between runs"
+                      disabled={busy || draft.interval >= WEEKLY_INTERVAL_MAX}
+                      className="h-8 w-8 text-[13px] text-secondary transition-colors duration-150 hover:text-primary disabled:opacity-50"
+                      onClick={() =>
+                        setDraft({
+                          ...draft,
+                          interval: Math.min(
+                            WEEKLY_INTERVAL_MAX,
+                            draft.interval + 1,
+                          ),
+                        })
+                      }
+                    >
+                      +
+                    </button>
+                  </div>
+                  <span className="text-[13px] text-secondary">
+                    {draft.interval === 1 ? 'week' : 'weeks'}
+                  </span>
+                </div>
+              </div>
+            </>
+          ) : null}
+
+          <div className="flex items-center justify-between border-border border-b py-3">
+            <span className="text-[13px] text-primary">Time (UTC)</span>
+            <div className="flex items-center gap-1.5">
+              <Select
+                ariaLabel="Hour (UTC)"
+                size="sm"
+                className="w-16"
+                position="fixed"
+                value={pad2(draft.hourUtc)}
+                options={Array.from({ length: 24 }, (_, hour) => pad2(hour))}
+                onChange={(value) =>
+                  setDraft({ ...draft, hourUtc: Number.parseInt(value, 10) })
+                }
+              />
+              <span className="text-[13px] text-muted">:</span>
+              <Select
+                ariaLabel="Minute (UTC)"
+                size="sm"
+                className="w-16"
+                position="fixed"
+                value={pad2(draft.minuteUtc)}
+                options={MINUTE_OPTIONS}
+                onChange={(value) =>
+                  setDraft({ ...draft, minuteUtc: Number.parseInt(value, 10) })
+                }
+              />
+            </div>
+          </div>
+
+          <div className="py-3">
+            <div className="flex items-baseline justify-between gap-4 py-0.5">
+              <span className="field-label">next run</span>
+              <span className="text-right font-mono text-[12px] text-secondary">
+                {next
+                  ? `${occurrenceLabel(draft, next)} (${localOccurrenceLabel(draft, next)} local)`
+                  : '—'}
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between gap-4 py-0.5">
+              <span className="field-label">then</span>
+              <span className="text-right font-mono text-[12px] text-secondary">
+                {after ? occurrenceLabel(draft, after) : '—'}
+              </span>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="mt-4 border-border border-b py-3">
+          <p className="text-[12px] text-muted leading-relaxed">
+            Scheduled runs are off for this workspace. Turn them on to pick a
+            frequency, days, and time.
+          </p>
+        </div>
+      )}
+
+      <div className="mt-5 flex items-center justify-end gap-2">
+        {error ? (
+          <p className="mr-auto text-[13px] text-error" aria-live="polite">
+            {error}
+          </p>
+        ) : null}
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={onClose}
+          disabled={busy}
+        >
+          cancel
+        </button>
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={save}
+          disabled={busy || weeklyWithoutDays}
+        >
+          {busy ? 'saving…' : 'save schedule'}
+        </button>
+      </div>
+    </Modal>
+  );
+};
+
+const ScheduleCard = () => {
+  const query = useQuery<{ schedule: RunSchedule; scheduleActive: boolean }>(
+    '/settings',
+  );
+  const [editing, setEditing] = useState(false);
+  // Deep link (?schedule=1, e.g. from the command palette) opens the dialog;
+  // it renders once the query lands.
+  useParamFlag('schedule', () => setEditing(true));
+  const schedule = query.data?.schedule ?? null;
+  const scheduleActive = query.data?.scheduleActive ?? false;
+  const [next] = schedule ? nextOccurrenceDates(schedule, Date.now(), 1) : [];
+
+  return (
+    <>
+      <Card className="flex flex-col overflow-hidden p-0">
+        <header className="flex min-h-24 flex-col justify-center border-border border-b bg-bg-elevated px-5 py-3">
+          <h2 className="section-label text-primary">run schedule</h2>
+          <p className="mt-1 text-[12px] text-muted leading-relaxed">
+            When this workspace&apos;s scheduled runs fire. Every active prompt
+            runs at once, so fewer runs mean lower provider usage and cost.
+          </p>
+        </header>
+        {query.loading && !query.data ? (
+          <div className="p-5">
+            <Skeleton className="h-6 w-64" />
+          </div>
+        ) : !schedule ? (
+          <EmptyState
+            title="schedule unavailable"
+            hint="The run schedule could not be loaded."
+            action={
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={query.refetch}
+              >
+                retry
+              </button>
+            }
+            className="border-0"
+          />
+        ) : (
+          <div className="flex flex-col justify-between gap-3 p-5 md:flex-row md:items-center">
+            <div className="min-w-0">
+              <p className="text-[13px] text-primary">
+                {schedule.enabled
+                  ? scheduleSummary(schedule)
+                  : 'Automatic runs are off'}
+              </p>
+              <p className="mt-1 font-mono text-[11px] text-muted uppercase tracking-[0.08em]">
+                {!scheduleActive
+                  ? 'paused: no active monitoring plan'
+                  : schedule.enabled && next
+                    ? `next run ${occurrenceLabel(schedule, next)}`
+                    : 'next run —'}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn-secondary shrink-0 md:ml-4"
+              onClick={() => setEditing(true)}
+            >
+              edit schedule
+            </button>
+          </div>
+        )}
+      </Card>
+
+      {editing && schedule ? (
+        <ScheduleDialog
+          schedule={schedule}
+          scheduleActive={scheduleActive}
+          onClose={() => setEditing(false)}
+          onSaved={query.refetch}
+        />
+      ) : null}
+    </>
   );
 };
 
@@ -1050,12 +1442,13 @@ export const Settings = () => (
   <>
     <PageHeader
       title="Settings"
-      description="Manage workspaces and the AI surfaces monitored in each run."
+      description="Manage workspaces, run schedules, and the AI surfaces monitored in each run."
     />
 
     <div className="flex flex-col gap-4">
       <WorkspacesCard />
       <SurfacesCard />
+      <ScheduleCard />
       <ConnectedAppsCard />
       <TokensCard />
       {import.meta.env.DEV ? <RescoreCard /> : null}
