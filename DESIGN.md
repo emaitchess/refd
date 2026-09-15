@@ -1,5 +1,5 @@
 ---
-version: 1.5.3
+version: 1.5.4
 name: refd
 description: >-
   Premium, minimal interface for refd (refd.ai), open-source AI search
@@ -573,6 +573,10 @@ or random background particles. Dither texture already provides identity.
 - Switches are square monochrome tracks with a square knob that slides; expose
   `role="switch"` and `aria-checked`, and signal state by knob position and
   border strength, never by color.
+- Checkboxes follow the same geometry at control scale: a square track outlined
+  by `border-strong` when unchecked and a solid `primary` face when checked.
+  The check mark rides the checked fill's contrast (dark on ivory, ivory on
+  near-black), never an accent hue, so both themes render from the same tokens.
 
 ### Onboarding
 
