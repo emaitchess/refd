@@ -41,7 +41,7 @@ Call \`tools/list\` after connecting. Every tool resolves the granted workspaces
 
 ${AGENT_SETUP_TOOLS.map(([name, description]) => `- \`${name}\`: ${description}`).join('\n')}
 
-With the \`data:write\` scope the setup tools onboard a workspace end to end: ${AGENT_SETUP_WORKFLOW} The workflow is budgeted, and \`confirm_setup\` starts exactly one provider-backed onboarding report; no grant can delete data, manage billing, or start further runs. Disabled by default on the hosted service; self-hosters enable it with \`MCP_SETUP_TOOLS_ENABLED=true\`.
+With the \`data:write\` scope the setup tools onboard a workspace end to end: ${AGENT_SETUP_WORKFLOW} The workflow is budgeted, and \`confirm_setup\` starts exactly one provider-backed onboarding report; no grant can delete data, manage billing, or start further runs.
 
 ## Connect a client
 

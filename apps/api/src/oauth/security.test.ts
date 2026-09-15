@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  MCP_SCOPE,
+  MCP_SCOPES,
   OAUTH_PROTOCOL_OPTIONS,
   oauthResourceUrl,
 } from './constants';
@@ -16,11 +16,11 @@ import {
 } from './security';
 
 describe('OAuth protocol policy', () => {
-  test('requires S256 PKCE and exposes only the read scope', () => {
+  test('requires S256 PKCE and advertises both scopes', () => {
     expect(OAUTH_PROTOCOL_OPTIONS.allowImplicitFlow).toBeFalse();
     expect(OAUTH_PROTOCOL_OPTIONS.allowPlainPKCE).toBeFalse();
     expect(OAUTH_PROTOCOL_OPTIONS.clientIdMetadataDocumentEnabled).toBeTrue();
-    expect(OAUTH_PROTOCOL_OPTIONS.scopesSupported).toEqual([MCP_SCOPE]);
+    expect(OAUTH_PROTOCOL_OPTIONS.scopesSupported).toEqual([...MCP_SCOPES]);
   });
 
   test('binds hosted tokens to the exact MCP resource', () => {

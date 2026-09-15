@@ -67,7 +67,7 @@ describe('shared agent-access facts', () => {
     ]);
     const write = AGENT_SCOPES.find(([scope]) => scope === 'data:write')?.[1];
     expect(write).toContain('one provider-backed onboarding report');
-    expect(write).toContain('disabled by default');
+    expect(write).not.toContain('disabled by default');
   });
 
   test('entitlement covers selection, allow-all, selector, and the PAT carve-out', () => {

@@ -4,7 +4,6 @@ import {
   MCP_INSTRUCTIONS,
   MCP_TOOL_ANNOTATIONS,
   MCP_TOOL_NAMES,
-  mcpInstructions,
   promptResultsArgsSchema,
   rangeArgsSchema,
   readAnswerArgsSchema,
@@ -68,16 +67,10 @@ describe('MCP tool catalog', () => {
     expect(MCP_INSTRUCTIONS).toContain('workspace');
   });
 
-  test('setup instructions appear only when the phase gate is on', () => {
-    const base = mcpInstructions({ MCP_SETUP_TOOLS_ENABLED: 'false' });
-    expect(base).toBe(MCP_INSTRUCTIONS);
-    expect(base).not.toContain('confirm_setup');
-
-    const enabled = mcpInstructions({ MCP_SETUP_TOOLS_ENABLED: 'true' });
-    expect(enabled.startsWith(MCP_INSTRUCTIONS)).toBeTrue();
-    expect(enabled).toContain('confirm_setup');
-    expect(enabled).toContain('expectedVersion');
-    expect(enabled).toContain('provider-backed report');
+  test('server instructions include the bounded setup workflow', () => {
+    expect(MCP_INSTRUCTIONS).toContain('confirm_setup');
+    expect(MCP_INSTRUCTIONS).toContain('expectedVersion');
+    expect(MCP_INSTRUCTIONS).toContain('provider-backed report');
   });
 });
 
