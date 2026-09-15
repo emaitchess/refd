@@ -36,6 +36,7 @@ const context = (c: Context<WorkspaceBindings>): OnboardingContext => ({
   userId: c.get('user').id,
   userEmail: c.get('user').email,
   adminEmails: c.env.ADMIN_EMAILS,
+  source: 'dashboard',
 });
 
 // Soft-failure bodies are 200s by design; only hard failures map to a status.
@@ -50,7 +51,7 @@ const respond = <T extends object>(
 };
 
 onboardingRoutes.get('/', async (c) => {
-  return c.json(await loadOnboardingState(context(c)));
+  return c.json(await loadOnboardingState(context(c), { withBudget: true }));
 });
 
 onboardingRoutes.get('/site-metadata', async (c) => {

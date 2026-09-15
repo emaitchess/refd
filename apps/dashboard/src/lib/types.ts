@@ -306,6 +306,23 @@ export interface OnboardingState {
   };
   regenLimit: number;
   regen: { describe: number; competitors: number; prompts: number };
+  // Planning data attached to state reads only: the caller's effective
+  // limit policy and the setup_generation ledger over the last 24h.
+  limits?: {
+    isAdmin: boolean;
+    maxWorkspaces: number | null;
+    maxActivePromptsPerWorkspace: number | null;
+    maxEnabledSurfacesPerWorkspace: number;
+  };
+  budget?: {
+    sections: {
+      describe: { attempts: number; failures: number };
+      competitors: { attempts: number; failures: number };
+      prompts: { attempts: number; failures: number };
+    };
+    generationsUsed24h: number;
+    generationsPerDay: number | null;
+  };
 }
 
 export interface ChatListItem {

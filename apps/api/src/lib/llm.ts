@@ -591,9 +591,13 @@ export interface GeneratedPrompt {
   category: string;
 }
 
+export type PromptGeneration =
+  | { ok: true; prompts: GeneratedPrompt[] }
+  | { ok: false; cause: 'model_unreachable' | 'unparseable' | 'empty_output' };
+
 // Generate the buyer questions to monitor. Loose validation here (structure
 // only); the caller sanitises text (length) + category membership + dedupe.
-// Returns [] on failure so the step degrades to manual entry.
+// Failures name their cause so the step can degrade with a diagnostic.
 export const generatePrompts = async (
   env: AppEnv,
   input: {
@@ -601,16 +605,21 @@ export const generatePrompts = async (
     domain: string;
     summary: string;
     competitors: string[];
+    total?: number;
+    focus?: string;
   },
-): Promise<GeneratedPrompt[]> => {
+): Promise<PromptGeneration> => {
   const cats = PROMPT_CATEGORIES.map(
     (c) => `- ${c}: ${CATEGORY_HINTS[c]}`,
   ).join('\n');
+  const total = input.total ?? 25;
+  const perCategory = Math.ceil(total / PROMPT_CATEGORIES.length);
   const system =
     `You generate the questions a potential buyer asks an AI assistant (ChatGPT, Perplexity, Gemini) while researching a purchase in ${input.brand}'s category. ` +
     'They measure whether AI answers surface the brand, so **most questions must NOT name the brand** — they are generic problem/category questions (only some Comparison questions may name the brand and a competitor). ' +
     'Return ONLY a JSON object {"prompts":[{"text":string,"category":string}]}. ' +
-    `Generate exactly 5 per category, 25 total. category must be one of these exact words:\n${cats}\n` +
+    `Generate ${total} prompts, roughly ${perCategory} per category spread across all of them. category must be one of these exact words:\n${cats}\n` +
+    (input.focus ? `Weigh the set toward: ${input.focus}\n` : '') +
     'Each text is a natural, standalone question a real person would type.';
   const competitorsLine = input.competitors.length
     ? `Competitors: ${input.competitors.join(', ')}\n`
@@ -619,7 +628,7 @@ export const generatePrompts = async (
     `Brand: ${input.brand} (${input.domain})\n` +
     (input.summary ? `About: ${input.summary}\n` : '') +
     competitorsLine +
-    '\nGenerate 25 prompts (5 per category).';
+    `\nGenerate ${total} prompts (~${perCategory} per category).`;
 
   try {
     const text = await runChat(
@@ -633,8 +642,18 @@ export const generatePrompts = async (
         responseFormat: generatedPromptsResponseFormat,
       },
     );
-    return parseJson(text, generatedPromptsSchema)?.prompts ?? [];
+    if (!text) {
+      return { ok: false, cause: 'model_unreachable' };
+    }
+    const parsed = parseJson(text, generatedPromptsSchema);
+    if (!parsed) {
+      return { ok: false, cause: 'unparseable' };
+    }
+    if (parsed.prompts.length === 0) {
+      return { ok: false, cause: 'empty_output' };
+    }
+    return { ok: true, prompts: parsed.prompts };
   } catch {
-    return [];
+    return { ok: false, cause: 'model_unreachable' };
   }
 };
