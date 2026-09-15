@@ -236,7 +236,9 @@ export const registerSetupTools = (
         'get_setup_state',
         { requireWrite: false, workspaceArg: parsed.workspaceArg },
         async (principal, workspace) =>
-          loadOnboardingState(contextFor(env, principal, workspace)),
+          loadOnboardingState(contextFor(env, principal, workspace), {
+            withBudget: true,
+          }),
       );
     },
   );

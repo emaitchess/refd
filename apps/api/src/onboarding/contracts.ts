@@ -167,4 +167,24 @@ export interface OnboardingState {
   };
   regenLimit: number;
   regen: { describe: number; competitors: number; prompts: number };
+  // Present only when the caller asks for planning data (the state GETs);
+  // mutation echoes stay lean. limits are the caller's effective policy and
+  // budget mirrors the setup_usage ledger over the last 24h.
+  limits?: {
+    isAdmin: boolean;
+    maxWorkspaces: number | null;
+    maxActivePromptsPerWorkspace: number | null;
+    maxEnabledSurfacesPerWorkspace: number;
+  };
+  budget?: {
+    sections: {
+      describe: { attempts: number; failures: number };
+      competitors: { attempts: number; failures: number };
+      prompts: { attempts: number; failures: number };
+    };
+    generationsUsed24h: number;
+    // null = the per-user daily cap does not apply (administrators); the
+    // global daily circuit breaker always applies.
+    generationsPerDay: number | null;
+  };
 }

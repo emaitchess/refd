@@ -25,6 +25,7 @@ import {
   type GenerationSection,
   releaseReportClaim,
   settleGenerationAttempt,
+  setupBudgetSnapshot,
 } from './budget';
 import {
   CONFIGURATION_SCHEMA_VERSION,
@@ -164,6 +165,7 @@ const brandFor = async (db: Db, wsId: number) =>
 
 export const loadOnboardingState = async (
   ctx: OnboardingContext,
+  planning: { withBudget?: boolean } = {},
 ): Promise<OnboardingState> => {
   const { db, workspaceId } = ctx;
   const ws = (
@@ -171,14 +173,15 @@ export const loadOnboardingState = async (
   )[0];
   const brand = await brandFor(db, workspaceId);
   const profile = (ws?.profile ?? {}) as WorkspaceProfile;
-  return {
+  const applied = config(ctx);
+  const state: OnboardingState = {
     onboardingCompleted: ws?.onboardingCompleted ?? false,
     committed: profile.committed ?? false,
     step: profile.step ?? (brand ? 'describe' : 'brand'),
     version: ws?.onboardingDraftVersion ?? 0,
     surfaces: enabledSurfaces(
       ws?.surfaces ?? null,
-      config(ctx).limits.maxEnabledSurfacesPerWorkspace,
+      applied.limits.maxEnabledSurfacesPerWorkspace,
     ),
     brand: brand
       ? {
@@ -204,6 +207,18 @@ export const loadOnboardingState = async (
       prompts: profile.regen?.prompts ?? 0,
     },
   };
+  if (!planning.withBudget) {
+    return state;
+  }
+  state.limits = {
+    isAdmin: applied.isAdmin,
+    ...applied.limits,
+  };
+  state.budget = await setupBudgetSnapshot(db, {
+    userId: ctx.userId,
+    isAdmin: applied.isAdmin,
+  });
+  return state;
 };
 
 const conflictFailure = async (

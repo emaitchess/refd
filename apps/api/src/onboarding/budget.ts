@@ -25,6 +25,71 @@ export type BudgetDecision =
   | { ok: true; claimId: number; existing: boolean }
   | { ok: false; retryAfterSeconds: number; limit: string };
 
+export const maxGenerationAttemptsPerDay = MAX_USER_GENERATIONS_PER_DAY;
+export const maxSectionFailuresPerDay = MAX_SECTION_FAILURES_PER_DAY;
+
+export interface SectionBudget {
+  attempts: number;
+  failures: number;
+}
+
+// What an agent planning the setup steps needs from the ledger: how many
+// generation attempts and failures each section has burned in the last 24h
+// (the 3-failure cap refuses a section at MAX_SECTION_FAILURES_PER_DAY), and
+// user-day usage for non-admins. Admins skip the user-level generation cap,
+// so their used count is informational only.
+export const setupBudgetSnapshot = async (
+  db: Db,
+  input: {
+    userId: number;
+    isAdmin: boolean;
+  },
+): Promise<{
+  sections: Record<GenerationSection, SectionBudget>;
+  generationsUsed24h: number;
+  generationsPerDay: number | null;
+}> => {
+  const now = Date.now();
+  const since24h = now - DAY_MS;
+  const rows = await db
+    .select({
+      section: setupUsage.section,
+      status: setupUsage.status,
+      n: sql<number>`count(*)`,
+    })
+    .from(setupUsage)
+    .where(
+      and(
+        eq(setupUsage.userId, input.userId),
+        eq(setupUsage.kind, 'generate'),
+        gte(setupUsage.createdAt, since24h),
+      ),
+    )
+    .groupBy(setupUsage.section, setupUsage.status);
+  const sections = {
+    describe: { attempts: 0, failures: 0 },
+    competitors: { attempts: 0, failures: 0 },
+    prompts: { attempts: 0, failures: 0 },
+  };
+  let generationsUsed24h = 0;
+  for (const row of rows) {
+    if (row.section === null) {
+      continue;
+    }
+    const bucket = sections[row.section];
+    bucket.attempts += row.n;
+    if (row.status === 'failed') {
+      bucket.failures += row.n;
+    }
+    generationsUsed24h += row.n;
+  }
+  return {
+    sections,
+    generationsUsed24h,
+    generationsPerDay: input.isAdmin ? null : MAX_USER_GENERATIONS_PER_DAY,
+  };
+};
+
 const retryAfter = (ms: number): number => Math.max(1, Math.ceil(ms / 1000));
 
 const dayStart = (now: number): number => {

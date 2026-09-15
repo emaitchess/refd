@@ -50,7 +50,7 @@ const respond = <T extends object>(
 };
 
 onboardingRoutes.get('/', async (c) => {
-  return c.json(await loadOnboardingState(context(c)));
+  return c.json(await loadOnboardingState(context(c), { withBudget: true }));
 });
 
 onboardingRoutes.get('/site-metadata', async (c) => {
