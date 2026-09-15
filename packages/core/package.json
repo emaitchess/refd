@@ -6,6 +6,7 @@
   "exports": {
     "./analytics": "./src/analytics.ts",
     "./config": "./src/config.ts",
+    "./dashes": "./src/dashes.ts",
     "./surfaces": "./src/surfaces.ts",
     "./mentions": "./src/mentions.ts",
     "./workspaces": "./src/workspaces.ts",

@@ -1,3 +1,4 @@
+import { normalizeDashes } from '@refd/core/dashes';
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
@@ -204,6 +205,9 @@ const ChatSteps = ({
 // Assistant prose renders like every other model-written text in the app:
 // escaped markdown, no raw HTML passthrough, citation markers linked only to
 // sources this message actually carries.
+// Answers written before the server started laundering dashes still render
+// through here; normalizing at render is the one gate every stored path
+// (websocket done frame and GET refetch alike) goes through.
 const AssistantMessage = ({
   message,
   chatId,
@@ -214,12 +218,13 @@ const AssistantMessage = ({
   onProposalResolved: (messageId: number, proposal: ChatProposal) => void;
 }) => {
   const [copied, setCopied] = useState(false);
+  const content = normalizeDashes(message.content);
   const linkedSources = useMemo(
     () => collectLinkedSources(message.sources),
     [message.sources],
   );
   const copy = () => {
-    void navigator.clipboard.writeText(message.content).then(() => {
+    void navigator.clipboard.writeText(content).then(() => {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     });
@@ -232,7 +237,7 @@ const AssistantMessage = ({
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeLinkSources(linkedSources)]}
         >
-          {message.content}
+          {content}
         </Markdown>
       </div>
       <ChatPanels panels={message.panels} panelData={message.panelData} />
@@ -274,7 +279,7 @@ const AssistantMessage = ({
               to={link.to}
               className="btn-secondary h-7 gap-1.5 px-2.5 text-[11px]"
             >
-              {link.label}
+              {normalizeDashes(link.label)}
               <span aria-hidden>↗</span>
             </Link>
           ))}
