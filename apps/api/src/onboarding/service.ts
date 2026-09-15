@@ -12,7 +12,7 @@ import {
 } from '../db/schema';
 import type { AppEnv } from '../env';
 import { createRun } from '../ingest/runs';
-import { discoverCompetitors } from '../lib/exa';
+import { type DiscoveredCandidate, discoverCompetitors } from '../lib/exa';
 import { describeBrand, generatePrompts, PROMPT_CATEGORIES } from '../lib/llm';
 import { insertActivePrompt } from '../lib/prompt-limit';
 import { domainField, multiLineText, singleLineText } from '../lib/sanitize';
@@ -506,12 +506,24 @@ const casWrite = async (
 // Step 2 (AI): fetch the brand's site and draft an editable description. Every
 // failure is soft (ok:false) so the client falls back to manual entry — the
 // wizard must never dead-end on a flaky site or model call.
+// Soft-fail responses carry a detail cause and a next-action guidance: an
+// agent has to decide between retrying (free) and writing the section by
+// hand, and the dashboard surfaces the guidance line.
+const FAILED_DRAFT_GUIDANCE =
+  'A retry is free: failed drafts do not consume the per-step regeneration budget. Generation is refused for a section after 3 failed attempts in 24h.';
+
 export const draftDescription = async (
   ctx: OnboardingContext,
   opts: GenerationOpts,
 ): Promise<
   | { ok: true; source: string; state: OnboardingState }
-  | { ok: false; reason: 'fetch' | 'llm'; state: OnboardingState }
+  | {
+      ok: false;
+      reason: 'fetch' | 'llm';
+      detail: string;
+      guidance: string;
+      state: OnboardingState;
+    }
   | OnboardingFailure
 > => {
   const prepared = await prepareGeneration(ctx, 'describe', opts);
@@ -526,6 +538,8 @@ export const draftDescription = async (
     return {
       ok: false,
       reason: 'fetch',
+      detail: 'brand_missing',
+      guidance: 'Set the brand with set_brand first.',
       state: await loadOnboardingState(ctx),
     };
   }
@@ -535,6 +549,8 @@ export const draftDescription = async (
     return {
       ok: false,
       reason: 'fetch',
+      detail: 'site_unreachable',
+      guidance: `The brand site (${domain}) could not be read. Write the description, summary, and target market manually with update_setup, or retry.`,
       state: await loadOnboardingState(ctx),
     };
   }
@@ -545,7 +561,13 @@ export const draftDescription = async (
   });
   if (!drafted) {
     await settleGenerationAttempt(db, prepared.claimId, 'failed');
-    return { ok: false, reason: 'llm', state: await loadOnboardingState(ctx) };
+    return {
+      ok: false,
+      reason: 'llm',
+      detail: 'model_output_unusable',
+      guidance: `The model produced nothing usable from the fetched site. ${FAILED_DRAFT_GUIDANCE} Alternatively, write the section manually via update_setup.`,
+      state: await loadOnboardingState(ctx),
+    };
   }
   const saved = await casWrite(ctx, opts.expectedVersion, {
     description: drafted.description,
@@ -573,7 +595,14 @@ export const suggestCompetitors = async (
   opts: GenerationOpts,
 ): Promise<
   | { ok: true; state: OnboardingState }
-  | { ok: false; reason: 'search' | 'llm'; state: OnboardingState }
+  | {
+      ok: false;
+      reason: 'search' | 'llm';
+      detail: string;
+      guidance: string;
+      candidates?: DiscoveredCandidate[];
+      state: OnboardingState;
+    }
   | OnboardingFailure
 > => {
   const prepared = await prepareGeneration(ctx, 'competitors', opts);
@@ -588,16 +617,28 @@ export const suggestCompetitors = async (
   }
   // Exa returns real indexed company pages; the model curates by candidate
   // number, so every suggested domain is backed by an actual search result.
-  const discovered = await discoverCompetitors(env, {
+  const discovery = await discoverCompetitors(env, {
     brand: brand.name,
     domains: brand.domains,
     summary: prepared.profile.summary ?? '',
   });
-  if (discovered.length === 0) {
+  if (!discovery.ok) {
     await settleGenerationAttempt(db, prepared.claimId, 'failed');
+    const detail = discovery.cause;
+    const guidance =
+      discovery.cause === 'unconfigured'
+        ? 'The server has no Exa key (EXA_API_KEY), so competitor search is unavailable. Add competitors manually with update_setup, using domains you have verified.'
+        : discovery.cause === 'unsuitable'
+          ? 'Search returned candidate pages but curation produced nothing usable. Inspect candidates for real domains and add competitors manually with update_setup, or retry.'
+          : `Search could not produce candidates. ${FAILED_DRAFT_GUIDANCE} Retry or add competitors manually with update_setup.`;
     return {
       ok: false,
       reason: 'search',
+      detail,
+      guidance,
+      ...(discovery.candidates.length > 0
+        ? { candidates: discovery.candidates }
+        : {}),
       state: await loadOnboardingState(ctx),
     };
   }
@@ -610,7 +651,7 @@ export const suggestCompetitors = async (
   const seenDomains = new Set<string>();
   const seenNames = new Set<string>([brand.name.toLowerCase()]);
   const competitors: DraftCompetitor[] = [];
-  for (const item of discovered) {
+  for (const item of discovery.competitors) {
     const name = item.name.trim();
     if (!name || seenNames.has(name.toLowerCase())) {
       continue;
@@ -666,7 +707,14 @@ export const suggestCompetitors = async (
   }
   if (competitors.length === 0) {
     await settleGenerationAttempt(db, prepared.claimId, 'failed');
-    return { ok: false, reason: 'llm', state: await loadOnboardingState(ctx) };
+    return {
+      ok: false,
+      reason: 'llm',
+      detail: 'all_candidates_invalid',
+      guidance: `Curation returned competitors but every domain failed validation against the brand's tracked domains. ${FAILED_DRAFT_GUIDANCE} Add competitors manually with update_setup.`,
+      candidates: discovery.candidates,
+      state: await loadOnboardingState(ctx),
+    };
   }
   const saved = await casWrite(ctx, opts.expectedVersion, {
     competitors,
@@ -686,7 +734,13 @@ export const suggestPrompts = async (
   opts: GenerationOpts,
 ): Promise<
   | { ok: true; state: OnboardingState }
-  | { ok: false; reason: 'llm'; state: OnboardingState }
+  | {
+      ok: false;
+      reason: 'llm';
+      detail: string;
+      guidance: string;
+      state: OnboardingState;
+    }
   | OnboardingFailure
 > => {
   const prepared = await prepareGeneration(ctx, 'prompts', opts);
@@ -705,6 +759,16 @@ export const suggestPrompts = async (
     summary: prepared.profile.summary ?? '',
     competitors: (prepared.profile.competitors ?? []).map((x) => x.name),
   });
+  if (!generated.ok) {
+    await settleGenerationAttempt(db, prepared.claimId, 'failed');
+    return {
+      ok: false,
+      reason: 'llm',
+      detail: generated.cause,
+      guidance: `The model produced no usable buyer questions. ${FAILED_DRAFT_GUIDANCE} Alternatively, write the question set manually via update_setup.`,
+      state: await loadOnboardingState(ctx),
+    };
+  }
   // Sanitise: 8-500 char text, valid category, dedupe, <=5 per category.
   const textCheck = multiLineText(8, 500);
   const categories = new Set<string>(PROMPT_CATEGORIES);
@@ -712,7 +776,7 @@ export const suggestPrompts = async (
   const seen = new Set<string>();
   const out: { text: string; category: string }[] = [];
   const promptLimit = config(ctx).limits.maxActivePromptsPerWorkspace;
-  for (const p of generated) {
+  for (const p of generated.prompts) {
     const category = p.category.trim();
     const parsedText = textCheck.safeParse(p.text);
     if (!parsedText.success || !categories.has(category)) {
@@ -732,7 +796,13 @@ export const suggestPrompts = async (
   }
   if (out.length === 0) {
     await settleGenerationAttempt(db, prepared.claimId, 'failed');
-    return { ok: false, reason: 'llm', state: await loadOnboardingState(ctx) };
+    return {
+      ok: false,
+      reason: 'llm',
+      detail: 'all_rejected_by_validation',
+      guidance: `The model returned ${generated.prompts.length} candidates but none passed validation (text length, category, dedupe). ${FAILED_DRAFT_GUIDANCE} Write the question set manually via update_setup.`,
+      state: await loadOnboardingState(ctx),
+    };
   }
   const saved = await casWrite(ctx, opts.expectedVersion, {
     prompts: out,
