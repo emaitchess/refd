@@ -109,6 +109,49 @@ describe('resolveChatScope', () => {
     );
   });
 
+  test('a standalone absolute date is that one run date', () => {
+    // The production question that used to fall through to 30 days.
+    for (const phrasing of [
+      'For the completed run on 16th September only, give me our mention rate.',
+      'mention rate on 16 September',
+      'What happened September 16?',
+      'How did we do on Sep 16?',
+      'the run dated 2026-09-16',
+    ]) {
+      expect(resolveChatScope(phrasing, SEP16)).toEqual(
+        expect.objectContaining({
+          from: '2026-09-16',
+          to: '2026-09-16',
+          source: 'explicit',
+        }),
+      );
+    }
+  });
+
+  test('absolute dates without a year bind to the most recent occurrence', () => {
+    // Asked in October, "16 September" means this year's, never next year's.
+    expect(
+      resolveChatScope('the run on 16 September', Date.UTC(2026, 9, 2, 9)),
+    ).toEqual(
+      expect.objectContaining({ from: '2026-09-16', to: '2026-09-16' }),
+    );
+    // Asked before that date in the same year, it means the year before.
+    expect(
+      resolveChatScope('the run on 16 September', Date.UTC(2026, 1, 2, 9)),
+    ).toEqual(
+      expect.objectContaining({ from: '2025-09-16', to: '2025-09-16' }),
+    );
+  });
+
+  test('absolute dates reject impossible calendar days and future dates', () => {
+    expect(resolveChatScope('results on 31 February 2026', SEP16)).toEqual(
+      expect.objectContaining({ source: 'default' }),
+    );
+    expect(
+      resolveChatScope('what will happen on 16 December 2026', SEP16),
+    ).toEqual(expect.objectContaining({ source: 'default' }));
+  });
+
   test('a follow-up without new date words inherits the frozen bounds', () => {
     const scope = resolveChatScope(
       'what about citations?',
