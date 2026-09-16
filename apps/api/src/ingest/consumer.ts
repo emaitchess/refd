@@ -17,6 +17,7 @@ import {
 import { fetchAioAnswer } from '../providers/brightdata-serp';
 import type { DatasetSurface } from '../providers/types';
 import type { ScorableEntity } from '../scoring';
+import { RawWriteBusyError } from './deletion';
 import {
   type IngestMessage,
   ingestMessageSchema,
@@ -31,7 +32,10 @@ import { entitiesForRun } from './runs';
 import {
   gunzipJson,
   hasOkResult,
+  IngestCleanupError,
+  IngestFencedError,
   refreshRunStatus,
+  runAcceptsIngest,
   storeFailedResult,
   storeScoredResult,
 } from './storage';
@@ -59,6 +63,16 @@ const backoffSeconds = (
   const base = 30 * 2 ** Math.max(0, attempts - 1);
   const jitter = Math.floor(Math.random() * 15);
   return Math.min(base + jitter, 3600);
+};
+
+const cleanRawForFencedMessage = async (
+  env: AppEnv,
+  msg: IngestMessage,
+): Promise<boolean> => {
+  if (!('runId' in msg) || (await runAcceptsIngest(getDb(env), msg.runId))) {
+    return false;
+  }
+  return true;
 };
 
 export const failWholeSnapshot = async (
@@ -124,6 +138,9 @@ const handleTrigger = async (
   msg: Extract<IngestMessage, { kind: 'brightdata_trigger' }>,
 ): Promise<void> => {
   const db = getDb(env);
+  if (!(await runAcceptsIngest(db, msg.runId))) {
+    return;
+  }
   const existing = await db
     .select()
     .from(snapshots)
@@ -253,6 +270,9 @@ const storeDatasetRecords = async (
   snapAt: number,
   records: Record<string, unknown>[],
 ): Promise<void> => {
+  if (!(await runAcceptsIngest(db, msg.runId))) {
+    return;
+  }
   const entitiesToScore = await entitiesForRun(env, msg.runId, msg.workspaceId);
 
   // Records echo their input prompt; group then assign one per expected prompt.
@@ -267,6 +287,7 @@ const storeDatasetRecords = async (
   }
 
   const sentimentIds: number[] = [];
+  let retryableStoreError: IngestCleanupError | RawWriteBusyError | null = null;
   for (const prompt of msg.prompts) {
     const identity = {
       runId: msg.runId,
@@ -308,6 +329,16 @@ const storeDatasetRecords = async (
         sentimentIds.push(stored.resultId);
       }
     } catch (error) {
+      if (
+        error instanceof IngestCleanupError ||
+        error instanceof RawWriteBusyError
+      ) {
+        retryableStoreError = error;
+        break;
+      }
+      if (error instanceof IngestFencedError) {
+        return;
+      }
       console.error('store failure', msg.surface, prompt.id, error);
       await storeFailedResult(db, identity, String(error), { durationMs });
     }
@@ -324,6 +355,9 @@ const storeDatasetRecords = async (
         } satisfies IngestMessage,
       })),
     );
+  }
+  if (retryableStoreError) {
+    throw retryableStoreError;
   }
 };
 
@@ -364,16 +398,12 @@ const fetchAndStore = async (
   }
 
   await storeDatasetRecords(env, db, msg, snap.createdAt, records);
-
-  await db
-    .update(snapshots)
-    .set({
-      status: 'ready',
-      finishedAt: Date.now(),
-      polls: msg.kind === 'brightdata_poll' ? msg.polls : snap.polls,
-    })
-    .where(snapshotKey);
-  await refreshRunStatus(db, msg.runId);
+  await finishDatasetSnapshot(
+    db,
+    snapshotKey,
+    msg.runId,
+    msg.kind === 'brightdata_poll' ? msg.polls : snap.polls,
+  );
 };
 
 // A webhook data delivery carries the scraped records as gzipped JSON (their
@@ -429,6 +459,9 @@ const handlePoll = async (
   env: AppEnv,
   msg: Extract<IngestMessage, { kind: 'brightdata_poll' }>,
 ): Promise<void> => {
+  if (!(await runAcceptsIngest(getDb(env), msg.runId))) {
+    return;
+  }
   const snap = await loadTriggeredSnapshot(env, msg);
   if (!snap) {
     return;
@@ -479,6 +512,9 @@ const handleFetch = async (
   env: AppEnv,
   msg: Extract<IngestMessage, { kind: 'brightdata_fetch' }>,
 ): Promise<void> => {
+  if (!(await runAcceptsIngest(getDb(env), msg.runId))) {
+    return;
+  }
   const snap = await loadTriggeredSnapshot(env, msg);
   if (!snap) {
     return;
@@ -491,6 +527,9 @@ const handleSerpFetch = async (
   msg: Extract<IngestMessage, { kind: 'serp_aio_fetch' }>,
 ): Promise<void> => {
   const db = getDb(env);
+  if (!(await runAcceptsIngest(db, msg.runId))) {
+    return;
+  }
   const identity = {
     runId: msg.runId,
     promptId: msg.prompt.id,
@@ -559,6 +598,9 @@ const handleSentiment = async (
   if (!result?.r2Key) {
     return;
   }
+  if (!(await runAcceptsIngest(db, result.runId))) {
+    return;
+  }
   const object = await env.RAW.get(result.r2Key);
   if (!object?.body) {
     return;
@@ -620,6 +662,9 @@ const handleRescoreBatch = async (
   );
   const entitiesByRun = new Map<number, ScorableEntity[]>();
   for (const row of batch) {
+    if (!(await runAcceptsIngest(db, row.runId))) {
+      return;
+    }
     let toScore = entitiesByRun.get(row.runId);
     if (!toScore) {
       toScore = await entitiesForRun(env, row.runId, msg.workspaceId);
@@ -628,6 +673,9 @@ const handleRescoreBatch = async (
     try {
       await rescoreStoredResult(env, db, row, toScore);
     } catch (error) {
+      if (error instanceof IngestCleanupError) {
+        throw error;
+      }
       console.error(
         'rescore: result failed, keeping old scores',
         row.id,
@@ -655,6 +703,9 @@ const markMessageFailed = async (
     // batch leaves its results stale (the next trigger resumes from the same
     // cursor); a dead-lettered sentiment message leaves sentiment null.
     console.error('enrichment message dead-lettered', msg.kind, error);
+    return;
+  }
+  if (!(await runAcceptsIngest(getDb(env), msg.runId))) {
     return;
   }
   if (msg.kind === 'serp_aio_fetch') {
@@ -695,11 +746,18 @@ export const handleIngestBatch = async (
     for (const message of batch.messages) {
       const parsed = ingestMessageSchema.safeParse(message.body);
       if (parsed.success) {
-        await markMessageFailed(
-          env,
-          parsed.data,
-          'retries exhausted (dead-letter)',
-        );
+        try {
+          if (!(await cleanRawForFencedMessage(env, parsed.data))) {
+            await markMessageFailed(
+              env,
+              parsed.data,
+              'retries exhausted (dead-letter)',
+            );
+          }
+        } catch {
+          message.retry({ delaySeconds: 60 });
+          continue;
+        }
       }
       message.ack();
     }
@@ -717,6 +775,10 @@ export const handleIngestBatch = async (
     }
     const body = parsed.data;
     try {
+      if (await cleanRawForFencedMessage(env, body)) {
+        message.ack();
+        continue;
+      }
       if (body.kind === 'brightdata_trigger') {
         await handleTrigger(env, body);
       } else if (body.kind === 'brightdata_poll') {
@@ -734,11 +796,17 @@ export const handleIngestBatch = async (
       }
       message.ack();
     } catch (error) {
+      if (error instanceof IngestFencedError) {
+        message.ack();
+        continue;
+      }
       // Enrichment messages (rescore, sentiment) have no provider identity to
       // fail: their errors are R2/D1/Workers-AI hiccups and the work is
       // idempotent, so retrying is always right.
       if (
         error instanceof ProviderRetryableError ||
+        error instanceof IngestCleanupError ||
+        error instanceof RawWriteBusyError ||
         isQueueOverload(error) ||
         body.kind === 'rescore_batch' ||
         body.kind === 'sentiment_score'

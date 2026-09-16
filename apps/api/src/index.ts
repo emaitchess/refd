@@ -1,6 +1,7 @@
 import { ChatExchange } from './chat/exchange-do';
 import type { AppEnv } from './env';
 import { handleIngestBatch } from './ingest/consumer';
+import { processRawCleanupTasks } from './ingest/deletion';
 import { resumePendingRunDispatches } from './ingest/dispatch';
 import type { IngestMessage } from './ingest/messages';
 import { runScheduledWorkspaces } from './ingest/scheduled-runs';
@@ -24,6 +25,11 @@ export default {
   ): Promise<Response> => oauthFetch(request, env, ctx),
 
   async scheduled(controller: ScheduledController, env: AppEnv): Promise<void> {
+    try {
+      await processRawCleanupTasks(env);
+    } catch (error) {
+      console.error('raw cleanup recovery failed', error);
+    }
     try {
       const resumed = await resumePendingRunDispatches(env);
       if (resumed.length > 0) {

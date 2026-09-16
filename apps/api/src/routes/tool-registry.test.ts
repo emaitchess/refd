@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+import type { ChatScope } from '@refd/core/chat';
 import {
   AGENT_TOOLS,
   agentTool,
+  applyToolScope,
   availableTools,
   offeredTool,
   toolDefinition,
@@ -76,5 +78,101 @@ describe('tool registry', () => {
     expect(
       tool.args.safeParse({ prompt: 'best voice control apps' }).success,
     ).toBe(true);
+  });
+});
+
+describe('applyToolScope', () => {
+  const scope: ChatScope = {
+    version: 1,
+    timezone: 'UTC',
+    granularity: 'run_date',
+    asOf: '2026-09-16',
+    from: '2026-08-18',
+    to: '2026-09-16',
+    label: 'last 30 days (2026-08-18 to 2026-09-16)',
+    source: 'default',
+  };
+  const queryResults = AGENT_TOOLS.find((t) => t.name === 'query_results');
+  const readAnswer = AGENT_TOOLS.find((t) => t.name === 'read_answer');
+  if (!queryResults || !readAnswer) {
+    throw new Error('query_results and read_answer must be declared');
+  }
+
+  test('exactly the analytical tools inherit the exchange date scope', () => {
+    expect(
+      AGENT_TOOLS.filter((tool) => tool.inheritsDateScope).map(
+        (tool) => tool.name,
+      ),
+    ).toEqual([
+      'get_digest',
+      'get_prompt_results',
+      'query_results',
+      'aggregate',
+      'get_citations',
+    ]);
+  });
+
+  test('undated tools pass through untouched', () => {
+    const applied = applyToolScope(readAnswer, { resultId: 3 }, scope);
+    expect(applied.ok && applied.args).toEqual({ resultId: 3 });
+  });
+
+  test('omitted bounds are injected from the exchange scope', () => {
+    const applied = applyToolScope(queryResults, { limit: 5 }, scope);
+    expect(applied.ok && applied.args).toEqual({
+      limit: 5,
+      from: '2026-08-18',
+      to: '2026-09-16',
+    });
+  });
+
+  test('bounds that broaden past the question are refused', () => {
+    expect(
+      applyToolScope(
+        queryResults,
+        { from: '2026-01-01', to: '2026-09-16' },
+        scope,
+      ),
+    ).toEqual({
+      ok: false,
+      error: expect.stringContaining(scope.label),
+    });
+    expect(applyToolScope(queryResults, { to: '2026-12-31' }, scope).ok).toBe(
+      false,
+    );
+  });
+
+  test('narrower bounds and explicit both-ends dates survive', () => {
+    const narrowed = applyToolScope(
+      queryResults,
+      { from: '2026-09-10', to: '2026-09-12' },
+      scope,
+    );
+    expect(narrowed.ok && narrowed.args).toEqual({
+      from: '2026-09-10',
+      to: '2026-09-12',
+    });
+    const fromOnly = applyToolScope(
+      queryResults,
+      { from: '2026-09-01' },
+      scope,
+    );
+    expect(fromOnly.ok && fromOnly.args).toEqual({
+      from: '2026-09-01',
+      to: '2026-09-16',
+    });
+  });
+
+  test('an all-history scope accepts any supplied lower bound', () => {
+    const all = { ...scope, from: null };
+    const applied = applyToolScope(queryResults, { from: '2025-01-01' }, all);
+    expect(applied.ok && applied.args).toEqual({
+      from: '2025-01-01',
+      to: '2026-09-16',
+    });
+  });
+
+  test('non-object arguments to a date-scoped tool fail cleanly', () => {
+    expect(applyToolScope(queryResults, 'not an object', scope).ok).toBe(false);
   });
 });

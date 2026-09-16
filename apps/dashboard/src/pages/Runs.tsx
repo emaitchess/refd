@@ -1,6 +1,6 @@
 import type { IFuseOptions } from 'fuse.js';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { Select } from '@/components/controls/Select';
 import { DitherIcon } from '@/components/dither/DitherIcon';
 import { Tooltip } from '@/components/dither-kit/tooltip';
@@ -607,6 +607,7 @@ export const Runs = () => {
 
 export const RunDetail = () => {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const { data, loading, error, refetch } = useQuery<{
     run: RunRow;
     results: RunResultRow[];
@@ -617,7 +618,12 @@ export const RunDetail = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [surfaceFilter, setSurfaceFilter] = useState(ALL_SURFACES);
   const [outcomeFilter, setOutcomeFilter] = useState(ALL_OUTCOMES);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  // A chat evidence receipt can deep-link one result: ?result=<id> opens its
+  // pane on first mount, exactly like clicking the row.
+  const [selectedId, setSelectedId] = useState<number | null>(() => {
+    const requested = Number.parseInt(searchParams.get('result') ?? '', 10);
+    return Number.isInteger(requested) && requested > 0 ? requested : null;
+  });
   const columns = useColumnWidths(
     `run-results-${id ?? 'unknown'}`,
     RESULT_COLUMNS,

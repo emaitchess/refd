@@ -1,9 +1,17 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { Db } from '../db/client';
-import { citations, entityScores, results, runs } from '../db/schema';
+import {
+  citations,
+  entityScores,
+  results,
+  runs,
+  users,
+  workspaces,
+} from '../db/schema';
 import type { AppEnv } from '../env';
 import type { NormalizedAnswer, Surface } from '../providers/types';
 import { type ScorableEntity, scoreResult } from '../scoring';
+import { cleanRawObject, clearRawCleanup, registerRawWrite } from './deletion';
 
 export const rawKey = (
   runId: number,
@@ -32,6 +40,31 @@ export interface ResultIdentity {
   sample: number;
   provider: string;
 }
+
+export class IngestFencedError extends Error {}
+export class IngestCleanupError extends Error {}
+
+export const runAcceptsIngest = async (
+  db: Db,
+  runId: number,
+): Promise<boolean> => {
+  const row = (
+    await db
+      .select({ id: runs.id })
+      .from(runs)
+      .innerJoin(workspaces, eq(runs.workspaceId, workspaces.id))
+      .innerJoin(users, eq(workspaces.ownerUserId, users.id))
+      .where(
+        and(
+          eq(runs.id, runId),
+          isNull(workspaces.deletingAt),
+          isNull(users.deletingAt),
+        ),
+      )
+      .limit(1)
+  )[0];
+  return row !== undefined;
+};
 
 // Idempotency guard: has this unit of work already succeeded?
 export const hasOkResult = async (
@@ -102,44 +135,77 @@ export const storeScoredResult = async (
   id: ResultIdentity,
   answer: NormalizedAnswer,
   entitiesToScore: ScorableEntity[],
-  opts: { durationMs?: number | null } = {},
+  opts: { durationMs?: number | null; writeRaw?: boolean } = {},
 ): Promise<{ resultId: number; hasMentions: boolean }> => {
   const key = rawKey(id.runId, id.promptId, id.surface, id.sample);
-  // Deterministic key: a retry overwrites the same object, never duplicates.
-  await env.RAW.put(key, await gzipJson(answer.raw), {
-    httpMetadata: { contentType: 'application/json', contentEncoding: 'gzip' },
-  });
+  const writeRaw = opts.writeRaw !== false;
+  if (!(await runAcceptsIngest(db, id.runId))) {
+    throw new IngestFencedError('workspace is being deleted');
+  }
+  const rawWriteToken = writeRaw ? await registerRawWrite(env, key) : null;
+  if (rawWriteToken) {
+    // Deterministic key: a retry overwrites the same object, never duplicates.
+    await env.RAW.put(key, await gzipJson(answer.raw), {
+      httpMetadata: {
+        contentType: 'application/json',
+        contentEncoding: 'gzip',
+      },
+    });
+  }
 
-  const scored = scoreResult(answer, entitiesToScore);
-  // ok stays false until every child row landed: a crash mid-insert leaves a
-  // row that reads as incomplete (retry redoes it), never as a success.
-  const resultId = await upsertResult(db, id, {
-    ok: false,
-    answerPresent: answer.answerPresent,
-    r2Key: key,
-    totalUrls: scored.totalUrls,
-    error: null,
-    durationMs: opts.durationMs ?? null,
-  });
+  try {
+    if (!(await runAcceptsIngest(db, id.runId))) {
+      if (rawWriteToken) {
+        await cleanRawObject(env, key, rawWriteToken);
+      }
+      throw new IngestFencedError('workspace is being deleted');
+    }
+    const scored = scoreResult(answer, entitiesToScore);
+    // ok stays false until every child row landed: a crash mid-insert leaves a
+    // row that reads as incomplete (retry redoes it), never as a success.
+    const resultId = await upsertResult(db, id, {
+      ok: false,
+      answerPresent: answer.answerPresent,
+      r2Key: key,
+      totalUrls: scored.totalUrls,
+      error: null,
+      durationMs: opts.durationMs ?? null,
+    });
 
-  // Delete-then-insert so a retry after partial failure converges. Chunk
-  // sizes track the widened v2 rows against D1's ~100-bound-params cap:
-  // entity_scores 11 columns, citations 8.
-  await db.delete(entityScores).where(eq(entityScores.resultId, resultId));
-  await db.delete(citations).where(eq(citations.resultId, resultId));
-  await insertChunked(scored.scores, 8, (chunk) =>
-    db.insert(entityScores).values(chunk.map((s) => ({ resultId, ...s }))),
-  );
-  await insertChunked(scored.citations, 7, (chunk) =>
-    db.insert(citations).values(chunk.map((c) => ({ resultId, ...c }))),
-  );
-  await db
-    .update(results)
-    .set({ ok: true, error: null })
-    .where(eq(results.id, resultId));
-  // hasMentions gates the sentiment enqueue — an answer that mentions no
-  // tracked entity has nothing to classify.
-  return { resultId, hasMentions: scored.scores.some((s) => s.mentioned) };
+    // Delete-then-insert so a retry after partial failure converges. Chunk
+    // sizes track the widened v2 rows against D1's ~100-bound-params cap:
+    // entity_scores 11 columns, citations 8.
+    await db.delete(entityScores).where(eq(entityScores.resultId, resultId));
+    await db.delete(citations).where(eq(citations.resultId, resultId));
+    await insertChunked(scored.scores, 8, (chunk) =>
+      db.insert(entityScores).values(chunk.map((s) => ({ resultId, ...s }))),
+    );
+    await insertChunked(scored.citations, 7, (chunk) =>
+      db.insert(citations).values(chunk.map((c) => ({ resultId, ...c }))),
+    );
+    await db
+      .update(results)
+      .set({ ok: true, error: null })
+      .where(eq(results.id, resultId));
+    if (rawWriteToken) {
+      await clearRawCleanup(env, key, rawWriteToken);
+    }
+    // hasMentions gates the sentiment enqueue — an answer that mentions no
+    // tracked entity has nothing to classify.
+    return { resultId, hasMentions: scored.scores.some((s) => s.mentioned) };
+  } catch (error) {
+    if (
+      rawWriteToken &&
+      !(await runAcceptsIngest(db, id.runId).catch(() => false))
+    ) {
+      try {
+        await cleanRawObject(env, key, rawWriteToken);
+      } catch {
+        throw new IngestCleanupError(key);
+      }
+    }
+    throw error;
+  }
 };
 
 export const storeFailedResult = async (

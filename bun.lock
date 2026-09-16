@@ -97,6 +97,9 @@
     "packages/core": {
       "name": "@refd/core",
       "version": "0.0.0",
+      "dependencies": {
+        "zod": "^4.4.3",
+      },
       "devDependencies": {
         "@types/mdast": "^4.0.4",
       },

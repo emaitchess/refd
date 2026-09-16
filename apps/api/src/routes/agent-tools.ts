@@ -3,6 +3,7 @@
 // Each execution returns a step line for the live trace, a compact result
 // string for the model transcript, and any web sources it surfaced.
 // Schemas, descriptions, and costs live in tool-registry.ts.
+import type { ChatEvidenceProvenance, ChatScope } from '@refd/core/chat';
 import {
   and,
   desc,
@@ -29,10 +30,9 @@ import type { AppEnv } from '../env';
 import { answerFromRaw, answerTextFromRaw } from '../ingest/rescore';
 import { gunzipJson } from '../ingest/storage';
 import { searchWeb, type WebResult } from '../lib/exa';
-import { rangeLabel } from '../lib/range';
 import { fetchPageMarkdown } from '../lib/site-fetch';
 import { matchesDomainEntry } from '../lib/urls';
-import { buildDigest } from './digest';
+import { buildDigest, type DigestPanel } from './digest';
 import {
   answerCount,
   avgPosition,
@@ -59,6 +59,12 @@ export interface ToolOutcome {
   detail?: string;
   result: string;
   sources?: WebResult[];
+  evidence?: {
+    status: 'ok' | 'partial' | 'no_data' | 'unavailable' | 'error';
+    scope: ChatScope;
+    provenance: ChatEvidenceProvenance[];
+    panels?: Partial<Record<DigestPanel, unknown>>;
+  };
 }
 
 const invalid = (name: string, expected: string): ToolOutcome => ({
@@ -172,6 +178,7 @@ const runSearchWeb = async (
   args: unknown,
   sourceOffset: number,
   knownSourceUrls: Map<string, number>,
+  scope?: ChatScope,
 ): Promise<ToolOutcome> => {
   const parsed = searchArgs.safeParse(args);
   if (!parsed.success) {
@@ -202,6 +209,22 @@ const runSearchWeb = async (
     detail: `"${parsed.data.query}" · ${fresh.length} results`,
     result: `Web results (cite by number):\n${lines}`,
     sources: fresh,
+    ...(scope
+      ? {
+          evidence: {
+            status: 'ok' as const,
+            scope,
+            provenance: fresh.map((source, index) => ({
+              kind: 'web' as const,
+              url: source.url,
+              title: source.title,
+              retrieval: 'search' as const,
+              retrievedAt: Date.now(),
+              sourceNum: sourceOffset + index + 1,
+            })),
+          },
+        }
+      : {}),
   };
 };
 
@@ -209,6 +232,7 @@ const runGetPromptResults = async (
   db: Db,
   workspaceId: number,
   args: unknown,
+  scope?: ChatScope,
 ): Promise<ToolOutcome> => {
   const parsed = promptArgs.safeParse(args);
   if (!parsed.success) {
@@ -253,7 +277,12 @@ const runGetPromptResults = async (
       .from(runs)
       .innerJoin(results, eq(results.runId, runs.id))
       .where(
-        and(eq(runs.workspaceId, workspaceId), eq(results.promptId, match.id)),
+        and(
+          eq(runs.workspaceId, workspaceId),
+          eq(results.promptId, match.id),
+          ...(scope?.from ? [gte(runs.date, scope.from)] : []),
+          ...(scope ? [lte(runs.date, scope.to)] : []),
+        ),
       )
       .orderBy(desc(runs.id))
       .limit(1)
@@ -326,6 +355,22 @@ const runGetPromptResults = async (
     label: 'looked up prompt results',
     detail: match.text.slice(0, 60),
     result: `Prompt ${match.id}: "${match.text}" (run ${latestRun.date}):\n${lines.join('\n')}${others}`,
+    ...(scope
+      ? {
+          evidence: {
+            status: 'ok' as const,
+            scope,
+            provenance: rows.map((row) => ({
+              kind: 'result' as const,
+              resultId: row.resultId,
+              runId: latestRun.id,
+              promptId: match.id,
+              surface: row.surface,
+              runDate: latestRun.date,
+            })),
+          },
+        }
+      : {}),
   };
 };
 
@@ -372,6 +417,7 @@ const runReadAnswer = async (
   db: Db,
   workspaceId: number,
   args: unknown,
+  scope?: ChatScope,
 ): Promise<ToolOutcome> => {
   const parsed = readArgs.safeParse(args);
   if (!parsed.success) {
@@ -387,6 +433,8 @@ const runReadAnswer = async (
         surface: results.surface,
         r2Key: results.r2Key,
         promptId: results.promptId,
+        runId: results.runId,
+        runDate: runs.date,
       })
       .from(results)
       .innerJoin(runs, eq(results.runId, runs.id))
@@ -433,6 +481,24 @@ const runReadAnswer = async (
     label: 'read an answer',
     detail: `${row.surface} · result ${row.id}`,
     result: `Answer text for result ${row.id} (${row.surface}):\n${clipped}`,
+    ...(scope
+      ? {
+          evidence: {
+            status: 'ok' as const,
+            scope,
+            provenance: [
+              {
+                kind: 'result' as const,
+                resultId: row.id,
+                runId: row.runId,
+                promptId: row.promptId,
+                surface: row.surface,
+                runDate: row.runDate,
+              },
+            ],
+          },
+        }
+      : {}),
   };
 };
 
@@ -440,6 +506,7 @@ const runGetDigest = async (
   db: Db,
   workspaceId: number,
   args: unknown,
+  scope?: ChatScope,
 ): Promise<ToolOutcome> => {
   const parsed = digestArgs.safeParse(args);
   if (!parsed.success) {
@@ -448,7 +515,7 @@ const runGetDigest = async (
       '{"range": "7d" | "30d" | "90d" | "all" | ...}',
     );
   }
-  const digest = await buildDigest(db, workspaceId, parsed.data.range);
+  const digest = await buildDigest(db, workspaceId, scope ?? '30d');
   if (!digest) {
     return {
       label: 're-read the snapshot',
@@ -458,8 +525,14 @@ const runGetDigest = async (
   }
   return {
     label: 're-read the snapshot',
-    detail: rangeLabel(parsed.data.range),
+    detail: digest.rangeLabel,
     result: `Workspace data, ${digest.rangeLabel}:\n${JSON.stringify(digest.sections)}`,
+    evidence: {
+      status: 'ok',
+      scope: digest.scope,
+      provenance: [{ kind: 'derived', derivation: 'digest' }],
+      panels: digest.sections,
+    },
   };
 };
 
@@ -467,6 +540,7 @@ const runQueryResults = async (
   db: Db,
   workspaceId: number,
   args: unknown,
+  scope?: ChatScope,
 ): Promise<ToolOutcome> => {
   const parsed = queryResultsArgs.safeParse(args);
   if (!parsed.success) {
@@ -485,6 +559,7 @@ const runQueryResults = async (
   const rows = await db
     .select({
       resultId: results.id,
+      runId: results.runId,
       promptId: results.promptId,
       promptText: prompts.text,
       surface: results.surface,
@@ -532,6 +607,22 @@ const runQueryResults = async (
       `${shown.length} answer${shown.length === 1 ? '' : 's'} for ${entity.name}` +
       `${hasMore ? ` (showing the first ${f.limit}; raise limit or narrow the filters for more)` : ''}:\n` +
       lines.join('\n'),
+    ...(scope
+      ? {
+          evidence: {
+            status: hasMore ? ('partial' as const) : ('ok' as const),
+            scope,
+            provenance: shown.map((row) => ({
+              kind: 'result' as const,
+              resultId: row.resultId,
+              runId: row.runId,
+              promptId: row.promptId,
+              surface: row.surface,
+              runDate: row.runDate,
+            })),
+          },
+        }
+      : {}),
   };
 };
 
@@ -541,6 +632,7 @@ const runAggregate = async (
   db: Db,
   workspaceId: number,
   args: unknown,
+  scope?: ChatScope,
 ): Promise<ToolOutcome> => {
   const parsed = aggregateArgs.safeParse(args);
   if (!parsed.success) {
@@ -567,29 +659,29 @@ const runAggregate = async (
   const rows = await loadScoreRows(db, workspaceId, f.from ?? '0000-00-00');
   // Entity-relative filters apply to each row's own entity, so groupBy=entity
   // keeps coherent per-entity metrics.
-  let scope: ScoreRow[] = rows;
+  let filteredRows: ScoreRow[] = rows;
   if (f.to !== undefined) {
     const to = f.to;
-    scope = scope.filter((r) => r.date <= to);
+    filteredRows = filteredRows.filter((r) => r.date <= to);
   }
   if (f.surface !== undefined) {
     const surface = f.surface;
-    scope = scope.filter((r) => r.surface === surface);
+    filteredRows = filteredRows.filter((r) => r.surface === surface);
   }
   if (f.promptIds !== undefined) {
     const promptIds = f.promptIds;
-    scope = scope.filter((r) => promptIds.includes(r.promptId));
+    filteredRows = filteredRows.filter((r) => promptIds.includes(r.promptId));
   }
   if (f.mentioned !== undefined) {
-    scope = scope.filter((r) => r.mentioned === f.mentioned);
+    filteredRows = filteredRows.filter((r) => r.mentioned === f.mentioned);
   }
   if (f.cited !== undefined) {
-    scope = scope.filter((r) => r.cited === f.cited);
+    filteredRows = filteredRows.filter((r) => r.cited === f.cited);
   }
   if (f.sentiment) {
-    scope = scope.filter((r) => r.sentiment === f.sentiment);
+    filteredRows = filteredRows.filter((r) => r.sentiment === f.sentiment);
   }
-  if (scope.length === 0) {
+  if (filteredRows.length === 0) {
     return {
       label: 'aggregated results',
       detail: `${f.groupBy} · ${f.metric} · no data`,
@@ -599,7 +691,7 @@ const runAggregate = async (
   }
 
   const groups = new Map<string, ScoreRow[]>();
-  for (const row of scope) {
+  for (const row of filteredRows) {
     const key =
       f.groupBy === 'prompt'
         ? String(row.promptId)
@@ -676,6 +768,25 @@ const runAggregate = async (
         : ` for ${entity.name}`) +
       `${ordered.length > GROUP_MAX ? ` (showing ${GROUP_MAX} of ${ordered.length})` : ''}:\n` +
       lines.join('\n'),
+    ...(scope
+      ? {
+          evidence: {
+            status:
+              ordered.length > GROUP_MAX
+                ? ('partial' as const)
+                : ('ok' as const),
+            scope,
+            provenance: [
+              {
+                kind: 'derived' as const,
+                derivation: 'aggregate' as const,
+                metric: f.metric,
+                groupBy: f.groupBy,
+              },
+            ],
+          },
+        }
+      : {}),
   };
 };
 
@@ -687,6 +798,7 @@ const runReadMentions = async (
   db: Db,
   workspaceId: number,
   args: unknown,
+  scope?: ChatScope,
 ): Promise<ToolOutcome> => {
   const parsed = readMentionsArgs.safeParse(args);
   if (!parsed.success) {
@@ -704,6 +816,7 @@ const runReadMentions = async (
   }
   const READ_TOTAL_MAX = 20000;
   const lines: string[] = [];
+  const provenance: ChatEvidenceProvenance[] = [];
   let total = 0;
   let truncated = false;
   for (const resultId of f.resultIds) {
@@ -711,6 +824,9 @@ const runReadMentions = async (
       await db
         .select({
           id: results.id,
+          runId: results.runId,
+          promptId: results.promptId,
+          runDate: runs.date,
           provider: results.provider,
           surface: results.surface,
           answerPresent: results.answerPresent,
@@ -765,6 +881,14 @@ const runReadMentions = async (
       );
       continue;
     }
+    provenance.push({
+      kind: 'result',
+      resultId: row.id,
+      runId: row.runId,
+      promptId: row.promptId,
+      surface: row.surface,
+      runDate: row.runDate,
+    });
     for (const span of row.spans) {
       const start = Math.max(0, span.start - f.window);
       const end = Math.min(text.length, span.end + f.window);
@@ -796,6 +920,15 @@ const runReadMentions = async (
     label: 'read mention excerpts',
     detail: `${entity.name} · ${f.resultIds.length} result${f.resultIds.length === 1 ? '' : 's'}`,
     result: `${lines.join('\n')}${truncated ? '\n(output truncated at 20000 characters)' : ''}`,
+    ...(scope
+      ? {
+          evidence: {
+            status: truncated ? ('partial' as const) : ('ok' as const),
+            scope,
+            provenance,
+          },
+        }
+      : {}),
   };
 };
 
@@ -803,6 +936,7 @@ const runGetCitations = async (
   db: Db,
   workspaceId: number,
   args: unknown,
+  scope?: ChatScope,
 ): Promise<ToolOutcome> => {
   const parsed = getCitationsArgs.safeParse(args);
   if (!parsed.success) {
@@ -830,6 +964,10 @@ const runGetCitations = async (
       url: citations.url,
       domain: citations.registrableDomain,
       resultId: citations.resultId,
+      runId: results.runId,
+      promptId: results.promptId,
+      surface: results.surface,
+      runDate: runs.date,
     })
     .from(citations)
     .innerJoin(results, eq(citations.resultId, results.id))
@@ -879,6 +1017,33 @@ const runGetCitations = async (
       `${domains.length} cited domain${domains.length === 1 ? '' : 's'}` +
       `${domains.length > DOMAIN_MAX ? ` (showing the top ${DOMAIN_MAX})` : ''}:\n` +
       lines.join('\n'),
+    ...(scope
+      ? {
+          evidence: {
+            status:
+              domains.length > DOMAIN_MAX
+                ? ('partial' as const)
+                : ('ok' as const),
+            scope,
+            provenance: [
+              ...new Map(
+                rows.map((row) => [
+                  row.resultId,
+                  {
+                    kind: 'result' as const,
+                    resultId: row.resultId,
+                    runId: row.runId,
+                    promptId: row.promptId,
+                    surface: row.surface,
+                    runDate: row.runDate,
+                  },
+                ]),
+              ).values(),
+              { kind: 'derived' as const, derivation: 'citations' as const },
+            ],
+          },
+        }
+      : {}),
   };
 };
 
@@ -895,6 +1060,7 @@ const runFetchUrl = async (
   args: unknown,
   sourceOffset: number,
   knownSourceUrls: Map<string, number>,
+  scope?: ChatScope,
 ): Promise<ToolOutcome> => {
   const parsed = fetchUrlArgs.safeParse(args);
   if (!parsed.success) {
@@ -984,6 +1150,27 @@ const runFetchUrl = async (
       known === undefined
         ? [{ title: parsedUrl.host, url, snippet: '' }]
         : undefined,
+    ...(scope
+      ? {
+          evidence: {
+            status:
+              markdown.length > PAGE_MAX
+                ? ('partial' as const)
+                : ('ok' as const),
+            scope,
+            provenance: [
+              {
+                kind: 'web' as const,
+                url,
+                title: parsedUrl.host,
+                retrieval: 'page' as const,
+                retrievedAt: Date.now(),
+                sourceNum: num,
+              },
+            ],
+          },
+        }
+      : {}),
   };
 };
 
@@ -998,32 +1185,39 @@ export const executeTool = async (
   // the caller actually keeps, and tell the model the number to cite.
   // Defaults to empty for callers that register nothing.
   knownSourceUrls: Map<string, number> = new Map(),
+  scope?: ChatScope,
 ): Promise<ToolOutcome> => {
   const db = getDb(env);
   try {
     if (name === 'search_web') {
-      return await runSearchWeb(env, args, sourceOffset, knownSourceUrls);
+      return await runSearchWeb(
+        env,
+        args,
+        sourceOffset,
+        knownSourceUrls,
+        scope,
+      );
     }
     if (name === 'list_prompts') {
       return await runListPrompts(db, workspaceId);
     }
     if (name === 'get_prompt_results') {
-      return await runGetPromptResults(db, workspaceId, args);
+      return await runGetPromptResults(db, workspaceId, args, scope);
     }
     if (name === 'query_results') {
-      return await runQueryResults(db, workspaceId, args);
+      return await runQueryResults(db, workspaceId, args, scope);
     }
     if (name === 'aggregate') {
-      return await runAggregate(db, workspaceId, args);
+      return await runAggregate(db, workspaceId, args, scope);
     }
     if (name === 'read_answer') {
-      return await runReadAnswer(env, db, workspaceId, args);
+      return await runReadAnswer(env, db, workspaceId, args, scope);
     }
     if (name === 'read_mentions') {
-      return await runReadMentions(env, db, workspaceId, args);
+      return await runReadMentions(env, db, workspaceId, args, scope);
     }
     if (name === 'get_citations') {
-      return await runGetCitations(db, workspaceId, args);
+      return await runGetCitations(db, workspaceId, args, scope);
     }
     if (name === 'fetch_url') {
       return await runFetchUrl(
@@ -1033,10 +1227,11 @@ export const executeTool = async (
         args,
         sourceOffset,
         knownSourceUrls,
+        scope,
       );
     }
     if (name === 'get_digest') {
-      return await runGetDigest(db, workspaceId, args);
+      return await runGetDigest(db, workspaceId, args, scope);
     }
     return {
       label: 'unknown tool',

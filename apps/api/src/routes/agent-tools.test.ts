@@ -421,6 +421,67 @@ describe('aggregate', () => {
   });
 });
 
+describe('exchange date scope', () => {
+  const scope = {
+    version: 1,
+    timezone: 'UTC',
+    granularity: 'run_date',
+    asOf: D3,
+    from: D7,
+    to: D7,
+    label: `exact window (${D7})`,
+    source: 'explicit',
+  } as const;
+
+  test('get_prompt_results never returns a run outside the window', async () => {
+    const unscoped = await run(1, 'get_prompt_results', {
+      prompt: 'voice apps',
+    });
+    expect(unscoped.result).toContain(`run ${D3}`);
+    const scoped = await executeTool(
+      envFor(),
+      1,
+      'get_prompt_results',
+      { prompt: 'voice apps' },
+      0,
+      new Map(),
+      scope,
+    );
+    expect(scoped.result).toContain(`run ${D7}`);
+    expect(scoped.result).not.toContain(`run ${D3}`);
+  });
+
+  test('read_answer carries exact result provenance under the scope', async () => {
+    const env = envFor({
+      'raw/1/1-chatgpt-1.json.gz': { answer_text: RAW_TEXT },
+    });
+    const outcome = await executeTool(
+      env,
+      1,
+      'read_answer',
+      { resultId: 1 },
+      0,
+      new Map(),
+      scope,
+    );
+    expect(outcome.evidence?.scope).toEqual(scope);
+    expect(outcome.evidence?.provenance).toEqual([
+      {
+        kind: 'result',
+        resultId: 1,
+        runId: 1,
+        promptId: 1,
+        surface: 'chatgpt',
+        runDate: D7,
+      },
+    ]);
+    // Without a scope there is no evidence record to keep.
+    expect((await run(1, 'read_answer', { resultId: 1 }, env)).evidence).toBe(
+      undefined,
+    );
+  });
+});
+
 describe('read_mentions', () => {
   test('returns an excerpt containing the entity name and respects the window', async () => {
     const env = envFor({

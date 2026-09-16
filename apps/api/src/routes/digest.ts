@@ -3,11 +3,13 @@
 // numbers that are real. Sections are keyed: an answer names which panels the
 // client should render, and the chosen sections are frozen onto the message
 // so old conversations keep showing what the reader originally saw.
+
+import type { ChatScope } from '@refd/core/chat';
 import { composeAliases, findMentionSpans } from '@refd/core/mentions';
-import { and, eq, gte, isNotNull, or, sql } from 'drizzle-orm';
+import { and, eq, gte, isNotNull, lte, or, sql } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { citations, entityScores, prompts, results, runs } from '../db/schema';
-import { type Range, rangeLabel, rangeWindows } from '../lib/range';
+import { addUtcDays, legacyRangeScope, type Range } from '../lib/range';
 import {
   answerCount,
   avgPosition,
@@ -122,6 +124,7 @@ export interface WorkspaceDigest {
   // Human-readable window ("last 30 days" / "all history") — disclosed in
   // the model prompt, the step trace, and frozen into panel data.
   rangeLabel: string;
+  scope: ChatScope;
   sections: DigestSections;
 }
 
@@ -129,7 +132,7 @@ export interface WorkspaceDigest {
 export const buildDigest = async (
   db: Db,
   workspaceId: number,
-  range: Range = '30d',
+  rangeOrScope: Range | ChatScope = '30d',
 ): Promise<WorkspaceDigest | null> => {
   const { entities: allEntities, brand } = await loadEntitiesWithBrand(
     db,
@@ -138,15 +141,21 @@ export const buildDigest = async (
   if (!brand) {
     return null;
   }
-  const { from } = rangeWindows(range);
+  const scope =
+    typeof rangeOrScope === 'string'
+      ? legacyRangeScope(rangeOrScope)
+      : rangeOrScope;
+  const from = scope.from ?? '0000-00-00';
+  const toExclusive = addUtcDays(scope.to, 1);
   const [rows, covRows] = await Promise.all([
-    loadScoreRows(db, workspaceId, from),
-    loadCoverageRows(db, workspaceId, from),
+    loadScoreRows(db, workspaceId, from, toExclusive),
+    loadCoverageRows(db, workspaceId, from, toExclusive),
   ]);
 
   const inRange = and(
     eq(results.ok, true),
     gte(runs.date, from),
+    lte(runs.date, scope.to),
     eq(runs.workspaceId, workspaceId),
   );
 
@@ -207,7 +216,13 @@ export const buildDigest = async (
         totalCount: runs.totalCount,
       })
       .from(runs)
-      .where(eq(runs.workspaceId, workspaceId))
+      .where(
+        and(
+          eq(runs.workspaceId, workspaceId),
+          gte(runs.date, from),
+          lte(runs.date, scope.to),
+        ),
+      )
       .orderBy(sql`${runs.id} desc`)
       .limit(2),
   ]);
@@ -370,5 +385,11 @@ export const buildDigest = async (
     runs: runStats,
   };
 
-  return { brand: brand.name, rangeLabel: rangeLabel(range), sections };
+  const resolvedScope = { ...scope, dataThrough: runRows[0]?.date ?? null };
+  return {
+    brand: brand.name,
+    rangeLabel: resolvedScope.label,
+    scope: resolvedScope,
+    sections,
+  };
 };
