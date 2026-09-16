@@ -29,7 +29,12 @@ import {
 import { detectRange } from '../lib/range';
 import { domainField } from '../lib/sanitize';
 import { executeTool } from '../routes/agent-tools';
-import { buildDigest, DIGEST_PANELS, type DigestPanel } from '../routes/digest';
+import {
+  buildDigest,
+  DIGEST_PANELS,
+  type DigestPanel,
+  type WorkspaceDigest,
+} from '../routes/digest';
 import {
   type AgentTool,
   availableTools,
@@ -58,7 +63,6 @@ const validLink = (to: string): boolean =>
 const metaSchema = z.object({
   // Only requested on a conversation's first exchange; absent otherwise.
   title: llmText(60).catch(''),
-  panels: z.array(z.string().catch('')).catch([]),
   links: z
     .array(
       z
@@ -309,11 +313,75 @@ const trimEvidence = <T extends { role: string; content: string }>(
 const ANSWER_FALLBACK =
   'I could not put together a grounded answer for that. Try rephrasing the question, or open Overview for the numbers directly.';
 
+// Panel selection races the prose: the digest sections that support an
+// answer are visible in the data before the prose exists, so the generative
+// UI lands with the text instead of a model call behind it. Never throws: a
+// failed pick resolves to no panels, never to a lost answer.
+const panelsSchema = z.object({
+  panels: z.array(z.string().catch('')).catch([]),
+});
+
+const panelsResponseFormat = {
+  type: 'json_schema' as const,
+  json_schema: {
+    name: 'panels',
+    schema: {
+      type: 'object',
+      properties: { panels: { type: 'array', items: { type: 'string' } } },
+      required: ['panels'],
+      additionalProperties: false,
+    },
+  },
+} as const;
+
+const panelsPrompt = (): string =>
+  'You pick the data panels to render beside a refd workspace answer. You are ' +
+  'given the question and the workspace data the answer will be grounded in. ' +
+  'Return ONLY the JSON object the response schema asks for: panels is up to ' +
+  `2 section keys from [${DIGEST_PANELS.join(', ')}] whose data supports ` +
+  'answering the question, [] if none apply. Never invent a key.';
+
+const extractPanels = async (
+  env: AppEnv,
+  question: string,
+  digest: WorkspaceDigest,
+): Promise<DigestPanel[]> => {
+  try {
+    const raw = await runChat(
+      env,
+      [
+        { role: 'system' as const, content: panelsPrompt() },
+        {
+          role: 'user' as const,
+          content: `Question:\n${question}\n\nWorkspace data for ${digest.brand}, ${digest.rangeLabel}:\n${JSON.stringify(digest.sections)}`,
+        },
+      ],
+      {
+        model: PLANNING_MODEL,
+        maxTokens: null,
+        responseFormat: panelsResponseFormat,
+        deadlineMs: META_DEADLINE_MS,
+      },
+    );
+    const parsed = parseJson(raw, panelsSchema);
+    return [
+      ...new Set(
+        (parsed?.panels ?? []).filter((p): p is DigestPanel =>
+          (DIGEST_PANELS as readonly string[]).includes(p),
+        ),
+      ),
+    ].slice(0, 2);
+  } catch {
+    return [];
+  }
+};
+
 export type ParsedMeta = z.infer<typeof metaSchema>;
 
 // Extraction brief for the metadata call. The json_schema bounds the shape;
 // this bounds the values. metaSchema and the laundering below remain the
-// security boundary.
+// security boundary. Panels are not extracted here: they are picked while
+// the prose streams, so they can render live.
 const metaPrompt = (withTitle: boolean, sourceCount: number): string =>
   'You read a finished assistant answer and extract structured metadata for ' +
   'the app to render. Return ONLY the JSON object the response schema asks ' +
@@ -322,8 +390,6 @@ const metaPrompt = (withTitle: boolean, sourceCount: number): string =>
     ? '- title: a crisp name for this conversation, at most 6 plain words ' +
       'naming the topic, no quotes and no trailing punctuation.\n'
     : '') +
-  `- panels: up to 2 section keys from [${DIGEST_PANELS.join(', ')}] whose ` +
-  'data supports the answer; [] if none apply.\n' +
   '- links: up to 2 dashboard links (objects {"label", "to"}) from ' +
   '/overview, /competitors, /prompts, /sources, /runs with short labels; ' +
   '[] if none apply.\n' +
@@ -348,7 +414,6 @@ const metaResponseFormat = (withTitle: boolean) => ({
       type: 'object',
       properties: {
         ...(withTitle ? { title: { type: 'string' } } : {}),
-        panels: { type: 'array', items: { type: 'string' } },
         links: {
           type: 'array',
           items: {
@@ -363,7 +428,6 @@ const metaResponseFormat = (withTitle: boolean) => ({
       },
       required: [
         ...(withTitle ? ['title'] : []),
-        'panels',
         'links',
         'proposal',
         'webSources',
@@ -415,6 +479,11 @@ const extractMeta = async (
 export type StreamEvent =
   | { type: 'step'; label: string; detail?: string }
   | { type: 'delta'; text: string }
+  | {
+      type: 'meta';
+      panels: string[];
+      panelData: Record<string, unknown> | null;
+    }
   | {
       type: 'done';
       chatId: number;
@@ -643,6 +712,31 @@ export const runExchange = async (
         }`,
   );
 
+  // The panel picker races the prose: it reads the question and the digest
+  // (the same payload the answer model sees), so the generative UI is
+  // emitted while the text is still streaming. Its emit chain settles before
+  // runExchange returns (the join below), so the meta event can never land
+  // after the done frame.
+  const panelsPromise = extractPanels(env, question, digest).then(
+    async (picked) => {
+      const panelData =
+        picked.length > 0
+          ? {
+              _window: digest.rangeLabel,
+              ...Object.fromEntries(picked.map((p) => [p, digest.sections[p]])),
+            }
+          : null;
+      await step(
+        picked.length > 0
+          ? 'selected evidence panels'
+          : 'no evidence panels apply',
+        picked.length > 0 ? picked.join(', ') : undefined,
+      );
+      await emit({ type: 'meta', panels: picked, panelData });
+      return { panels: picked, panelData };
+    },
+  );
+
   let prose = '';
   // One step when the reasoning pass starts, not one per chunk: the point is
   // to replace a frozen line with a true statement about what is happening.
@@ -704,13 +798,18 @@ export const runExchange = async (
   // labels and titles copied from it inherit the dash-free form.
   prose = normalizeDashes(prose);
 
-  const meta = await extractMeta(
-    env,
-    question,
-    prose,
-    opts.withTitle === true,
-    allSources.length,
-  );
+  // The join keeps the tail a max, not a sum: whichever call is slower sets
+  // the wait after the prose, and both usually finish during it.
+  const [pick, meta] = await Promise.all([
+    panelsPromise,
+    extractMeta(
+      env,
+      question,
+      prose,
+      opts.withTitle === true,
+      allSources.length,
+    ),
+  ]);
   // Only web results the answer says it used become cited sources.
   const sources: ChatWebSource[] = [...new Set(meta?.webSources ?? [])]
     .filter((n) => n >= 1 && n <= allSources.length)
@@ -720,22 +819,13 @@ export const runExchange = async (
       // num keeps the S-number the prose cites; the stored list is a subset.
       return source ? [{ title: source.title, url: source.url, num: n }] : [];
     });
-  const panels = [
-    ...new Set(
-      (meta?.panels ?? []).filter((p): p is DigestPanel =>
-        (DIGEST_PANELS as readonly string[]).includes(p),
-      ),
-    ),
-  ].slice(0, 2);
   const links = (meta?.links ?? [])
     .filter((l): l is NonNullable<typeof l> => l !== null && validLink(l.to))
     .map((l) => ({ ...l, label: normalizeDashes(l.label) }))
     .slice(0, 2);
   const durationMs = Date.now() - started;
   await step(
-    panels.length > 0
-      ? `selected evidence panels: ${panels.join(', ')}`
-      : 'no evidence panels apply',
+    'answer ready',
     `${seconds(durationMs)}${sources.length > 0 ? ` · ${sources.length} web sources cited` : ''}`,
   );
 
@@ -743,16 +833,10 @@ export const runExchange = async (
   return {
     content,
     title: opts.withTitle === true ? cleanTitle(meta?.title ?? '') : null,
-    panels,
+    panels: pick.panels,
     // _window rides along so panels keep displaying the window they were
     // answered under, even when a later default differs.
-    panelData:
-      panels.length > 0
-        ? {
-            _window: digest.rangeLabel,
-            ...Object.fromEntries(panels.map((p) => [p, digest.sections[p]])),
-          }
-        : null,
+    panelData: pick.panelData,
     links,
     steps,
     durationMs,

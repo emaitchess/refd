@@ -332,10 +332,13 @@ export const Home = () => {
   // The in-flight answer: steps and prose accumulate as stream events arrive,
   // then the stored message pair replaces the whole thing. `since` names when
   // the newest step arrived, so the wait is measured from the last real event
-  // rather than from the start of the whole exchange.
+  // rather than from the start of the whole exchange. The picked panels ride
+  // a meta event so the generative UI lands with the streaming text.
   const [live, setLive] = useState<{
     steps: ChatStep[];
     content: string;
+    panels: string[] | null;
+    panelData: Record<string, unknown> | null;
     since: number;
   } | null>(null);
   const [input, setInput] = useState('');
@@ -550,7 +553,13 @@ export const Home = () => {
         createdAt: Date.now(),
       },
     ]);
-    setLive({ steps: [], content: '', since: Date.now() });
+    setLive({
+      steps: [],
+      content: '',
+      panels: null,
+      panelData: null,
+      since: Date.now(),
+    });
     setDetached(null);
     const controller = new AbortController();
     stopRef.current = controller;
@@ -581,6 +590,17 @@ export const Home = () => {
               setLive((cur) =>
                 cur ? { ...cur, content: cur.content + delta } : cur,
               );
+            } else if (event.type === 'meta') {
+              // Lenient intake: a drifted field degrades to no panels, the
+              // stored pair still renders them the old way at the done swap.
+              const panels = Array.isArray(event.panels)
+                ? event.panels.filter((p): p is string => typeof p === 'string')
+                : [];
+              const panelData =
+                typeof event.panelData === 'object' && event.panelData !== null
+                  ? (event.panelData as Record<string, unknown>)
+                  : null;
+              setLive((cur) => (cur ? { ...cur, panels, panelData } : cur));
             }
           },
           { signal: controller.signal },
@@ -734,11 +754,12 @@ export const Home = () => {
         autoFocus={autoFocus}
         className="w-full resize-none bg-transparent px-4 pt-3 text-[14px] text-primary outline-none placeholder:text-muted"
       />
-      <div className="flex items-center justify-between gap-3 px-3 pb-2.5">
-        <span className="min-w-0 font-mono text-[10px] text-muted uppercase tracking-[0.08em]">
-          your data plus web research · last 30 days unless you name a range
-          {input.length > 800 ? ` · ${1000 - input.length} left` : ''}
-        </span>
+      <div className="flex items-center justify-end gap-3 px-3 pb-2.5">
+        {input.length > 800 ? (
+          <span className="font-mono text-[10px] text-muted uppercase tracking-[0.08em]">
+            {1000 - input.length} left
+          </span>
+        ) : null}
         {busy ? (
           <button
             type="button"
@@ -862,7 +883,7 @@ export const Home = () => {
   }
 
   return (
-    <div className="mx-auto flex min-h-[calc(100svh-8rem)] w-full max-w-[860px] flex-col py-6">
+    <div className="mx-auto -mb-4 flex min-h-[calc(100svh-4rem)] w-full max-w-[860px] flex-col pt-6 sm:-mb-6 sm:min-h-[calc(100svh-4.5rem)] lg:min-h-[calc(100svh-1.5rem)]">
       <div className="flex items-center justify-between gap-3 border-border border-b pb-3">
         <div className="flex min-w-0 items-center gap-2">
           <Tooltip
@@ -953,6 +974,16 @@ export const Home = () => {
                 <Elapsed since={live.since} />
               </p>
             )}
+            {live.panels !== null ? (
+              <ChatPanels panels={live.panels} panelData={live.panelData} />
+            ) : live.content ? (
+              // The picker is still running behind the prose: hold the shape
+              // where the panels will land so the swap does not shift layout.
+              <div
+                className="mt-3 h-24 border border-border bg-bg-card opacity-60"
+                aria-hidden
+              />
+            ) : null}
           </div>
         ) : null}
         {detached !== null ? (

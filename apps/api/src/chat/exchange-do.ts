@@ -167,6 +167,7 @@ export class ChatExchange {
           'steps',
         )) ?? [],
       prose: (await this.state.storage.get<string>('prose')) ?? '',
+      panels: await this.state.storage.get<StreamEvent>('panels'),
       result: await this.state.storage.get<StreamEvent>('result'),
     }));
     const pair = new WebSocketPair();
@@ -178,6 +179,9 @@ export class ChatExchange {
       }
       if (snapshot.prose) {
         this.send(server, { type: 'delta', text: snapshot.prose });
+      }
+      if (snapshot.panels) {
+        this.send(server, snapshot.panels);
       }
       if (snapshot.meta.status !== 'running') {
         const result = snapshot.result;
@@ -214,6 +218,10 @@ export class ChatExchange {
         } else if (event.type === 'delta') {
           const prose = (await this.state.storage.get<string>('prose')) ?? '';
           await this.state.storage.put('prose', prose + event.text);
+        } else if (event.type === 'meta') {
+          // The picked panels replay to a client that connects mid-stream,
+          // between the prose snapshot and the live fan-out.
+          await this.state.storage.put('panels', event);
         }
       });
     };
