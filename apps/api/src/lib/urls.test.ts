@@ -30,6 +30,13 @@ describe('normalizeCitationUrl', () => {
     expect(n?.host).toBe('ahrefs.com');
   });
 
+  test('unwraps translate.google.com redirects', () => {
+    const n = normalizeCitationUrl(
+      'https://translate.google.com/translate?u=https://ahrefs.com/blog&sl=auto',
+    );
+    expect(n?.host).toBe('ahrefs.com');
+  });
+
   test('opaque grounding redirects are unattributable, never google.com', () => {
     const n = normalizeCitationUrl(
       'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbC123',

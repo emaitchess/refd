@@ -5,6 +5,7 @@ import {
   notifyEnabled,
   ProviderRetryableError,
   readSnapshotRecords,
+  recordPrompt,
   triggerBatch,
 } from './brightdata';
 
@@ -90,6 +91,15 @@ describe('BrightData notify configuration', () => {
         }),
       ),
     ).toBe(false);
+  });
+});
+
+describe('recordPrompt', () => {
+  test('reads the prompt echo from the record body or the input object', () => {
+    expect(recordPrompt({ prompt: 'p1' })).toBe('p1');
+    expect(recordPrompt({ input: { prompt: 'p2' } })).toBe('p2');
+    expect(recordPrompt({ answer_text: 'no echo' })).toBeNull();
+    expect(recordPrompt({ input: { prompt: 42 } })).toBeNull();
   });
 });
 

@@ -110,6 +110,14 @@ export const storeScoredResult = async (
     httpMetadata: { contentType: 'application/json', contentEncoding: 'gzip' },
   });
 
+  // A present answer with no text is provider field drift, not a quiet zero:
+  // stored as ok it would count as a non-mention in every scoreable
+  // denominator and silently deflate the rates. Fail the prompt instead; the
+  // raw stays stashed at the key above for diagnosis.
+  if (answer.answerPresent && answer.answerText.trim().length === 0) {
+    throw new Error('answerPresent with empty answer text (provider drift?)');
+  }
+
   const scored = scoreResult(answer, entitiesToScore);
   // ok stays false until every child row landed: a crash mid-insert leaves a
   // row that reads as incomplete (retry redoes it), never as a success.
