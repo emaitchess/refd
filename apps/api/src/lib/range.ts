@@ -153,7 +153,8 @@ const detectSingleDate = (text: string, asOf: string): DetectedScope | null => {
   if (!from || from > asOf) {
     return null;
   }
-  const spoken = `${day} ${MONTHS[month]}${yearExplicit ? ` ${year}` : ''}`;
+  const monthLabel = MONTHS[month] ?? '';
+  const spoken = `${day} ${monthLabel.charAt(0).toUpperCase()}${monthLabel.slice(1)}${yearExplicit ? ` ${year}` : ''}`;
   return { from, to: from, label: `${spoken} (${from})` };
 };
 
