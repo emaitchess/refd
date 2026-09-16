@@ -23,6 +23,7 @@ import { Badge, Card, EmptyState, Modal, Skeleton } from '@/components/ui';
 import { api, useAsyncAction, useQuery } from '@/lib/api';
 import { callbackHint } from '@/lib/callback-hint';
 import { timestamp } from '@/lib/format';
+import { useSwitchWorkspace } from '@/lib/nav';
 import { useParamFlag } from '@/lib/params';
 import { cn } from '@/lib/utils';
 import { useWorkspace, type Workspace } from '@/providers/workspace';
@@ -31,20 +32,14 @@ const WORKSPACE_GRID =
   'grid md:grid-cols-[minmax(220px,1.2fr)_minmax(180px,1fr)_minmax(120px,0.55fr)_minmax(190px,0.8fr)]';
 
 const WorkspacesCard = () => {
-  const {
-    config,
-    workspaces,
-    current,
-    switchTo,
-    create,
-    rename,
-    deleteWorkspace,
-  } = useWorkspace();
+  const { config, workspaces, current, create, rename, deleteWorkspace } =
+    useWorkspace();
   const workspaceLimit = config.limits.maxWorkspaces;
   const atWorkspaceLimit = limitReached(workspaces.length, workspaceLimit);
   const workspaceLimitCopy =
     workspaceLimit === null ? null : workspaceLimitMessage(workspaceLimit);
   const navigate = useNavigate();
+  const switchWorkspace = useSwitchWorkspace();
   const toast = useToast();
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState('');
@@ -244,10 +239,7 @@ const WorkspacesCard = () => {
                             type="button"
                             className="btn-ghost h-7 px-2 font-mono text-[11px]"
                             onClick={() => {
-                              switchTo(workspace.id);
-                              if (!workspace.onboardingCompleted) {
-                                navigate('/onboarding');
-                              }
+                              switchWorkspace(workspace.id);
                             }}
                           >
                             switch

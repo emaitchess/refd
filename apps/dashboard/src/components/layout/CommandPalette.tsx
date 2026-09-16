@@ -18,7 +18,7 @@ import {
   useFuzzySearch,
 } from '@/hooks/useFuzzySearch';
 import { useOnKeyPress } from '@/lib/keyboard';
-import { NAV } from '@/lib/nav';
+import { NAV, useSwitchWorkspace } from '@/lib/nav';
 import { useTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/providers/auth';
@@ -80,7 +80,8 @@ export const CommandPalette = ({
   onShowHelp: () => void;
 }) => {
   const navigate = useNavigate();
-  const { config, workspaces, current, switchTo } = useWorkspace();
+  const { config, workspaces, current } = useWorkspace();
+  const switchWorkspace = useSwitchWorkspace();
   const { logout } = useAuth();
   const [theme, toggleTheme] = useTheme();
   const [query, setQuery] = useState('');
@@ -172,7 +173,7 @@ export const CommandPalette = ({
             workspace.brandDomain ?? '',
           ],
           icon: 'arrow-right' as DitherIconName,
-          run: act(() => switchTo(workspace.id)),
+          run: act(() => switchWorkspace(workspace.id)),
         })),
       {
         id: 'theme',
@@ -219,7 +220,7 @@ export const CommandPalette = ({
     config.limits.maxWorkspaces,
     workspaces,
     current,
-    switchTo,
+    switchWorkspace,
     logout,
     theme,
     toggleTheme,
