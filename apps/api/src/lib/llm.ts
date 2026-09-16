@@ -8,6 +8,11 @@ export const LLM_MODEL = '@cf/zai-org/glm-5.3';
 // exchange. Flash is ~9x cheaper at the same context window.
 export const PLANNING_MODEL = '@cf/zai-org/glm-5.3-flash';
 
+// Sentiment is a bounded structured-output task, and a prod replay showed
+// flash agrees with glm-5.3's labels within glm-5.3's own noise band at a
+// quarter of the output tokens. SENTIMENT_MODEL can pin either direction.
+export const SENTIMENT_DEFAULT_MODEL = '@cf/zai-org/glm-5.3-flash';
+
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -475,37 +480,84 @@ const sentimentsSchema = z.object({
   sentiments: z.array(sentimentItemSchema.nullable().catch(null)).catch([]),
 });
 
-// Answers can be long (AI Mode especially); cap the prompt payload.
-const SENTIMENT_TEXT_MAX = 12000;
+// The response_format schema is the contract; this is the same schema as the
+// runtime enforces, so the model cannot shape-drift its way past parseJson.
+const sentimentResponseFormat = () => ({
+  type: 'json_schema' as const,
+  json_schema: {
+    name: 'sentiment',
+    schema: {
+      type: 'object',
+      properties: {
+        sentiments: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              entity: { type: 'integer' },
+              sentiment: {
+                type: 'string',
+                enum: ['positive', 'neutral', 'negative'],
+              },
+            },
+            required: ['entity', 'sentiment'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['sentiments'],
+      additionalProperties: false,
+    },
+  },
+});
+
+// Answers can be long (AI Mode especially); cap the prompt payload. Entities
+// whose first mention lies beyond this window are invisible to the main call
+// and get a second pass over the tail (see the consumer).
+export const SENTIMENT_TEXT_MAX = 12000;
+// Context re-included before a tail-window entity's first mention, so stance
+// is judged with some surrounding text rather than a bare excerpt.
+export const SENTIMENT_TAIL_CONTEXT = 2000;
 
 // Classify how one AI answer portrays each mentioned entity, in a single
 // call. Entities are referenced by number (the same trick as Exa competitor
-// curation) so the model can never introduce one. Partial output is fine: a
-// missing or malformed entry leaves that entity unclassified (null), never
-// guessed. Returns null when the model answered but produced no parseable
-// JSON, which callers treat as transient and retry rather than acking nulls
-// forever.
+// curation) so the model can never introduce one, and each entry may carry the
+// matched span text (`matchedAs`) so an alias match grounds to the right
+// referent. Partial output is fine: a missing or malformed entry leaves that
+// entity unclassified (null), never guessed. Returns null when the model
+// answered but produced no parseable JSON, which callers treat as transient
+// and retry rather than acking nulls forever.
 //
-// The token budget is shared with the model's private reasoning pass, which
-// is generated before any answer text and billed either way, so a cap that is
-// too tight spends the whole budget on reasoning and returns nothing. Replayed
-// over 44 stored answers: 800 tokens parsed 93.2% and covered 93.3% of
-// mentions, 2000 parsed 100% and covered 99.3%. The wider cap also costs less
-// than it looks, since a truncated call bills its full budget for unusable
-// output and then retries.
+// Default classifier is glm-5.3-flash: replayed against 96 prod mentions it
+// agreed with glm-5.3's own labels within glm-5.3's run-to-run noise band
+// (89.4% vs its own 90.0%), classified more mentions (2 vs 6 unclassified),
+// and emitted ~25% fewer completion tokens. SENTIMENT_MODEL overrides it.
 export const classifySentiments = async (
   env: AppEnv,
-  input: { answerText: string; entities: { id: number; name: string }[] },
+  input: {
+    answerText: string;
+    entities: { id: number; name: string; matchedAs?: string }[];
+  },
 ): Promise<Map<number, Sentiment> | null> => {
   const system =
     'You judge how an AI-generated answer portrays specific brands or products. ' +
     "For each numbered entity, classify the answer's stance toward it: " +
     '"positive" (recommended, praised, or presented favourably), ' +
-    '"negative" (criticised, discouraged, or unfavourably compared, including "unlike X" and "X lacks" framings), ' +
-    '"neutral" (listed or described without clear valence). ' +
+    '"negative" (criticised, discouraged, unfavourably compared, or positioned as the lesser option). ' +
+    'Comparative framings count as negative for the entity they diminish: "unlike X", "X lacks", "a replacement for X", ' +
+    'or any contrast that presents X as the lesser choice. ' +
+    '"neutral" (listed or described without clear valence). Judge each entity independently: ' +
+    'listing an entity without valence is neutral even when other entities are favoured. ' +
+    'An entity may appear in the answer under the alternate name shown in parentheses; ' +
+    'treat those references as the same entity and judge them together. ' +
     'Return ONLY a JSON object {"sentiments":[{"entity":number,"sentiment":"positive"|"neutral"|"negative"}]} ' +
     'covering every numbered entity. Judge only the listed entities.';
-  const list = input.entities.map((e, i) => `${i + 1}. ${e.name}`).join('\n');
+  const list = input.entities
+    .map(
+      (e, i) =>
+        `${i + 1}. ${e.name}${e.matchedAs ? ` (appears as "${e.matchedAs}")` : ''}`,
+    )
+    .join('\n');
   const user = `Entities:\n${list}\n\nAnswer:\n${input.answerText.slice(0, SENTIMENT_TEXT_MAX)}`;
   const text = await runChat(
     env,
@@ -513,7 +565,11 @@ export const classifySentiments = async (
       { role: 'system', content: system },
       { role: 'user', content: user },
     ],
-    { maxTokens: 2000 },
+    {
+      model: env.SENTIMENT_MODEL?.trim() || SENTIMENT_DEFAULT_MODEL,
+      maxTokens: 2000,
+      responseFormat: sentimentResponseFormat(),
+    },
   );
   const parsed = parseJson(text, sentimentsSchema);
   if (!parsed) {

@@ -1,9 +1,14 @@
-import { and, eq, ne } from 'drizzle-orm';
+import { and, eq, isNotNull, ne } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { getDb } from '../db/client';
 import { entityScores, results, snapshots } from '../db/schema';
 import type { AppEnv } from '../env';
-import { classifySentiments } from '../lib/llm';
+import {
+  classifySentiments,
+  SENTIMENT_TAIL_CONTEXT,
+  SENTIMENT_TEXT_MAX,
+  type Sentiment,
+} from '../lib/llm';
 import {
   checkProgress,
   fetchSnapshot,
@@ -538,6 +543,8 @@ const handleSentiment = async (
     .select({
       entityId: entityScores.entityId,
       sentiment: entityScores.sentiment,
+      firstOffset: entityScores.firstOffset,
+      spans: entityScores.spans,
     })
     .from(entityScores)
     .where(
@@ -571,31 +578,136 @@ const handleSentiment = async (
   if (!answer || answer.answerText.length === 0) {
     return;
   }
+  const offsetByEntity = new Map(
+    scoreRows.map((r) => [r.entityId, r.firstOffset ?? 0]),
+  );
   const candidates = (
     await entitiesForRun(env, result.runId, msg.workspaceId)
   ).filter((e) => pending.has(e.id));
   if (candidates.length === 0) {
     return;
   }
-  const verdicts = await classifySentiments(env, {
-    answerText: answer.answerText,
-    entities: candidates.map((e) => ({ id: e.id, name: e.name })),
-  });
-  if (verdicts === null) {
-    // Unparseable model output is usually transient (truncation, formatting).
-    // Retry via the queue; if it never parses, the dead-letter leaves null.
-    throw new ProviderRetryableError('sentiment: unparseable model output');
+
+  const writeVerdicts = async (verdicts: Map<number, Sentiment>) => {
+    for (const [entityId, sentiment] of verdicts) {
+      // mentioned re-checked at write time: a rescore may have flipped the
+      // mention between the candidate load and this update.
+      await db
+        .update(entityScores)
+        .set({ sentiment })
+        .where(
+          and(
+            eq(entityScores.resultId, msg.resultId),
+            eq(entityScores.entityId, entityId),
+            eq(entityScores.mentioned, true),
+          ),
+        );
+    }
+  };
+
+  // When the matcher matched an alias rather than the entity name, pass the
+  // span text so the model judges stance for the string actually in the
+  // answer, not just the canonical name it cannot see there. The span is
+  // matcher output, but it is sliced out of stored text — collapse whitespace
+  // so a drifted span can never inject raw newlines into the roster.
+  const matchedAs = (entityId: number): string | undefined => {
+    const span = scoreRows.find((r) => r.entityId === entityId)?.spans?.[0];
+    if (!span) {
+      return undefined;
+    }
+    const text = answer.answerText
+      .slice(span.start, span.end)
+      .replace(/\s+/g, ' ')
+      .trim();
+    const candidate = candidates.find((e) => e.id === entityId);
+    if (!text || text.toLowerCase() === candidate?.name.toLowerCase()) {
+      return undefined;
+    }
+    return text;
+  };
+
+  // Entities whose first mention falls beyond the capped prompt window are
+  // invisible to the main call — classify them in successive tail windows,
+  // each anchored just before the next uncovered mention (a single window
+  // anchored at the earliest mention can still miss entities far past it).
+  // Head verdicts are written before the tail passes so a failure's retry
+  // only re-runs the remaining windows.
+  const inWindow = candidates.filter(
+    (e) => (offsetByEntity.get(e.id) ?? 0) < SENTIMENT_TEXT_MAX,
+  );
+  const beyondWindow = candidates
+    .filter((e) => (offsetByEntity.get(e.id) ?? 0) >= SENTIMENT_TEXT_MAX)
+    .sort(
+      (a, b) =>
+        (offsetByEntity.get(a.id) ?? 0) - (offsetByEntity.get(b.id) ?? 0),
+    );
+  const classify = async (
+    group: typeof candidates,
+    text: string,
+  ): Promise<Map<number, Sentiment> | null> =>
+    classifySentiments(env, {
+      answerText: text,
+      entities: group.map((e) => ({
+        id: e.id,
+        name: e.name,
+        matchedAs: matchedAs(e.id),
+      })),
+    });
+
+  if (inWindow.length > 0) {
+    const verdicts = await classify(inWindow, answer.answerText);
+    if (verdicts === null) {
+      // Unparseable model output is usually transient (truncation, formatting).
+      // Retry via the queue; if it never parses, the dead-letter leaves null.
+      throw new ProviderRetryableError('sentiment: unparseable model output');
+    }
+    await writeVerdicts(verdicts);
   }
-  for (const [entityId, sentiment] of verdicts) {
+  let uncovered = [...beyondWindow];
+  let windows = 0;
+  while (uncovered.length > 0 && windows < 64) {
+    windows += 1;
+    const start = Math.max(
+      0,
+      (offsetByEntity.get(uncovered[0]?.id ?? 0) ?? 0) - SENTIMENT_TAIL_CONTEXT,
+    );
+    const windowEnd = start + SENTIMENT_TEXT_MAX;
+    const group = uncovered.filter(
+      (e) => (offsetByEntity.get(e.id) ?? 0) < windowEnd,
+    );
+    const verdicts = await classify(group, answer.answerText.slice(start));
+    if (verdicts === null) {
+      throw new ProviderRetryableError('sentiment: unparseable tail output');
+    }
+    await writeVerdicts(verdicts);
+    uncovered = uncovered.filter((e) => !group.includes(e));
+  }
+
+  const labeled = new Set<number>();
+  const collected = (
     await db
-      .update(entityScores)
-      .set({ sentiment })
+      .select({ entityId: entityScores.entityId })
+      .from(entityScores)
       .where(
         and(
           eq(entityScores.resultId, msg.resultId),
-          eq(entityScores.entityId, entityId),
+          eq(entityScores.mentioned, true),
+          isNotNull(entityScores.sentiment),
         ),
-      );
+      )
+  ).map((r) => r.entityId);
+  for (const entityId of collected) {
+    labeled.add(entityId);
+  }
+  const missed = candidates.filter((e) => !labeled.has(e.id));
+  if (missed.length > 0) {
+    // Silent partial coverage is how truncation and model skips hid for
+    // months: name the misses so a model or window regression is visible.
+    console.warn(
+      'sentiment: unclassified after pass',
+      msg.resultId,
+      missed.map((e) => e.name).join(', '),
+    );
   }
 };
 
@@ -619,6 +731,7 @@ const handleRescoreBatch = async (
     RESCORE_BATCH_SIZE,
   );
   const entitiesByRun = new Map<number, ScorableEntity[]>();
+  const sentimentIds: number[] = [];
   for (const row of batch) {
     let toScore = entitiesByRun.get(row.runId);
     if (!toScore) {
@@ -626,7 +739,14 @@ const handleRescoreBatch = async (
       entitiesByRun.set(row.runId, toScore);
     }
     try {
-      await rescoreStoredResult(env, db, row, toScore);
+      const stored = await rescoreStoredResult(env, db, row, toScore);
+      // A lifted result that mentions tracked entities re-drives
+      // classification, same as the per-run rescore: the handler no-ops on
+      // results whose mentioned rows are all labeled, so carry-over labels
+      // cost nothing and only unclassified rows get a model call.
+      if (stored?.hasMentions) {
+        sentimentIds.push(stored.resultId);
+      }
     } catch (error) {
       console.error(
         'rescore: result failed, keeping old scores',
@@ -634,6 +754,17 @@ const handleRescoreBatch = async (
         error,
       );
     }
+  }
+  for (let i = 0; i < sentimentIds.length; i += 100) {
+    await env.INGEST.sendBatch(
+      sentimentIds.slice(i, i + 100).map((resultId) => ({
+        body: {
+          kind: 'sentiment_score',
+          workspaceId: msg.workspaceId,
+          resultId,
+        } satisfies IngestMessage,
+      })),
+    );
   }
   const last = batch[batch.length - 1];
   if (batch.length === RESCORE_BATCH_SIZE && last) {
