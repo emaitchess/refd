@@ -18,6 +18,10 @@ export const CHAT_EXCHANGE_PHASES = [
   'terminal',
 ] as const;
 
+// The wall-clock ceiling for one exchange, shared by the routes that stamp
+// deadlines and the engine that budgets its phases against the same alarm.
+export const CHAT_EXCHANGE_TIMEOUT_MS = 5 * 60 * 1000;
+
 export const chatExchangeStatusSchema = z.enum(CHAT_EXCHANGE_STATUSES);
 export const chatExchangePhaseSchema = z.enum(CHAT_EXCHANGE_PHASES);
 
@@ -60,7 +64,13 @@ export const chatEvidenceProvenanceSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     kind: z.literal('derived'),
-    derivation: z.enum(['digest', 'aggregate', 'query', 'citations']),
+    derivation: z.enum([
+      'digest',
+      'aggregate',
+      'query',
+      'citations',
+      'changes',
+    ]),
     metric: z.string().max(40).optional(),
     groupBy: z.string().max(40).optional(),
   }),

@@ -32,6 +32,7 @@ import { gunzipJson } from '../ingest/storage';
 import { searchWeb, type WebResult } from '../lib/exa';
 import { fetchPageMarkdown } from '../lib/site-fetch';
 import { matchesDomainEntry } from '../lib/urls';
+import { buildChangeReport, type WindowRef } from './changes';
 import { buildDigest, type DigestPanel } from './digest';
 import {
   answerCount,
@@ -284,7 +285,9 @@ const runGetPromptResults = async (
           ...(scope ? [lte(runs.date, scope.to)] : []),
         ),
       )
-      .orderBy(desc(runs.id))
+      // Latest by run date, not id: a manual or back-dated run created after
+      // an earlier date's cron run must not displace it.
+      .orderBy(desc(runs.date), desc(runs.id))
       .limit(1)
   )[0];
   if (!latestRun) {
@@ -790,6 +793,78 @@ const runAggregate = async (
   };
 };
 
+// The deterministic answer to "why did X change": the same engine the
+// Overview card uses, compared over shared cells so a subset run cannot
+// fabricate a movement. The agent explains the listed events; a cause beyond
+// them is a hypothesis, and the result says so.
+const runGetChanges = async (
+  db: Db,
+  workspaceId: number,
+  scope?: ChatScope,
+): Promise<ToolOutcome> => {
+  const report = await buildChangeReport(db, workspaceId);
+  if (!report) {
+    return {
+      label: 'read the change report',
+      detail: 'workspace not set up',
+      result:
+        'This workspace has no brand entity configured yet, so there is nothing to compare.',
+    };
+  }
+  if (report.status === 'needs-runs' || !report.latest || !report.previous) {
+    return {
+      label: 'read the change report',
+      detail: 'needs two completed runs',
+      result:
+        'Comparing change needs at least two completed runs. This workspace does not have them yet; use aggregate over run dates instead.',
+    };
+  }
+  const window = (w: WindowRef): string =>
+    `${w.from} to ${w.to} (${w.runs} ${w.runs === 1 ? 'run' : 'runs'}, ${w.answers} answers)`;
+  const lines = report.events.map(
+    (event) =>
+      `- ${event.headline}: ${event.previous} -> ${event.current} (${
+        event.unit === 'rank' ? 'rank' : 'share'
+      }, ${event.span})`,
+  );
+  const notes = [
+    `compared: ${window(report.previous)} vs ${window(report.latest)}`,
+    `shared cells: ${report.cells} (prompt x surface cells both windows answered)`,
+    ...(report.trendCells > 0
+      ? [
+          `trend cells across ${report.trend.length} windows: ${report.trendCells}`,
+        ]
+      : []),
+    ...(report.entitySetChanged
+      ? [
+          'the tracked entity set changed across the span, so set-relative comparisons (share of voice, position, competitor movement) are suppressed',
+        ]
+      : []),
+    ...lines,
+    'The events above are measured movements, not causes; attribute them only as far as the listed numbers reach.',
+  ];
+  return {
+    label: 'read the change report',
+    detail: `${report.events.length} ${report.events.length === 1 ? 'event' : 'events'} · ${report.cells} cells`,
+    result: `Change report:\n${notes.join('\n')}`,
+    ...(scope
+      ? {
+          evidence: {
+            status:
+              report.events.length > 0 ? ('ok' as const) : ('no_data' as const),
+            scope,
+            provenance: [
+              {
+                kind: 'derived' as const,
+                derivation: 'changes' as const,
+              },
+            ],
+          },
+        }
+      : {}),
+  };
+};
+
 // Spans were computed against the normalized answer text, so the excerpt
 // comes from answerFromRaw (the same rebuild the rescore path uses), never
 // from the markdown display field whose offsets can differ.
@@ -1209,6 +1284,9 @@ export const executeTool = async (
     }
     if (name === 'aggregate') {
       return await runAggregate(db, workspaceId, args, scope);
+    }
+    if (name === 'get_changes') {
+      return await runGetChanges(db, workspaceId, scope);
     }
     if (name === 'read_answer') {
       return await runReadAnswer(env, db, workspaceId, args, scope);

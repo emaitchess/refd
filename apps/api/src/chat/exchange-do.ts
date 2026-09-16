@@ -1,4 +1,5 @@
 import {
+  type ChatEvidenceRecord,
   type ChatScope,
   type ChatStreamEvent,
   chatExchangePhaseSchema,
@@ -167,6 +168,13 @@ const eventKey = (seq: number): string =>
 
 export class ChatExchange {
   private writes: Promise<void> = Promise.resolve();
+  // Evidence gathered by the exchange in flight, per exchange id. The alarm
+  // and crash paths read it to persist the receipt of completed lookups; an
+  // evicted object loses the copy, which costs diagnosis, not correctness.
+  private exchangeEvidence = new Map<
+    string,
+    { records: ChatEvidenceRecord[] }
+  >();
 
   constructor(
     private state: DurableObjectState,
@@ -267,6 +275,7 @@ export class ChatExchange {
 
       this.closeAll(current?.exchangeId);
       await this.state.storage.deleteAll();
+      this.exchangeEvidence.clear();
       const startedAt = Date.now();
       const meta: ExchangeMeta = {
         ...parsed.data,
@@ -429,6 +438,8 @@ export class ChatExchange {
     };
     try {
       const db = getDb(this.env);
+      const evidenceSink: { records: ChatEvidenceRecord[] } = { records: [] };
+      this.exchangeEvidence.set(meta.exchangeId, evidenceSink);
       const exchange: Exchange = await runExchange(
         this.env,
         db,
@@ -441,6 +452,7 @@ export class ChatExchange {
           inheritedScope: meta.inheritedScope,
           inheritedFromMessageId: meta.inheritedFromMessageId,
           onPhase: (phase) => this.setPhase(meta.exchangeId, phase),
+          evidenceSink,
         },
         emit,
       );
@@ -476,6 +488,7 @@ export class ChatExchange {
         if (!messages) {
           throw new Error('exchange lost the terminal write race');
         }
+        this.exchangeEvidence.delete(meta.exchangeId);
         let title: string | null = null;
         title =
           (
@@ -550,17 +563,29 @@ export class ChatExchange {
           );
         }
       }
+      const lookups = Math.max(
+        (this.exchangeEvidence.get(exchangeId)?.records.length ?? 1) - 1,
+        0,
+      );
+      const withEvidence =
+        status === 'failed' && lookups > 0
+          ? `${message} ${lookups} ${
+              lookups === 1 ? 'lookup' : 'lookups'
+            } completed first; the evidence gathered is saved with this reply.`
+          : message;
       const seq = meta.lastEventSeq + 1;
       const committed = await commitExchangeFailure(this.env, db, {
         exchangeId,
         chatId: meta.chatId,
-        message,
+        message: withEvidence,
         steps,
         durationMs: Date.now() - meta.startedAt,
         status,
         lastEventSeq: seq,
         fromStatuses: ['running'],
+        evidence: this.exchangeEvidence.get(exchangeId)?.records,
       });
+      this.exchangeEvidence.delete(exchangeId);
       if (!committed) {
         return this.restoreTerminalEvent(db, meta);
       }
@@ -568,7 +593,7 @@ export class ChatExchange {
         type: 'error',
         exchangeId,
         seq,
-        message,
+        message: withEvidence,
       };
       await this.state.storage.put({
         [eventKey(seq)]: event,

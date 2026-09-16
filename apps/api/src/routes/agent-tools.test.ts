@@ -72,6 +72,7 @@ const isoDaysAgo = (days: number): string => {
 };
 const D7 = isoDaysAgo(7);
 const D3 = isoDaysAgo(3);
+const D14 = isoDaysAgo(14);
 
 await db
   .insert(users)
@@ -144,6 +145,17 @@ await db.insert(runs).values([
     totalCount: 1,
     entitySetHash: 'h',
   },
+  {
+    id: 4,
+    workspaceId: 1,
+    key: 'seed:r4',
+    date: D14,
+    trigger: 'manual',
+    status: 'complete',
+    okCount: 1,
+    totalCount: 1,
+    entitySetHash: 'h',
+  },
 ]);
 await db.insert(results).values([
   {
@@ -195,6 +207,17 @@ await db.insert(results).values([
     id: 5,
     runId: 3,
     promptId: 21,
+    surface: 'chatgpt',
+    sample: 1,
+    provider: 'brightdata',
+    ok: true,
+    answerPresent: true,
+    totalUrls: 1,
+  },
+  {
+    id: 6,
+    runId: 4,
+    promptId: 1,
     surface: 'chatgpt',
     sample: 1,
     provider: 'brightdata',
@@ -275,6 +298,18 @@ await db.insert(entityScores).values([
     position: 1,
     scoringVersion: 1,
     sentiment: 'neutral',
+  },
+  {
+    resultId: 6,
+    entityId: 1,
+    mentioned: true,
+    mentionCount: 1,
+    firstOffset: 0,
+    spans: [{ start: 0, end: 4 }],
+    position: 1,
+    prominence: 'lead',
+    scoringVersion: 1,
+    sentiment: 'positive',
   },
 ]);
 await db.insert(citations).values([
@@ -416,7 +451,7 @@ describe('aggregate', () => {
     for (const prompt of digest.sections.prompts.top) {
       expect(outcome.result).toContain(`mentionRate=${prompt.mentionRate}`);
     }
-    expect(outcome.result).toContain('answers=3');
+    expect(outcome.result).toContain('answers=4');
     expect(outcome.result).toContain('answers=1');
   });
 });
@@ -522,6 +557,46 @@ describe('prompt ids', () => {
     expect(one.result).toContain(
       'Prompt 1: "Prompt one about voice apps on Mac"',
     );
+  });
+});
+
+describe('get_changes', () => {
+  test('compares the two most recent completed runs on shared cells', async () => {
+    const scope = {
+      version: 1,
+      timezone: 'UTC',
+      granularity: 'run_date',
+      asOf: D3,
+      from: D7,
+      to: D3,
+      label: 'exact window',
+      source: 'explicit',
+    } as const;
+    const outcome = await executeTool(
+      envFor(),
+      1,
+      'get_changes',
+      {},
+      0,
+      new Map(),
+      scope,
+    );
+    expect(outcome.result).toContain('Change report:');
+    expect(outcome.result).toContain('vs');
+    // The fixture: run 1 has mention rate 2/4 = 0.5, run 2 has 1/2 = 0.5, so
+    // no thresholded event may be invented; the report states the comparison
+    // honestly instead.
+    expect(outcome.result).toContain('measured movements, not causes');
+    expect(outcome.evidence?.scope).toEqual(scope);
+    expect(outcome.evidence?.provenance).toEqual([
+      { kind: 'derived', derivation: 'changes' },
+    ]);
+  });
+
+  test('a workspace with fewer than two completed runs declines cleanly', async () => {
+    const outcome = await run(2, 'get_changes', {});
+    expect(outcome.result).toContain('needs at least two completed runs');
+    expect(outcome.evidence).toBeUndefined();
   });
 });
 

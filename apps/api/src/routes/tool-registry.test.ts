@@ -5,6 +5,7 @@ import {
   agentTool,
   applyToolScope,
   availableTools,
+  effectiveToolScope,
   offeredTool,
   toolDefinition,
   toolParameters,
@@ -174,5 +175,54 @@ describe('applyToolScope', () => {
 
   test('non-object arguments to a date-scoped tool fail cleanly', () => {
     expect(applyToolScope(queryResults, 'not an object', scope).ok).toBe(false);
+  });
+});
+
+describe('effectiveToolScope', () => {
+  const scope: ChatScope = {
+    version: 1,
+    timezone: 'UTC',
+    granularity: 'run_date',
+    asOf: '2026-09-16',
+    from: '2026-08-18',
+    to: '2026-09-16',
+    label: 'last 30 days (2026-08-18 to 2026-09-16)',
+    source: 'default',
+  };
+
+  test('a narrowed call carries its own window, not the question span', () => {
+    // The chat 47 defect: E1/E2 read one run date but their records claimed
+    // the whole 30-day window.
+    const effective = effectiveToolScope(
+      { from: '2026-09-16', to: '2026-09-16', groupBy: 'surface' },
+      scope,
+    );
+    expect(effective).toEqual({
+      ...scope,
+      from: '2026-09-16',
+      to: '2026-09-16',
+      label: '2026-09-16 to 2026-09-16',
+    });
+  });
+
+  test('calls without their own bounds keep the question scope unchanged', () => {
+    expect(effectiveToolScope({ limit: 5 }, scope)).toEqual(scope);
+    expect(effectiveToolScope({}, scope)).toEqual(scope);
+    expect(effectiveToolScope('not an object', scope)).toEqual(scope);
+  });
+
+  test('a from-only bound keeps the question upper bound', () => {
+    const effective = effectiveToolScope({ from: '2026-09-01' }, scope);
+    expect(effective).toEqual({
+      ...scope,
+      from: '2026-09-01',
+      label: '2026-09-01 to 2026-09-16',
+    });
+  });
+
+  test('an effective window identical to the question returns the same scope', () => {
+    expect(
+      effectiveToolScope({ from: '2026-08-18', to: '2026-09-16' }, scope),
+    ).toBe(scope);
   });
 });
