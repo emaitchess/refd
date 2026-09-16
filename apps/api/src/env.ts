@@ -22,6 +22,10 @@ export type AppEnv = Omit<
   DASHBOARD_ORIGIN?: string;
   API_ORIGIN?: string;
   JWT_SECRET: string;
+  // Sentiment classifier model override (Workers AI model id). The default is
+  // glm-5.3-flash (eval-backed: agreement within glm-5.3's own label-noise
+  // band at a quarter of the output tokens); set glm-5.3 here to roll back.
+  SENTIMENT_MODEL?: string;
   // Exa company search — competitor discovery (onboarding). Optional: without
   // it the competitors step soft-fails to manual entry.
   EXA_API_KEY: string;

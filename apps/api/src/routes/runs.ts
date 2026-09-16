@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { WorkspaceBindings } from '../auth/middleware';
@@ -214,7 +214,40 @@ runRoutes.post('/rescore', requireOperator, async (c) => {
       afterResultId: 0,
     });
   }
-  return c.json({ started: progress.stale > 0, ...progress });
+  // Also re-drive classification for the sentiment backlog (mentions a
+  // previous pass left unclassified): distinct results only, the handler
+  // no-ops on fully labeled ones.
+  const pendingResults = await db
+    .selectDistinct({ resultId: entityScores.resultId })
+    .from(entityScores)
+    .innerJoin(results, eq(results.id, entityScores.resultId))
+    .innerJoin(runs, eq(runs.id, results.runId))
+    .where(
+      and(
+        eq(runs.workspaceId, ws),
+        eq(results.ok, true),
+        eq(results.answerPresent, true),
+        eq(entityScores.mentioned, true),
+        isNull(entityScores.sentiment),
+      ),
+    );
+  const resultIds = pendingResults.map((r) => r.resultId);
+  for (let i = 0; i < resultIds.length; i += 100) {
+    await c.env.INGEST.sendBatch(
+      resultIds.slice(i, i + 100).map((resultId) => ({
+        body: {
+          kind: 'sentiment_score',
+          workspaceId: ws,
+          resultId,
+        } satisfies IngestMessage,
+      })),
+    );
+  }
+  return c.json({
+    started: progress.stale > 0,
+    sentimentRequeued: resultIds.length,
+    ...progress,
+  });
 });
 
 // Replay every stored raw through the current parser + scorer, rewriting

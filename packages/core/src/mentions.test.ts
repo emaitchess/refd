@@ -105,6 +105,12 @@ describe('findMentionSpans — markdown link handling', () => {
       'ahrefs.com',
     ]);
   });
+
+  test('reference-style link definitions never match', () => {
+    expect(
+      spansOf('[guide]: https://ahrefs.com/blog\nread Ahrefs docs', ahrefs, 1),
+    ).toEqual(['Ahrefs']);
+  });
 });
 
 describe('findMentionSpans — cross-entity overlap', () => {

@@ -174,19 +174,40 @@ export const selectStaleBatch = async (
     .orderBy(asc(results.id))
     .limit(limit);
 
+export interface RescoreProgress {
+  total: number;
+  stale: number;
+  // Mentioned rows still unclassified (ok scoreable results only): the
+  // operator rescore re-drives these; the number is the sentiment coverage
+  // backlog.
+  sentimentPending: number;
+}
+
 export const rescoreProgress = async (
   db: Db,
   workspaceId: number,
-): Promise<{ total: number; stale: number }> => {
+): Promise<RescoreProgress> => {
+  const sentimentPending = sql<number>`(select count(*) from ${entityScores}
+    where ${entityScores.resultId} in (
+      select ${results.id} from ${results}
+      inner join ${runs} on ${runs.id} = ${results.runId}
+      where ${runs.workspaceId} = ${workspaceId}
+        and ${results.ok} = 1 and ${results.answerPresent} = 1
+    ) and ${entityScores.mentioned} = 1 and ${entityScores.sentiment} is null)`;
   const row = (
     await db
       .select({
         total: sql<number>`count(*)`,
         stale: sql<number>`coalesce(sum(case when ${staleExists} then 1 else 0 end), 0)`,
+        sentimentPending,
       })
       .from(results)
       .innerJoin(runs, eq(runs.id, results.runId))
       .where(and(eq(runs.workspaceId, workspaceId), isNotNull(results.r2Key)))
   )[0];
-  return { total: row?.total ?? 0, stale: row?.stale ?? 0 };
+  return {
+    total: row?.total ?? 0,
+    stale: row?.stale ?? 0,
+    sentimentPending: row?.sentimentPending ?? 0,
+  };
 };

@@ -151,4 +151,46 @@ describe('scoreResult — fallbacks and absence', () => {
     expect(absent.scores.every((s) => !s.mentioned && !s.cited)).toBe(true);
     expect(absent.scores.every((s) => s.position === null)).toBe(true);
   });
+
+  test('an absent answer never harvests citations, even with source URLs', () => {
+    // Guard against a future reorder of the answerPresent check in
+    // buildCitations: absent-AIO raws carry organic noise, not citations.
+    const absent = scoreResult(
+      {
+        answerText: '',
+        sourceUrls: ['https://getmrmr.com/blog/launch'],
+        answerPresent: false,
+        raw: {},
+      },
+      entities,
+    );
+    expect(absent.citations).toEqual([]);
+    expect(absent.totalUrls).toBe(0);
+  });
+});
+
+describe('scoreResult — citation precedence', () => {
+  test('the first tier to claim a URL keeps it (source_list over inline)', () => {
+    const result = scoreResult(
+      {
+        answerText:
+          'mrmr published the details at [the launch post](https://getmrmr.com/blog/launch).',
+        sourceUrls: ['https://getmrmr.com/blog/launch'],
+        answerPresent: true,
+        raw: {},
+      },
+      entities,
+    );
+    const owned = result.citations.filter((c) => c.entityId === 1);
+    expect(owned).toHaveLength(1);
+    expect(owned[0]?.origin).toBe('source_list');
+    expect(owned[0]?.rank).toBe(1);
+  });
+
+  test('an empty tracked set yields no score rows without crashing', () => {
+    const empty = scoreResult(answer, []);
+    expect(empty.scores).toEqual([]);
+    expect(empty.totalUrls).toBe(3);
+    expect(empty.citations.every((c) => c.entityId === null)).toBe(true);
+  });
 });

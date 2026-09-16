@@ -65,6 +65,12 @@ core, aggregation endpoints, alias capture, and historical rescoring.
 - **Denominator: `ok = true` and `answerPresent = true`.** Failed fetches are
   not signal, and a missing AI Overview has no answer in which to find a
   mention. AIO coverage is reported separately.
+- **A present answer with empty canonical text is a failure, not a quiet
+  zero.** A scraped record whose recognized answer field is missing or empty
+  (provider field drift) is rejected by `storeScoredResult` and recorded as a
+  failed result; storing it as ok would count a non-mention in every
+  scoreable denominator and silently deflate the rates. The raw payload stays
+  in R2 at the deterministic key for operator diagnosis.
 - Per prompt and surface: mentioned samples divided by successful samples. Per
   surface and run: mean over prompts with at least one successful sample.
   Overall per run: mean over all prompt and surface cells, with equal weight
@@ -150,15 +156,30 @@ core, aggregation endpoints, alias capture, and historical rescoring.
   fills `entity_scores.sentiment` with positive, neutral, or negative. Null
   means unclassified and renders "—". Classification failure never delays or
   fails the run.
-- **One model call per answer.** Workers AI glm-5.3 judges every mentioned
-  tracked entity in one call. Entities are referenced by number so the model
-  cannot introduce one. Malformed entries remain unclassified rather than
-  being guessed. Negative framing affects sentiment but still counts as a
-  mention.
-- **New answers only.** History is not backfilled; pre-sentiment rows remain
-  null and leave every sentiment denominator. Rescoring carries existing
-  labels over. Per-run rescore can re-drive classification for mentioned rows
-  still unclassified, while the queue backfill never classifies.
+- **One model call per answer.** The default classifier is glm-5.3-flash
+  (eval-backed: agreement with glm-5.3 labels within glm-5.3's own
+  run-to-run noise band, at a quarter of the output tokens; `SENTIMENT_MODEL`
+  pins either direction), and the output is bounded by a `response_format`
+  json_schema, so protocol drift cannot leak past validation. Entities are
+  referenced by number so the model cannot introduce one, and each entry
+  carries the matched span text when the matcher matched an alias, so stance
+  is judged for the string actually in the answer. Malformed entries remain
+  unclassified rather than being guessed. Negative framing affects sentiment
+  but still counts as a mention.
+- **Long answers get a second pass.** The prompt window caps the answer text;
+  an entity whose first mention lies beyond the cap is invisible to the main
+  call, so it is classified from a tail window anchored just before its first
+  mention. Entities the model still returns nothing for are logged, and stay
+  unclassified rather than guessed.
+- **Pending coverage is an operator-visible number.** `rescoreProgress`
+  reports `sentimentPending` (mentioned rows still unclassified), and the
+  operator rescore re-drives the backlog alongside stale scores.
+- **New answers only, mostly.** History is not backfilled on rescoring that
+  only relifts scores; rescoring carries existing labels over, and both the
+  per-run rescore and the queue backfill re-drive classification for results
+  that mention tracked entities whose rows are still unclassified (the
+  handler no-ops on fully labeled results, so carry-over labels cost no model
+  call). Pre-sentiment rows remain null and leave every sentiment denominator.
 - **Aggregated as a distribution.** `sentimentDist` covers classified mentions
   only. Sentiment is never collapsed into a composite score.
 

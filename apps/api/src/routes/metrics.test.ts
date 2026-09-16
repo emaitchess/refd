@@ -35,6 +35,12 @@ describe('cellRate', () => {
     expect(cellRate([row({ entityId: 2 })], 1, 'mentioned')).toBeNull();
   });
 
+  test('a real zero is not null: entity scored, never mentioned', () => {
+    // zeroVisibility in the digest keys on mentionRate === 0; this must stay
+    // distinct from the null (no scoreable answers) case.
+    expect(cellRate([row({})], 1, 'mentioned')).toBe(0);
+  });
+
   test('per-cell sample average, then equal-weight mean over cells', () => {
     const rows = [
       // Cell A (prompt 1): 1 of 2 samples mentioned = 0.5
@@ -60,6 +66,10 @@ describe('cellRate', () => {
 describe('pooledSov', () => {
   test('null when nothing is mentioned (pool empty)', () => {
     expect(pooledSov([row({})], 'mentioned')).toBeNull();
+  });
+
+  test('an empty row set has an empty pool', () => {
+    expect(pooledSov([], 'mentioned')).toBeNull();
   });
 
   test('sums to 1 across entities; absent entity is honest 0', () => {
@@ -104,6 +114,17 @@ describe('firstMentionShare', () => {
     expect(shareOf(share, 1)).toBeCloseTo(1 / 2);
     expect(shareOf(share, 2)).toBeCloseTo(1 / 2);
     expect(firstMentionShare([row({})])).toBeNull();
+  });
+
+  test('samples are distinct answers in the denominator', () => {
+    // Two samples of the same cell: sample 2 mentions entity 1 second (no
+    // rank-1 event), so entity 1 owns one of two answers with a winner.
+    const rows = [
+      row({ sample: 1, entityId: 1, mentioned: true, position: 1 }),
+      row({ sample: 1, entityId: 2, mentioned: true, position: 2 }),
+      row({ sample: 2, entityId: 1, mentioned: true, position: 2 }),
+    ];
+    expect(shareOf(firstMentionShare(rows), 1)).toBeCloseTo(0.5);
   });
 });
 
@@ -161,6 +182,17 @@ describe('coverageStats', () => {
       total: 1,
     });
     expect(coverageStats([]).aio).toBeNull();
+  });
+
+  test('absent answers on dataset surfaces stay out of the source pool', () => {
+    const stats = coverageStats([
+      { surface: 'chatgpt', answerPresent: false, hasSources: false },
+      { surface: 'chatgpt', answerPresent: true, hasSources: true },
+    ]);
+    expect(stats.aio).toBeNull();
+    expect(stats.sources).toEqual([
+      { surface: 'chatgpt', withSources: 1, total: 1 },
+    ]);
   });
 });
 

@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
-import { parseJson, tokenInputs } from './llm';
+import type { AppEnv } from '../env';
+import {
+  classifySentiments,
+  LLM_MODEL,
+  parseJson,
+  SENTIMENT_DEFAULT_MODEL,
+  tokenInputs,
+} from './llm';
 
 describe('parseJson', () => {
   const schema = z.object({ a: z.number() });
@@ -75,5 +82,103 @@ describe('tokenInputs', () => {
 
   test('omitting the option keeps the legacy default', () => {
     expect(tokenInputs(undefined)).toEqual({ max_completion_tokens: 1500 });
+  });
+});
+
+describe('classifySentiments', () => {
+  const aiEnv = (
+    content: string | null,
+    overrides: Partial<AppEnv> = {},
+  ): { env: AppEnv; calls: { model: string; input: unknown }[] } => {
+    const calls: { model: string; input: unknown }[] = [];
+    const env = {
+      AI: {
+        run: async (model: string, input: unknown) => {
+          calls.push({ model, input });
+          if (content === null) {
+            throw new Error('binding down');
+          }
+          return { choices: [{ message: { content } }] };
+        },
+      },
+      ...overrides,
+    } as unknown as AppEnv;
+    return { env, calls };
+  };
+
+  const entities = [
+    { id: 11, name: 'mrmr' },
+    { id: 12, name: 'Dottie' },
+  ];
+
+  test('maps verdicts back by entity number and enforces the json_schema contract', async () => {
+    const { env, calls } = aiEnv(
+      '{"sentiments":[{"entity":1,"sentiment":"negative"},{"entity":2,"sentiment":"positive"}]}',
+    );
+    const verdicts = await classifySentiments(env, {
+      answerText: 'x',
+      entities,
+    });
+    expect(verdicts?.get(11)).toBe('negative');
+    expect(verdicts?.get(12)).toBe('positive');
+    expect(calls).toHaveLength(1);
+    const first = calls[0];
+    if (!first) {
+      throw new Error('expected one model call');
+    }
+    expect(first.model).toBe(SENTIMENT_DEFAULT_MODEL);
+    expect(
+      (first.input as { response_format?: { type?: string } }).response_format
+        ?.type,
+    ).toBe('json_schema');
+  });
+
+  test('unknown or out-of-range entity numbers never resolve to a target', async () => {
+    const { env } = aiEnv(
+      '{"sentiments":[{"entity":3,"sentiment":"neutral"},{"entity":0,"sentiment":"negative"},{"entity":2,"sentiment":"positive"}]}',
+    );
+    const verdicts = await classifySentiments(env, {
+      answerText: 'text',
+      entities,
+    });
+    expect(verdicts?.size).toBe(1);
+    expect(verdicts?.get(12)).toBe('positive');
+  });
+
+  test('malformed output is null, never a guess', async () => {
+    const { env } = aiEnv('the model said something unparseable');
+    expect(
+      await classifySentiments(env, { answerText: 'text', entities }),
+    ).toBeNull();
+  });
+
+  test('SENTIMENT_MODEL overrides the classifier model', async () => {
+    const { env, calls } = aiEnv('{"sentiments":[]}', {
+      SENTIMENT_MODEL: LLM_MODEL,
+    });
+    await classifySentiments(env, { answerText: 'text', entities });
+    expect(calls[0]?.model).toBe(LLM_MODEL);
+  });
+
+  test('the default classifier is flash; the roster carries matched spans', async () => {
+    const { env, calls } = aiEnv('{"sentiments":[]}');
+    await classifySentiments(env, {
+      answerText: 'tryprofound.com is solid',
+      entities: [
+        { id: 11, name: 'Profound', matchedAs: 'tryprofound.com' },
+        { id: 12, name: 'mrmr' },
+      ],
+    });
+    const first = calls[0];
+    if (!first) {
+      throw new Error('expected one model call');
+    }
+    expect(first.model).toBe(SENTIMENT_DEFAULT_MODEL);
+    const user = (
+      first.input as { messages: { role: string; content: string }[] }
+    ).messages.find((m) => m.role === 'user')?.content;
+    expect(user).toContain('1. Profound (appears as "tryprofound.com")');
+    expect(user).toContain('2. mrmr\n');
+    expect(user).not.toContain('appears as "mrmr"');
   });
 });
