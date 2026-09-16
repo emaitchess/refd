@@ -5,6 +5,8 @@ import {
   type RunDispatchPlan,
   type RunDispatchState,
   runs,
+  users,
+  workspaces,
 } from '../db/schema';
 import type { AppEnv } from '../env';
 import { DATASET_SURFACES, SURFACES } from '../providers/types';
@@ -260,6 +262,23 @@ const dispatchErrorMessage = (error: unknown): string =>
     MAX_DISPATCH_ERROR_LENGTH,
   );
 
+const runAcceptsDispatch = async (db: Db, runId: number): Promise<boolean> =>
+  (
+    await db
+      .select({ id: runs.id })
+      .from(runs)
+      .innerJoin(workspaces, eq(runs.workspaceId, workspaces.id))
+      .innerJoin(users, eq(workspaces.ownerUserId, users.id))
+      .where(
+        and(
+          eq(runs.id, runId),
+          isNull(workspaces.deletingAt),
+          isNull(users.deletingAt),
+        ),
+      )
+      .limit(1)
+  )[0] !== undefined;
+
 export const resumeRunDispatchWith = async (
   db: Db,
   queue: AppEnv['INGEST'],
@@ -281,6 +300,16 @@ export const resumeRunDispatchWith = async (
       .where(
         and(
           eq(runs.id, runId),
+          sql`exists (
+            select 1 from ${workspaces}
+            where ${workspaces.id} = ${runs.workspaceId}
+              and ${workspaces.deletingAt} is null
+              and exists (
+                select 1 from ${users}
+                where ${users.id} = ${workspaces.ownerUserId}
+                  and ${users.deletingAt} is null
+              )
+          )`,
           lt(runs.dispatchAttempts, MAX_DISPATCH_ATTEMPTS),
           or(
             and(
@@ -350,6 +379,9 @@ export const resumeRunDispatchWith = async (
       messages,
       claimed.dispatchCursor,
       async (batch) => {
+        if (!(await runAcceptsDispatch(db, claimed.id))) {
+          throw new Error('workspace is being deleted');
+        }
         await queue.sendBatch(batch.map((body) => ({ body })));
       },
       async (nextCursor) => {
@@ -502,8 +534,12 @@ export const resumePendingRunDispatchesWith = async (
   const pending = await db
     .select({ id: runs.id })
     .from(runs)
+    .innerJoin(workspaces, eq(runs.workspaceId, workspaces.id))
+    .innerJoin(users, eq(workspaces.ownerUserId, users.id))
     .where(
       and(
+        isNull(workspaces.deletingAt),
+        isNull(users.deletingAt),
         lt(runs.dispatchAttempts, MAX_DISPATCH_ATTEMPTS),
         options.workspaceId === undefined
           ? undefined

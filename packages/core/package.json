@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./analytics": "./src/analytics.ts",
+    "./chat": "./src/chat.ts",
     "./config": "./src/config.ts",
     "./dashes": "./src/dashes.ts",
     "./surfaces": "./src/surfaces.ts",
@@ -23,6 +24,9 @@
     "check": "tsc --noEmit",
     "test": "bun test",
     "lint": "biome check ."
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/mdast": "^4.0.4"

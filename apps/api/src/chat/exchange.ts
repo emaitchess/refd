@@ -2,7 +2,7 @@
 // the planning loop, the answer phase, and the D1 persistence of the finished
 // rows. The DO owns the live transport; this file owns what it streams.
 // Deliberately free of durable-object types so the engine stays portable.
-
+import type { ChatEvidenceRecord, ChatScope } from '@refd/core/chat';
 import { normalizeDashes } from '@refd/core/dashes';
 import { desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
@@ -26,16 +26,25 @@ import {
   runChatStream,
   runChatWithTools,
 } from '../lib/llm';
-import { detectRange } from '../lib/range';
+import { resolveChatScope } from '../lib/range';
 import { domainField } from '../lib/sanitize';
 import { executeTool } from '../routes/agent-tools';
 import { buildDigest, DIGEST_PANELS, type DigestPanel } from '../routes/digest';
 import {
   type AgentTool,
+  applyToolScope,
   availableTools,
   offeredTool,
   toolDefinition,
 } from '../routes/tool-registry';
+import {
+  createEvidenceRegistry,
+  evidenceSources,
+  persistedEvidence,
+  registerToolEvidence,
+  resolveEvidencePanels,
+  selectEvidenceIds,
+} from './evidence';
 
 // Conversation context sent back to the model (user + assistant turns).
 export const HISTORY_MESSAGES = 8;
@@ -58,7 +67,14 @@ const validLink = (to: string): boolean =>
 const metaSchema = z.object({
   // Only requested on a conversation's first exchange; absent otherwise.
   title: llmText(60).catch(''),
-  panels: z.array(z.string().catch('')).catch([]),
+  evidenceIds: z
+    .array(
+      z
+        .string()
+        .regex(/^E\d+$/)
+        .catch(''),
+    )
+    .catch([]),
   links: z
     .array(
       z
@@ -101,8 +117,6 @@ const metaSchema = z.object({
     })
     .nullable()
     .catch(null),
-  // Which gathered web results the answer actually used (1-based numbers).
-  webSources: z.array(z.number().int().catch(0)).catch([]),
 });
 
 const PROMPT_CATEGORY_SET = new Set<string>(PROMPT_CATEGORIES);
@@ -227,8 +241,9 @@ const systemPrompt = (): string =>
   'renders the supporting data panels alongside your answer.\n' +
   '- Web results in the evidence are numbered S1, S2, ...: cite one in prose ' +
   'like (S2) only if you actually used it. The other numbered items are tool ' +
-  'results, never citations; when there are no web results, use no citation ' +
-  'markers.\n' +
+  'results. Evidence records are E0, E1, ...: cite material workspace claims ' +
+  'with the supporting marker like (E1). When there are no web results, use ' +
+  'no S-markers.\n' +
   '- Never write em dashes or en dashes; recast the sentence with a comma, ' +
   'colon, or parentheses instead.\n' +
   '- Never mention tools, traces, or metadata in the prose.';
@@ -244,6 +259,7 @@ const cleanTitle = (raw: string): string | null => {
 };
 
 export interface Exchange {
+  status: 'completed' | 'partial';
   content: string;
   title: string | null;
   panels: DigestPanel[];
@@ -253,6 +269,9 @@ export interface Exchange {
   durationMs: number;
   proposal: ChatProposal | null;
   sources: ChatWebSource[];
+  scope: ChatScope;
+  evidence: ChatEvidenceRecord[];
+  selectedEvidenceIds: string[];
 }
 
 // Weighted ceiling on gathering per exchange. A cheap D1 aggregate should not
@@ -309,12 +328,87 @@ const trimEvidence = <T extends { role: string; content: string }>(
 const ANSWER_FALLBACK =
   'I could not put together a grounded answer for that. Try rephrasing the question, or open Overview for the numbers directly.';
 
+const panelRequestSchema = z.object({
+  evidenceId: z.string().regex(/^E\d+$/),
+  key: z.string(),
+});
+
+// Panel selection races the prose after gathering has finished. Each request
+// names its owning evidence record, so live panels and persisted panels share
+// the same evidence boundary.
+const panelsSchema = z.object({
+  panels: z.array(panelRequestSchema.nullable().catch(null)).catch([]),
+});
+
+const panelsResponseFormat = {
+  type: 'json_schema' as const,
+  json_schema: {
+    name: 'panels',
+    schema: {
+      type: 'object',
+      properties: {
+        panels: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              evidenceId: { type: 'string' },
+              key: { type: 'string' },
+            },
+            required: ['evidenceId', 'key'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['panels'],
+      additionalProperties: false,
+    },
+  },
+} as const;
+
+const panelsPrompt = (evidenceCatalog: string): string =>
+  'You pick the data panels to render beside a refd workspace answer. You are ' +
+  'given the question and the evidence catalog the answer will use. Return ' +
+  'ONLY the JSON object the response schema asks for: panels is up to 2 ' +
+  'objects with an evidenceId and a panel key owned by that same evidence ' +
+  `row. Valid keys are [${DIGEST_PANELS.join(', ')}]. Use [] if none apply. ` +
+  `Never invent an ID or key.\nEvidence catalog:\n${evidenceCatalog}`;
+
+const extractPanels = async (
+  env: AppEnv,
+  question: string,
+  evidenceCatalog: string,
+): Promise<z.infer<typeof panelRequestSchema>[]> => {
+  try {
+    const raw = await runChat(
+      env,
+      [
+        { role: 'system' as const, content: panelsPrompt(evidenceCatalog) },
+        {
+          role: 'user' as const,
+          content: `Question:\n${question}`,
+        },
+      ],
+      {
+        model: PLANNING_MODEL,
+        maxTokens: null,
+        responseFormat: panelsResponseFormat,
+        deadlineMs: META_DEADLINE_MS,
+      },
+    );
+    const parsed = parseJson(raw, panelsSchema);
+    return (parsed?.panels ?? []).flatMap((panel) => (panel ? [panel] : []));
+  } catch {
+    return [];
+  }
+};
+
 export type ParsedMeta = z.infer<typeof metaSchema>;
 
 // Extraction brief for the metadata call. The json_schema bounds the shape;
 // this bounds the values. metaSchema and the laundering below remain the
-// security boundary.
-const metaPrompt = (withTitle: boolean, sourceCount: number): string =>
+// security boundary. Panels are picked separately while the prose streams.
+const metaPrompt = (withTitle: boolean, evidenceCatalog: string): string =>
   'You read a finished assistant answer and extract structured metadata for ' +
   'the app to render. Return ONLY the JSON object the response schema asks ' +
   'for, copying values from the answer and never inventing them.\n' +
@@ -322,8 +416,8 @@ const metaPrompt = (withTitle: boolean, sourceCount: number): string =>
     ? '- title: a crisp name for this conversation, at most 6 plain words ' +
       'naming the topic, no quotes and no trailing punctuation.\n'
     : '') +
-  `- panels: up to 2 section keys from [${DIGEST_PANELS.join(', ')}] whose ` +
-  'data supports the answer; [] if none apply.\n' +
+  '- evidenceIds: IDs from the evidence catalog that materially support the ' +
+  'answer. Use only listed IDs; [] if none apply.\n' +
   '- links: up to 2 dashboard links (objects {"label", "to"}) from ' +
   '/overview, /competitors, /prompts, /sources, /runs with short labels; ' +
   '[] if none apply.\n' +
@@ -335,10 +429,7 @@ const metaPrompt = (withTitle: boolean, sourceCount: number): string =>
   'in real results],"aliases":[{"value":string,"caseSensitive":boolean}]}. ' +
   'The app shows proposals for human confirmation; never claim anything ' +
   'was added.\n' +
-  (sourceCount > 0
-    ? `- webSources: the numbers (1..${sourceCount}) of the web results the ` +
-      'answer cited or used; [] if none.'
-    : '- webSources: the answer had no web results, so this is always [].');
+  `Evidence catalog:\n${evidenceCatalog}`;
 
 const metaResponseFormat = (withTitle: boolean) => ({
   type: 'json_schema' as const,
@@ -348,7 +439,7 @@ const metaResponseFormat = (withTitle: boolean) => ({
       type: 'object',
       properties: {
         ...(withTitle ? { title: { type: 'string' } } : {}),
-        panels: { type: 'array', items: { type: 'string' } },
+        evidenceIds: { type: 'array', items: { type: 'string' } },
         links: {
           type: 'array',
           items: {
@@ -359,14 +450,12 @@ const metaResponseFormat = (withTitle: boolean) => ({
           },
         },
         proposal: { type: ['object', 'null'] },
-        webSources: { type: 'array', items: { type: 'number' } },
       },
       required: [
         ...(withTitle ? ['title'] : []),
-        'panels',
+        'evidenceIds',
         'links',
         'proposal',
-        'webSources',
       ],
       additionalProperties: false,
     },
@@ -381,7 +470,7 @@ const extractMeta = async (
   question: string,
   prose: string,
   withTitle: boolean,
-  sourceCount: number,
+  evidenceCatalog: string,
 ): Promise<ParsedMeta | null> => {
   try {
     const raw = await runChat(
@@ -389,7 +478,7 @@ const extractMeta = async (
       [
         {
           role: 'system' as const,
-          content: metaPrompt(withTitle, sourceCount),
+          content: metaPrompt(withTitle, evidenceCatalog),
         },
         {
           role: 'user' as const,
@@ -416,6 +505,11 @@ export type StreamEvent =
   | { type: 'step'; label: string; detail?: string }
   | { type: 'delta'; text: string }
   | {
+      type: 'meta';
+      panels: string[];
+      panelData: Record<string, unknown> | null;
+    }
+  | {
       type: 'done';
       chatId: number;
       title: string;
@@ -427,6 +521,15 @@ export type Emit = (event: StreamEvent) => Promise<void>;
 
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)}s`;
 
+export const citedSourceNumbers = (prose: string): number[] => [
+  ...new Set(
+    [...prose.matchAll(/\(S(\d+)\)/g)].flatMap((match) => {
+      const value = Number.parseInt(match[1] ?? '', 10);
+      return Number.isInteger(value) ? [value] : [];
+    }),
+  ),
+];
+
 // Run one grounded exchange, streaming honest progress: real pipeline stages
 // with real counts, prose deltas as the model writes them, and structured
 // metadata extracted by a separate call so it can never leak into the prose.
@@ -436,7 +539,13 @@ export const runExchange = async (
   workspaceId: number,
   history: { role: 'user' | 'assistant'; content: string }[],
   question: string,
-  opts: { withTitle?: boolean },
+  opts: {
+    withTitle?: boolean;
+    acceptedAt?: number;
+    inheritedScope?: ChatScope | null;
+    inheritedFromMessageId?: number;
+    onPhase?: (phase: 'gathering' | 'answering' | 'metadata') => Promise<void>;
+  },
   emit: Emit,
 ): Promise<Exchange> => {
   const started = Date.now();
@@ -446,15 +555,20 @@ export const runExchange = async (
     await emit({ type: 'step', label, detail });
   };
 
-  // Default 30 days; the question's own words can pick another window
-  // ("past 7 days", "all time") — disclosed in the step trace either way.
-  const range = detectRange(question) ?? '30d';
-  const digest = await buildDigest(db, workspaceId, range);
+  const scope = resolveChatScope(
+    question,
+    opts.acceptedAt ?? started,
+    opts.inheritedScope,
+    opts.inheritedFromMessageId,
+  );
+  await opts.onPhase?.('gathering');
+  const digest = await buildDigest(db, workspaceId, scope);
   if (!digest) {
     const content =
       'This workspace is not set up yet, so there is no data to talk to. Finish onboarding first.';
     await emit({ type: 'delta', text: content });
     return {
+      status: 'completed',
       content,
       title: null,
       panels: [],
@@ -464,8 +578,20 @@ export const runExchange = async (
       durationMs: Date.now() - started,
       proposal: null,
       sources: [],
+      scope,
+      evidence: [],
+      selectedEvidenceIds: [],
     };
   }
+  const registry = createEvidenceRegistry(digest);
+
+  // The panel emit waits for the first streamed token: the text always leads.
+  // The deferred settles after the answer phase too, so a no-prose exchange
+  // still delivers its scope and panels instead of wedging the final join.
+  let resolveProseStarted: () => void = () => {};
+  const proseStarted = new Promise<void>((resolve) => {
+    resolveProseStarted = resolve;
+  });
   const sections = digest.sections as {
     surfaces: unknown[];
     competitors: unknown[];
@@ -479,10 +605,13 @@ export const runExchange = async (
       `${sections.competitors.length} entities · ${sections.prompts.tracked} prompts · ` +
       `${sections.runs.length} runs · ${sections.sources.topCited.length + sections.sources.gap.length} source domains`,
   );
+  await opts.onPhase?.('answering');
 
   const dataMessage = {
     role: 'system' as const,
-    content: `Workspace data for ${digest.brand}, ${digest.rangeLabel}:\n${JSON.stringify(digest.sections)}`,
+    content:
+      `Evidence E0. Workspace data for ${digest.brand}. ` +
+      `Scope: ${JSON.stringify(digest.scope)}\n${JSON.stringify(digest.sections)}`,
   };
   // The conversation the user can see. It never carries protocol JSON, so the
   // answer phase can be handed it verbatim.
@@ -554,7 +683,17 @@ export const runExchange = async (
         });
         continue;
       }
-      const callKey = `${tool.name}:${JSON.stringify(parsed.args)}`;
+      const scoped = applyToolScope(tool, parsed.args, digest.scope);
+      if (!scoped.ok) {
+        await step(`${tool.name} skipped`, 'outside the question scope');
+        toolMessages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: `Tool ${tool.name} was not run: ${scoped.error}.`,
+        });
+        continue;
+      }
+      const callKey = `${tool.name}:${JSON.stringify(scoped.args)}`;
       if (seenCalls.has(callKey)) {
         await step('skipped a repeated lookup', tool.name);
         toolMessages.push({
@@ -581,9 +720,10 @@ export const runExchange = async (
         env,
         workspaceId,
         tool.name,
-        parsed.args,
+        scoped.args,
         allSources.length,
         knownSourceUrls,
+        digest.scope,
       );
       if (outcome.sources) {
         for (const source of outcome.sources) {
@@ -594,13 +734,21 @@ export const runExchange = async (
         }
       }
       await step(outcome.label, outcome.detail);
+      const record = registerToolEvidence(
+        registry,
+        tool.name,
+        scoped.args,
+        outcome.result,
+        digest.scope,
+        outcome.evidence,
+      );
       toolMessages.push({
         role: 'tool',
         tool_call_id: call.id,
-        content: outcome.result,
+        content: `Evidence ${record.id}:\n${outcome.result}`,
       });
       evidence.push(
-        `${evidence.length + 1}. ${tool.name}(${JSON.stringify(parsed.args)})\n${outcome.result}`,
+        `${record.id}. ${tool.name}(${JSON.stringify(scoped.args)})\n${outcome.result}`,
       );
       spent += tool.cost;
     }
@@ -643,6 +791,44 @@ export const runExchange = async (
         }`,
   );
 
+  const evidenceCatalog = registry.records
+    .map(
+      (record) =>
+        `${record.id}: ${record.tool ?? 'workspace snapshot'}; scope=${record.scope.label}; ` +
+        `panels=${Object.keys(record.panels ?? {}).join(',') || 'none'}; ` +
+        `result=${record.result.slice(0, 500)}`,
+    )
+    .join('\n');
+
+  // The evidence-bound picker runs alongside the answer, but its emit waits
+  // for prose to start. Reconnects replay the same sequenced meta event.
+  const panelsPromise = extractPanels(env, question, evidenceCatalog).then(
+    async (requests) => {
+      const selectedEvidenceIds = selectEvidenceIds(
+        '',
+        requests.map((request) => request.evidenceId),
+        registry,
+      );
+      const resolved = resolveEvidencePanels(
+        registry,
+        selectedEvidenceIds,
+        requests,
+      );
+      const panelData = resolved.panelData ?? {
+        _window: digest.rangeLabel,
+        _scope: digest.scope,
+      };
+      await proseStarted;
+      await step(
+        resolved.panels.length > 0
+          ? 'selected evidence panels'
+          : 'no evidence panels apply',
+        resolved.panels.length > 0 ? resolved.panels.join(', ') : undefined,
+      );
+      await emit({ type: 'meta', panels: resolved.panels, panelData });
+      return { ...resolved, panelData, selectedEvidenceIds };
+    },
+  );
   let prose = '';
   // One step when the reasoning pass starts, not one per chunk: the point is
   // to replace a frozen line with a true statement about what is happening.
@@ -656,6 +842,8 @@ export const runExchange = async (
     const clean = normalizeDashes(delta);
     if (prose.length === 0) {
       await step('writing the answer', 'grounded to the gathered evidence');
+      // The panel pick was emitted against this gate: the text leads.
+      resolveProseStarted();
     }
     prose += clean;
     await emit({ type: 'delta', text: clean });
@@ -674,6 +862,7 @@ export const runExchange = async (
     onDelta,
     onReasoning,
   );
+  let answerTimedOut = first.timedOut;
   console.log('chat answer', {
     ms: Date.now() - answerStartedAt,
     chars: prose.length,
@@ -693,6 +882,7 @@ export const runExchange = async (
       onDelta,
       onReasoning,
     );
+    answerTimedOut = retry.timedOut;
     console.log('chat answer retry', {
       ms: Date.now() - retryStartedAt,
       chars: prose.length,
@@ -703,66 +893,54 @@ export const runExchange = async (
   // Both the metadata call and the stored answer read this cleaned prose, so
   // labels and titles copied from it inherit the dash-free form.
   prose = normalizeDashes(prose);
+  // Settle the panel gate here too: an exchange that produced no prose at all
+  // (the fallback answer) still delivers its panels instead of hanging.
+  resolveProseStarted();
 
-  const meta = await extractMeta(
-    env,
-    question,
+  await opts.onPhase?.('metadata');
+  // The join keeps the tail a max, not a sum: whichever call is slower sets
+  // the wait after the prose, and both usually finish during it.
+  const [pick, meta] = await Promise.all([
+    panelsPromise,
+    extractMeta(env, question, prose, opts.withTitle === true, evidenceCatalog),
+  ]);
+  const selectedEvidenceIds = selectEvidenceIds(
     prose,
-    opts.withTitle === true,
-    allSources.length,
+    [...(meta?.evidenceIds ?? []), ...pick.selectedEvidenceIds],
+    registry,
   );
-  // Only web results the answer says it used become cited sources.
-  const sources: ChatWebSource[] = [...new Set(meta?.webSources ?? [])]
-    .filter((n) => n >= 1 && n <= allSources.length)
-    .slice(0, 6)
-    .flatMap((n) => {
-      const source = allSources[n - 1];
-      // num keeps the S-number the prose cites; the stored list is a subset.
-      return source ? [{ title: source.title, url: source.url, num: n }] : [];
-    });
-  const panels = [
-    ...new Set(
-      (meta?.panels ?? []).filter((p): p is DigestPanel =>
-        (DIGEST_PANELS as readonly string[]).includes(p),
-      ),
-    ),
-  ].slice(0, 2);
+  const sources = evidenceSources(prose, registry).slice(0, 6);
   const links = (meta?.links ?? [])
     .filter((l): l is NonNullable<typeof l> => l !== null && validLink(l.to))
     .map((l) => ({ ...l, label: normalizeDashes(l.label) }))
     .slice(0, 2);
   const durationMs = Date.now() - started;
   await step(
-    panels.length > 0
-      ? `selected evidence panels: ${panels.join(', ')}`
-      : 'no evidence panels apply',
+    'answer ready',
     `${seconds(durationMs)}${sources.length > 0 ? ` · ${sources.length} web sources cited` : ''}`,
   );
 
   const content = prose.trim().slice(0, 4000) || ANSWER_FALLBACK;
   return {
+    status: answerTimedOut ? 'partial' : 'completed',
     content,
     title: opts.withTitle === true ? cleanTitle(meta?.title ?? '') : null,
-    panels,
-    // _window rides along so panels keep displaying the window they were
-    // answered under, even when a later default differs.
-    panelData:
-      panels.length > 0
-        ? {
-            _window: digest.rangeLabel,
-            ...Object.fromEntries(panels.map((p) => [p, digest.sections[p]])),
-          }
-        : null,
+    panels: pick.panels,
+    panelData: pick.panelData,
     links,
     steps,
     durationMs,
     proposal: toProposal(meta),
     sources,
+    scope: digest.scope,
+    evidence: persistedEvidence(registry),
+    selectedEvidenceIds,
   };
 };
 
 export const messageShape = {
   id: chatMessages.id,
+  exchangeId: chatMessages.exchangeId,
   role: chatMessages.role,
   content: chatMessages.content,
   panels: chatMessages.panels,
@@ -772,6 +950,8 @@ export const messageShape = {
   durationMs: chatMessages.durationMs,
   proposal: chatMessages.proposal,
   sources: chatMessages.sources,
+  evidence: chatMessages.evidence,
+  selectedEvidenceIds: chatMessages.selectedEvidenceIds,
   createdAt: chatMessages.createdAt,
 };
 
@@ -786,11 +966,13 @@ export const storeQuestion = async (
   chatId: number,
   question: string,
   receivedAt: number,
+  exchangeId?: string,
 ) => {
   const inserted = (
     await db
       .insert(chatMessages)
       .values({
+        exchangeId,
         chatId,
         role: 'user',
         content: question,
@@ -806,43 +988,6 @@ export const storeQuestion = async (
 };
 
 /**
- * Inserts the answer and returns the question with it. The `done` event has
- * always carried both rows, and the client replaces the thread with them, so
- * returning the answer alone would drop the question the user just sent.
- */
-export const storeAnswer = async (
-  db: Db,
-  chatId: number,
-  exchange: Exchange,
-) => {
-  await db.insert(chatMessages).values({
-    chatId,
-    role: 'assistant',
-    content: exchange.content,
-    panels: exchange.panels,
-    panelData: exchange.panelData,
-    links: exchange.links,
-    steps: exchange.steps,
-    durationMs: exchange.durationMs,
-    proposal: exchange.proposal,
-    sources: exchange.sources.length > 0 ? exchange.sources : null,
-    createdAt: Date.now(),
-  });
-  await db
-    .update(chats)
-    .set({ updatedAt: Date.now() })
-    .where(eq(chats.id, chatId));
-  return (
-    await db
-      .select(messageShape)
-      .from(chatMessages)
-      .where(eq(chatMessages.chatId, chatId))
-      .orderBy(desc(chatMessages.id))
-      .limit(2)
-  ).reverse();
-};
-
-/**
  * A failed or timed-out exchange still owes the reader an answer row. Without
  * one the thread ends on the question and the UI cannot tell "still running"
  * from "died", which is exactly what a wedged exchange looked like in prod.
@@ -850,26 +995,46 @@ export const storeAnswer = async (
 export const storeFailure = async (
   db: Db,
   chatId: number,
+  exchangeId: string | null,
   message: string,
   steps: ChatStep[],
   durationMs: number,
 ) => {
-  const inserted = await db
-    .insert(chatMessages)
-    .values({
-      chatId,
-      role: 'assistant',
-      content: message,
-      panels: [],
-      links: [],
-      steps,
-      durationMs,
-      createdAt: Date.now(),
-    })
-    .returning(messageShape);
+  const values = {
+    exchangeId,
+    chatId,
+    role: 'assistant' as const,
+    content: message,
+    panels: [],
+    links: [],
+    steps,
+    durationMs,
+    createdAt: Date.now(),
+  };
+  if (exchangeId === null) {
+    await db.insert(chatMessages).values(values);
+  } else {
+    await db
+      .insert(chatMessages)
+      .values(values)
+      .onConflictDoNothing({
+        target: [chatMessages.exchangeId, chatMessages.role],
+      });
+  }
   await db
     .update(chats)
     .set({ updatedAt: Date.now() })
     .where(eq(chats.id, chatId));
-  return inserted;
+  return exchangeId === null
+    ? db
+        .select(messageShape)
+        .from(chatMessages)
+        .where(eq(chatMessages.chatId, chatId))
+        .orderBy(desc(chatMessages.id))
+        .limit(1)
+    : db
+        .select(messageShape)
+        .from(chatMessages)
+        .where(eq(chatMessages.exchangeId, exchangeId))
+        .orderBy(chatMessages.id);
 };

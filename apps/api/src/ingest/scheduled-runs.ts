@@ -4,9 +4,9 @@ import {
   parseRunSchedule,
 } from '@refd/core/schedule';
 import { scheduledMonitoringEligible } from '@refd/core/workspaces';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { getDb } from '../db/client';
-import { runs, workspaces } from '../db/schema';
+import { runs, users, workspaces } from '../db/schema';
 import type { AppEnv } from '../env';
 import { createRun } from './runs';
 
@@ -24,7 +24,9 @@ export const runScheduledWorkspaces = async (env: AppEnv): Promise<void> => {
       monitoringTier: workspaces.monitoringTier,
       monitoringEndsAt: workspaces.monitoringEndsAt,
     })
-    .from(workspaces);
+    .from(workspaces)
+    .innerJoin(users, eq(workspaces.ownerUserId, users.id))
+    .where(and(isNull(workspaces.deletingAt), isNull(users.deletingAt)));
   const eligible = candidates.filter((workspace) =>
     scheduledMonitoringEligible(
       workspace,

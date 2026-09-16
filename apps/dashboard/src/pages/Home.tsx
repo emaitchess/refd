@@ -1,3 +1,9 @@
+import {
+  type ChatExchangeSummary,
+  type ChatStartResponse,
+  chatEvidenceRecordSchema,
+  isActiveChatExchange,
+} from '@refd/core/chat';
 import { normalizeDashes } from '@refd/core/dashes';
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
@@ -20,6 +26,7 @@ import {
   apiExchange,
   useAsyncAction,
   useQuery,
+  watchChatExchange,
 } from '@/lib/api';
 import { collectLinkedSources, rehypeLinkSources } from '@/lib/citations';
 import { clockTime, dayLabel, relativeTime, timestamp } from '@/lib/format';
@@ -54,6 +61,7 @@ const utcDay = (epochMs: number): string =>
 // discards an otherwise usable answer.
 const chatMessage = z.object({
   id: z.number().int(),
+  exchangeId: z.string().uuid().nullable().catch(null),
   role: z.enum(['user', 'assistant']),
   content: z.string().transform((s) => s.slice(0, 20000)),
   panels: z.array(z.string()).nullable().catch(null),
@@ -121,8 +129,19 @@ const chatMessage = z.object({
         title: z.string().transform((s) => s.slice(0, 200)),
         url: z.string().transform((s) => s.slice(0, 2048)),
         num: z.number().int().positive().optional().catch(undefined),
+        evidenceId: z
+          .string()
+          .regex(/^E\d+$/)
+          .optional()
+          .catch(undefined),
       }),
     )
+    .nullable()
+    .catch(null),
+  evidence: z.array(chatEvidenceRecordSchema).max(31).nullable().catch(null),
+  selectedEvidenceIds: z
+    .array(z.string().regex(/^E\d+$/))
+    .max(31)
     .nullable()
     .catch(null),
   createdAt: z.number(),
@@ -133,6 +152,13 @@ const doneFrame = z.object({
   title: z.string().catch(''),
   messages: z.array(chatMessage).min(1),
 });
+
+interface ChatThread {
+  chatId: number;
+  title: string;
+  messages: ChatMessage[];
+  exchange: ChatExchangeSummary | null;
+}
 
 // The honest work trace: real pipeline stages with real counts. Live it
 // renders as a growing list; once prose is streaming it collapses to the
@@ -223,6 +249,14 @@ const AssistantMessage = ({
     () => collectLinkedSources(message.sources),
     [message.sources],
   );
+  const selectedEvidence = useMemo(() => {
+    const selected = new Set(message.selectedEvidenceIds ?? []);
+    return (message.evidence ?? []).filter(
+      (record) =>
+        selected.has(record.id) &&
+        !record.provenance.some((item) => item.kind === 'web'),
+    );
+  }, [message.evidence, message.selectedEvidenceIds]);
   const copy = () => {
     void navigator.clipboard.writeText(content).then(() => {
       setCopied(true);
@@ -268,6 +302,37 @@ const AssistantMessage = ({
                 </li>
               ) : null,
             )}
+          </ul>
+        </div>
+      ) : null}
+      {selectedEvidence.length > 0 ? (
+        <div className="mt-3">
+          <p className="font-mono text-[10px] text-muted uppercase tracking-[0.08em]">
+            evidence
+          </p>
+          <ul className="mt-1 flex flex-col gap-0.5">
+            {selectedEvidence.map((record) => {
+              const result = record.provenance.find(
+                (item) => item.kind === 'result',
+              );
+              const label = `${record.id} · ${record.tool ?? 'workspace snapshot'} · ${record.scope.label}`;
+              return (
+                <li key={record.id}>
+                  {result?.kind === 'result' ? (
+                    <Link
+                      to={`/runs/${result.runId}?result=${result.resultId}`}
+                      className="font-mono text-[11px] text-secondary underline-offset-2 transition-colors hover:text-primary hover:underline"
+                    >
+                      {label}
+                    </Link>
+                  ) : (
+                    <span className="font-mono text-[11px] text-secondary">
+                      {label}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
       ) : null}
@@ -332,10 +397,13 @@ export const Home = () => {
   // The in-flight answer: steps and prose accumulate as stream events arrive,
   // then the stored message pair replaces the whole thing. `since` names when
   // the newest step arrived, so the wait is measured from the last real event
-  // rather than from the start of the whole exchange.
+  // rather than from the start of the whole exchange. The picked panels ride
+  // a meta event so the generative UI lands with the streaming text.
   const [live, setLive] = useState<{
     steps: ChatStep[];
     content: string;
+    panels: string[] | null;
+    panelData: Record<string, unknown> | null;
     since: number;
   } | null>(null);
   const [input, setInput] = useState('');
@@ -352,11 +420,17 @@ export const Home = () => {
   // thread then.
   const [detached, setDetached] = useState<{
     id: number;
+    exchangeId: string;
     mode: 'stopped' | 'dropped';
     since: number;
   } | null>(null);
   const pollTokenRef = useRef(0);
+  const streamGenerationRef = useRef(0);
+  const cancelRequestedRef = useRef(false);
   const stopRef = useRef<AbortController | null>(null);
+  const exchangeRef = useRef<{ chatId: number; exchangeId: string } | null>(
+    null,
+  );
   const [announce, setAnnounce] = useState('');
   const { busy, error, setError, run } = useAsyncAction();
   const openAction = useAsyncAction();
@@ -431,50 +505,168 @@ export const Home = () => {
     }
   }, [searchParams, chatId, setSearchParams]);
 
-  // Load the thread the URL names; skip when it is the one already in state
-  // (the just-created chat navigates here with its messages in hand).
+  // Load the thread the URL names and resume its persisted active exchange.
   const { run: runOpen } = openAction;
   useEffect(() => {
+    const generation = ++streamGenerationRef.current;
+    let resumeController: AbortController | null = null;
+    stopRef.current?.abort();
+    stopRef.current = null;
+    exchangeRef.current = null;
+    pollTokenRef.current += 1;
+    setLive(null);
+    setDetached(null);
     if (chatId === null) {
       setLoadedId(null);
       setTitle('');
       setMessages([]);
-      setDetached(null);
-      return;
-    }
-    if (chatId === loadedId) {
       return;
     }
     void runOpen(async () => {
-      const res = await api<{
-        chatId: number;
-        title: string;
-        messages: ChatMessage[];
-      }>(`/chat/${chatId}`);
+      const res = await api<ChatThread>(`/chat/${chatId}`);
+      if (streamGenerationRef.current !== generation) {
+        return;
+      }
       setLoadedId(res.chatId);
       setTitle(res.title);
       setMessages(res.messages);
       setDetached(null);
+      const exchange = res.exchange;
+      if (!exchange || !isActiveChatExchange(exchange.status)) {
+        exchangeRef.current = null;
+        return;
+      }
+      const question = res.messages.find(
+        (message) => message.id === exchange.questionId,
+      );
+      if (question?.role !== 'user') {
+        return;
+      }
+      const started: ChatStartResponse = {
+        chatId: res.chatId,
+        title: res.title,
+        exchange,
+        question: {
+          id: question.id,
+          role: 'user',
+          content: question.content,
+          createdAt: question.createdAt,
+        },
+      };
+      const controller = new AbortController();
+      resumeController = controller;
+      stopRef.current = controller;
+      exchangeRef.current = {
+        chatId: res.chatId,
+        exchangeId: exchange.id,
+      };
+      setLive({
+        steps: [],
+        content: '',
+        panels: null,
+        panelData: null,
+        since: Date.now(),
+      });
+      void watchChatExchange(
+        started,
+        (event) => {
+          if (
+            activeChatRef.current !== res.chatId ||
+            streamGenerationRef.current !== generation
+          ) {
+            return;
+          }
+          if (event.type === 'step') {
+            setLive((current) =>
+              current
+                ? {
+                    ...current,
+                    steps: [
+                      ...current.steps,
+                      event.detail === undefined
+                        ? { label: event.label }
+                        : { label: event.label, detail: event.detail },
+                    ],
+                    since: Date.now(),
+                  }
+                : current,
+            );
+          } else if (event.type === 'delta') {
+            setLive((current) =>
+              current
+                ? { ...current, content: current.content + event.text }
+                : current,
+            );
+          }
+        },
+        { signal: controller.signal },
+      )
+        .then(async (outcome) => {
+          if (
+            activeChatRef.current !== res.chatId ||
+            streamGenerationRef.current !== generation
+          ) {
+            return;
+          }
+          if (outcome.detached && !controller.signal.aborted) {
+            setDetached({
+              id: res.chatId,
+              exchangeId: exchange.id,
+              mode: 'dropped',
+              since: Date.now(),
+            });
+            pollForStoredPair(res.chatId, exchange.id);
+            return;
+          }
+          const current = await api<ChatThread>(`/chat/${res.chatId}`);
+          if (
+            activeChatRef.current === res.chatId &&
+            streamGenerationRef.current === generation
+          ) {
+            setTitle(current.title);
+            setMessages(current.messages);
+            listQ.refetch();
+          }
+        })
+        .finally(() => {
+          if (
+            streamGenerationRef.current === generation &&
+            stopRef.current === controller
+          ) {
+            stopRef.current = null;
+          }
+          if (
+            streamGenerationRef.current === generation &&
+            exchangeRef.current?.exchangeId === exchange.id
+          ) {
+            exchangeRef.current = null;
+          }
+          if (
+            activeChatRef.current === res.chatId &&
+            streamGenerationRef.current === generation
+          ) {
+            setLive(null);
+          }
+        });
     });
-  }, [chatId, loadedId, runOpen, setDetached]);
+    return () => {
+      if (streamGenerationRef.current === generation) {
+        streamGenerationRef.current += 1;
+      }
+      resumeController?.abort();
+    };
+  }, [chatId, runOpen, setDetached]);
 
   // After a detach (stop, or a dropped socket) the exchange keeps running
   // server-side; poll until the stored pair lands in D1, then refill the
   // thread with the real answer. Only an assistant row written after this
   // exchange's question counts: any older assistant row is a previous turn.
   // 35 x 10s clears the server's 5-minute exchange alarm.
-  const pollForStoredPair = (id: number, questionId: number | null) => {
+  const pollForStoredPair = (id: number, exchangeId: string) => {
     const token = ++pollTokenRef.current;
     let attempt = 0;
-    const fetchThread = () =>
-      api<{ chatId: number; title: string; messages: ChatMessage[] }>(
-        `/chat/${id}`,
-      );
-    const land = (res: {
-      chatId: number;
-      title: string;
-      messages: ChatMessage[];
-    }) => {
+    const fetchThread = () => api<ChatThread>(`/chat/${id}`);
+    const land = (res: ChatThread) => {
       setDetached(null);
       if (activeChatRef.current === id && res.messages.length > 0) {
         setTitle(res.title);
@@ -491,11 +683,13 @@ export const Home = () => {
             return;
           }
           const answered = res.messages.some(
-            (m) =>
-              m.role === 'assistant' &&
-              (questionId === null || m.id > questionId),
+            (message) =>
+              message.role === 'assistant' && message.exchangeId === exchangeId,
           );
-          if (!answered && attempt < 35) {
+          const terminal =
+            res.exchange?.id === exchangeId &&
+            !isActiveChatExchange(res.exchange.status);
+          if (!answered && !terminal && attempt < 35) {
             window.setTimeout(next, 10_000);
             return;
           }
@@ -522,9 +716,11 @@ export const Home = () => {
 
   const send = (raw: string) => {
     const text = raw.trim();
-    if (!text || busy) {
+    if (!text || busy || live !== null) {
       return;
     }
+    const generation = ++streamGenerationRef.current;
+    cancelRequestedRef.current = false;
     setInput('');
     inputRef.current?.focus();
     followRef.current = true;
@@ -538,6 +734,7 @@ export const Home = () => {
       ...current,
       {
         id: -Date.now(),
+        exchangeId: null,
         role: 'user',
         content: text,
         panels: null,
@@ -547,10 +744,18 @@ export const Home = () => {
         durationMs: null,
         proposal: null,
         sources: null,
+        evidence: null,
+        selectedEvidenceIds: null,
         createdAt: Date.now(),
       },
     ]);
-    setLive({ steps: [], content: '', since: Date.now() });
+    setLive({
+      steps: [],
+      content: '',
+      panels: null,
+      panelData: null,
+      since: Date.now(),
+    });
     setDetached(null);
     const controller = new AbortController();
     stopRef.current = controller;
@@ -561,6 +766,9 @@ export const Home = () => {
           path,
           { message: text },
           (event) => {
+            if (streamGenerationRef.current !== generation) {
+              return;
+            }
             if (event.type === 'step' && typeof event.label === 'string') {
               const step: ChatStep = {
                 label: event.label,
@@ -581,12 +789,50 @@ export const Home = () => {
               setLive((cur) =>
                 cur ? { ...cur, content: cur.content + delta } : cur,
               );
+            } else if (event.type === 'meta') {
+              // Lenient intake: a drifted field degrades to no panels, the
+              // stored pair still renders them the old way at the done swap.
+              const panels = Array.isArray(event.panels)
+                ? event.panels.filter((p): p is string => typeof p === 'string')
+                : [];
+              const panelData =
+                typeof event.panelData === 'object' && event.panelData !== null
+                  ? (event.panelData as Record<string, unknown>)
+                  : null;
+              setLive((cur) => (cur ? { ...cur, panels, panelData } : cur));
             }
           },
-          { signal: controller.signal },
+          {
+            signal: controller.signal,
+            onAccepted: (started) => {
+              if (streamGenerationRef.current !== generation) {
+                return;
+              }
+              exchangeRef.current = {
+                chatId: started.chatId,
+                exchangeId: started.exchange.id,
+              };
+              if (cancelRequestedRef.current || controller.signal.aborted) {
+                void api(
+                  `/chat/${started.chatId}/exchanges/${started.exchange.id}/cancel`,
+                  { method: 'POST' },
+                ).catch(() => {});
+              }
+            },
+          },
         );
+        if (streamGenerationRef.current !== generation) {
+          return;
+        }
         if (outcome.failure !== null) {
-          throw new ApiError(500, outcome.failure);
+          const current = await api<ChatThread>(`/chat/${outcome.chatId}`);
+          if (activeChatRef.current === outcome.chatId) {
+            setTitle(current.title);
+            setMessages(current.messages);
+          }
+          setAnnounce(outcome.failure);
+          listQ.refetch();
+          return;
         }
         if (outcome.detached) {
           const id = outcome.chatId || chatId;
@@ -597,7 +843,12 @@ export const Home = () => {
           // bubble and land the stored pair by polling. Rolling the input
           // back would invite a duplicate question.
           const mode = controller.signal.aborted ? 'stopped' : 'dropped';
-          setDetached({ id, mode, since: Date.now() });
+          setDetached({
+            id,
+            exchangeId: outcome.exchangeId,
+            mode,
+            since: Date.now(),
+          });
           if (mode === 'dropped') {
             setAnnounce(
               'the live stream dropped; the answer will land here when it finishes',
@@ -607,7 +858,7 @@ export const Home = () => {
             setLoadedId(id);
             navigate(`/home/${id}`, { replace: true });
           }
-          pollForStoredPair(id, outcome.questionId);
+          pollForStoredPair(id, outcome.exchangeId);
           listQ.refetch();
           return;
         }
@@ -623,8 +874,6 @@ export const Home = () => {
         const answerText = finished.messages.at(-1)?.content ?? '';
         setAnnounce(`answer ready: ${answerText.slice(0, 120)}`);
         if (chatId === null) {
-          // State first, then the URL: loadedId matching the new param stops
-          // the loader effect from refetching what is already in hand.
           setLoadedId(answerId || null);
           setTitle(finished.title);
           setMessages(finished.messages);
@@ -640,20 +889,33 @@ export const Home = () => {
         suggestionsQ.refetch();
         listQ.refetch();
       } catch (cause) {
+        if (streamGenerationRef.current !== generation) {
+          return;
+        }
         // Roll the optimistic bubble back so the thread matches the server.
         setMessages((current) => current.filter((m) => m.id > 0));
         setInput(text);
         setAnnounce('answering failed');
         throw cause;
       } finally {
-        stopRef.current = null;
-        setLive(null);
+        if (streamGenerationRef.current === generation) {
+          stopRef.current = null;
+          exchangeRef.current = null;
+          setLive(null);
+        }
       }
     });
   };
 
   const stop = () => {
+    const active = exchangeRef.current;
+    cancelRequestedRef.current = true;
     stopRef.current?.abort();
+    if (active) {
+      void api(`/chat/${active.chatId}/exchanges/${active.exchangeId}/cancel`, {
+        method: 'POST',
+      }).catch(() => {});
+    }
   };
 
   const jumpToLatest = () => {
@@ -663,13 +925,30 @@ export const Home = () => {
   };
 
   const openChat = (id: number) => {
+    streamGenerationRef.current += 1;
+    pollTokenRef.current += 1;
+    stopRef.current?.abort();
+    stopRef.current = null;
+    exchangeRef.current = null;
+    cancelRequestedRef.current = false;
+    setLive(null);
+    setDetached(null);
+    setLoadedId(null);
     setError(null);
     navigate(`/home/${id}`);
   };
 
   const newChat = () => {
+    streamGenerationRef.current += 1;
+    pollTokenRef.current += 1;
+    stopRef.current?.abort();
+    stopRef.current = null;
+    exchangeRef.current = null;
+    cancelRequestedRef.current = false;
+    setLive(null);
     setError(null);
     setDetached(null);
+    setLoadedId(null);
     navigate('/home');
     suggestionsQ.refetch();
     inputRef.current?.focus();
@@ -734,18 +1013,19 @@ export const Home = () => {
         autoFocus={autoFocus}
         className="w-full resize-none bg-transparent px-4 pt-3 text-[14px] text-primary outline-none placeholder:text-muted"
       />
-      <div className="flex items-center justify-between gap-3 px-3 pb-2.5">
-        <span className="min-w-0 font-mono text-[10px] text-muted uppercase tracking-[0.08em]">
-          your data plus web research · last 30 days unless you name a range
-          {input.length > 800 ? ` · ${1000 - input.length} left` : ''}
-        </span>
-        {busy ? (
+      <div className="flex items-center justify-end gap-3 px-3 pb-2.5">
+        {input.length > 800 ? (
+          <span className="font-mono text-[10px] text-muted uppercase tracking-[0.08em]">
+            {1000 - input.length} left
+          </span>
+        ) : null}
+        {busy || live !== null ? (
           <button
             type="button"
             onClick={stop}
             className="btn-secondary h-8 shrink-0 px-3 font-mono text-[12px]"
           >
-            stop
+            cancel
           </button>
         ) : (
           <button
@@ -862,7 +1142,7 @@ export const Home = () => {
   }
 
   return (
-    <div className="mx-auto flex min-h-[calc(100svh-8rem)] w-full max-w-[860px] flex-col py-6">
+    <div className="mx-auto -mb-4 flex min-h-[calc(100svh-4rem)] w-full max-w-[860px] flex-col pt-6 sm:-mb-6 sm:min-h-[calc(100svh-4.5rem)] lg:min-h-[calc(100svh-1.5rem)]">
       <div className="flex items-center justify-between gap-3 border-border border-b pb-3">
         <div className="flex min-w-0 items-center gap-2">
           <Tooltip
@@ -953,6 +1233,16 @@ export const Home = () => {
                 <Elapsed since={live.since} />
               </p>
             )}
+            {live.panels !== null ? (
+              <ChatPanels panels={live.panels} panelData={live.panelData} />
+            ) : live.content ? (
+              // The picker is still running behind the prose: hold the shape
+              // where the panels will land so the swap does not shift layout.
+              <div
+                className="mt-3 h-24 border border-border bg-bg-card opacity-60"
+                aria-hidden
+              />
+            ) : null}
           </div>
         ) : null}
         {detached !== null ? (
@@ -961,7 +1251,7 @@ export const Home = () => {
             <span>
               {detached.mode === 'dropped'
                 ? 'still answering · the stream dropped, the answer will land here when it finishes'
-                : 'stopped watching · the answer lands here when it finishes'}
+                : 'cancellation requested'}
             </span>
             {detached.mode === 'dropped' ? (
               <Elapsed since={detached.since} />

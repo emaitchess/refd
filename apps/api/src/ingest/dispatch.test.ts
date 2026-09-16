@@ -33,6 +33,10 @@ const MIGRATIONS = [
   '0008_tricky_war_machine.sql',
   '0009_amazing_hydra.sql',
   '0010_nostalgic_swarm.sql',
+  '0011_spotty_hairball.sql',
+  '0012_youthful_yellow_claw.sql',
+  '0013_skinny_mindworm.sql',
+  '0014_calm_tomorrow_man.sql',
 ];
 
 interface Fixture {
@@ -115,6 +119,26 @@ const triggerSurfaces = (sent: IngestMessage[]): string[] =>
   sent.flatMap((m) => (m.kind === 'brightdata_trigger' ? [m.surface] : []));
 
 describe('run dispatch state machine', () => {
+  test('a workspace deletion fence prevents new provider dispatch', async () => {
+    const f = await setup();
+    const ws = await seedWorkspace(f.db);
+    await f.db
+      .update(workspaces)
+      .set({ deletingAt: Date.now() })
+      .where(eq(workspaces.id, ws.wsId));
+    await expect(
+      createRunWith(
+        f.db,
+        f.env,
+        ws.wsId,
+        'cron',
+        'cron:1:2026-09-08',
+        '2026-09-08',
+      ),
+    ).rejects.toThrow('workspace 1 not found');
+    expect(f.sent).toEqual([]);
+  });
+
   test('a failed queue submission strands the run, and a same-key retry resumes it without a second run', async () => {
     const f = await setup();
     const ws = await seedWorkspace(f.db);

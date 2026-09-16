@@ -114,7 +114,7 @@ export const rescoreStoredResult = async (
     },
     answer,
     entitiesToScore,
-    { durationMs: row.durationMs },
+    { durationMs: row.durationMs, writeRaw: false },
   );
   for (const prior of priorSentiments) {
     if (prior.sentiment === null) {

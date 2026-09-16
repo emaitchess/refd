@@ -27,7 +27,13 @@ export const requireAuth = createMiddleware<AuthedBindings>(async (c, next) => {
   const row = await db.select().from(users).where(eq(users.id, claims.sub));
   const user = row[0];
   // tokenVersion mismatch = session revoked (password change, forced logout).
-  if (!user || user.tokenVersion !== claims.tv) {
+  const deletionRetry =
+    c.req.method === 'DELETE' && c.req.path === '/auth/account';
+  if (
+    !user ||
+    user.tokenVersion !== claims.tv ||
+    (user.deletingAt !== null && !deletionRetry)
+  ) {
     return c.json({ error: 'unauthenticated' }, 401);
   }
   if (shouldRenew(claims)) {
@@ -64,7 +70,11 @@ export const requireWorkspace = createMiddleware<WorkspaceBindings>(
     const workspace = (
       await db.select().from(workspaces).where(eq(workspaces.id, id))
     )[0];
-    if (!workspace || workspace.ownerUserId !== c.get('user').id) {
+    if (
+      !workspace ||
+      workspace.ownerUserId !== c.get('user').id ||
+      workspace.deletingAt !== null
+    ) {
       return c.json({ error: 'workspace not found' }, 404);
     }
     c.set('workspace', { id: workspace.id, name: workspace.name });

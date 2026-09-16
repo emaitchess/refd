@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { type Db, getDb } from '../db/client';
 import {
   entities,
@@ -144,7 +144,13 @@ export const createRunWith = async (
       })
       .from(workspaces)
       .innerJoin(users, eq(workspaces.ownerUserId, users.id))
-      .where(eq(workspaces.id, workspaceId))
+      .where(
+        and(
+          eq(workspaces.id, workspaceId),
+          isNull(workspaces.deletingAt),
+          isNull(users.deletingAt),
+        ),
+      )
   )[0];
   if (!ws) {
     throw new Error(`workspace ${workspaceId} not found`);
