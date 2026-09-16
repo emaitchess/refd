@@ -535,6 +535,37 @@ export const runExchange = async (
       sources: [],
     };
   }
+
+  // The panel pick starts immediately, so its latency is absorbed by the
+  // gathering phase, but the emit waits for the first streamed token: the
+  // text always leads and the panels land as support for it, never before
+  // it. The deferred settles after the answer phase too, so a no-prose
+  // exchange still delivers its panels instead of wedging the join below.
+  let resolveProseStarted: () => void = () => {};
+  const proseStarted = new Promise<void>((resolve) => {
+    resolveProseStarted = resolve;
+  });
+  const panelsPromise = extractPanels(env, question, digest).then(
+    async (picked) => {
+      const panelData =
+        picked.length > 0
+          ? {
+              _window: digest.rangeLabel,
+              ...Object.fromEntries(picked.map((p) => [p, digest.sections[p]])),
+            }
+          : null;
+      await proseStarted;
+      await step(
+        picked.length > 0
+          ? 'selected evidence panels'
+          : 'no evidence panels apply',
+        picked.length > 0 ? picked.join(', ') : undefined,
+      );
+      await emit({ type: 'meta', panels: picked, panelData });
+      return { panels: picked, panelData };
+    },
+  );
+
   const sections = digest.sections as {
     surfaces: unknown[];
     competitors: unknown[];
@@ -712,31 +743,6 @@ export const runExchange = async (
         }`,
   );
 
-  // The panel picker races the prose: it reads the question and the digest
-  // (the same payload the answer model sees), so the generative UI is
-  // emitted while the text is still streaming. Its emit chain settles before
-  // runExchange returns (the join below), so the meta event can never land
-  // after the done frame.
-  const panelsPromise = extractPanels(env, question, digest).then(
-    async (picked) => {
-      const panelData =
-        picked.length > 0
-          ? {
-              _window: digest.rangeLabel,
-              ...Object.fromEntries(picked.map((p) => [p, digest.sections[p]])),
-            }
-          : null;
-      await step(
-        picked.length > 0
-          ? 'selected evidence panels'
-          : 'no evidence panels apply',
-        picked.length > 0 ? picked.join(', ') : undefined,
-      );
-      await emit({ type: 'meta', panels: picked, panelData });
-      return { panels: picked, panelData };
-    },
-  );
-
   let prose = '';
   // One step when the reasoning pass starts, not one per chunk: the point is
   // to replace a frozen line with a true statement about what is happening.
@@ -750,6 +756,8 @@ export const runExchange = async (
     const clean = normalizeDashes(delta);
     if (prose.length === 0) {
       await step('writing the answer', 'grounded to the gathered evidence');
+      // The panel pick was emitted against this gate: the text leads.
+      resolveProseStarted();
     }
     prose += clean;
     await emit({ type: 'delta', text: clean });
@@ -797,6 +805,9 @@ export const runExchange = async (
   // Both the metadata call and the stored answer read this cleaned prose, so
   // labels and titles copied from it inherit the dash-free form.
   prose = normalizeDashes(prose);
+  // Settle the panel gate here too: an exchange that produced no prose at all
+  // (the fallback answer) still delivers its panels instead of hanging.
+  resolveProseStarted();
 
   // The join keeps the tail a max, not a sum: whichever call is slower sets
   // the wait after the prose, and both usually finish during it.
