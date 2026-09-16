@@ -332,10 +332,13 @@ export const Home = () => {
   // The in-flight answer: steps and prose accumulate as stream events arrive,
   // then the stored message pair replaces the whole thing. `since` names when
   // the newest step arrived, so the wait is measured from the last real event
-  // rather than from the start of the whole exchange.
+  // rather than from the start of the whole exchange. The picked panels ride
+  // a meta event so the generative UI lands with the streaming text.
   const [live, setLive] = useState<{
     steps: ChatStep[];
     content: string;
+    panels: string[] | null;
+    panelData: Record<string, unknown> | null;
     since: number;
   } | null>(null);
   const [input, setInput] = useState('');
@@ -550,7 +553,13 @@ export const Home = () => {
         createdAt: Date.now(),
       },
     ]);
-    setLive({ steps: [], content: '', since: Date.now() });
+    setLive({
+      steps: [],
+      content: '',
+      panels: null,
+      panelData: null,
+      since: Date.now(),
+    });
     setDetached(null);
     const controller = new AbortController();
     stopRef.current = controller;
@@ -581,6 +590,17 @@ export const Home = () => {
               setLive((cur) =>
                 cur ? { ...cur, content: cur.content + delta } : cur,
               );
+            } else if (event.type === 'meta') {
+              // Lenient intake: a drifted field degrades to no panels, the
+              // stored pair still renders them the old way at the done swap.
+              const panels = Array.isArray(event.panels)
+                ? event.panels.filter((p): p is string => typeof p === 'string')
+                : [];
+              const panelData =
+                typeof event.panelData === 'object' && event.panelData !== null
+                  ? (event.panelData as Record<string, unknown>)
+                  : null;
+              setLive((cur) => (cur ? { ...cur, panels, panelData } : cur));
             }
           },
           { signal: controller.signal },
@@ -954,6 +974,16 @@ export const Home = () => {
                 <Elapsed since={live.since} />
               </p>
             )}
+            {live.panels !== null ? (
+              <ChatPanels panels={live.panels} panelData={live.panelData} />
+            ) : live.content ? (
+              // The picker is still running behind the prose: hold the shape
+              // where the panels will land so the swap does not shift layout.
+              <div
+                className="mt-3 h-24 border border-border bg-bg-card opacity-60"
+                aria-hidden
+              />
+            ) : null}
           </div>
         ) : null}
         {detached !== null ? (
