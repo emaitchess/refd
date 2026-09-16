@@ -556,11 +556,17 @@ html:has(.landing-shell) {
   .md-body p {
     @apply my-1.5;
   }
+  .md-body > :first-child {
+    @apply mt-0;
+  }
+  .md-body > :last-child {
+    @apply mb-0;
+  }
   .md-body :is(ul, ol) {
     @apply my-1.5 pl-5;
   }
   .md-body ul {
-    @apply list-disc;
+    @apply list-disc marker:text-muted;
   }
   .md-body ol {
     @apply list-decimal;
@@ -577,6 +583,9 @@ html:has(.landing-shell) {
   .md-body blockquote {
     @apply my-2 border-l-2 border-border-strong pl-3 text-muted;
   }
+  .md-body hr {
+    @apply my-3 border-t border-border;
+  }
   .md-body table {
     @apply my-2 w-full border-collapse text-[12px];
   }
@@ -587,7 +596,7 @@ html:has(.landing-shell) {
     @apply bg-bg-elevated font-mono text-[11px] uppercase tracking-[0.08em] text-muted;
   }
   .md-body strong {
-    @apply font-[550] text-primary;
+    @apply font-[600] text-primary;
   }
   /* Markdown links in model prose: scheme-checked upstream, styled here so
      they never fall back to the browser's default link blue. */
@@ -595,9 +604,11 @@ html:has(.landing-shell) {
     @apply text-primary underline decoration-border-strong underline-offset-2
       transition-colors hover:decoration-primary;
   }
+  /* Citation markers (S2) read as footnote references: raised, small, quiet
+     until hover, so the prose line stays the scannable surface. */
   .md-source-ref {
-    @apply font-mono text-[11px] no-underline decoration-border-strong
-      underline-offset-2 transition-colors hover:underline;
+    @apply font-mono text-[10px] align-super text-muted no-underline
+      underline-offset-2 transition-colors hover:text-primary hover:underline;
   }
   .input {
     @apply h-9 w-full bg-bg border border-border px-3 text-[14px] text-primary

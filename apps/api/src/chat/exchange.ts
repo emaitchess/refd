@@ -218,9 +218,13 @@ const systemPrompt = (): string =>
   'are independent signals. A missing Google AI Overview is normal. Sentiment ' +
   'values are counts of classified mentions; derive shares before writing ' +
   'percentages.\n' +
-  '- Write 2 to 5 sentences of plain markdown prose, no headings and no JSON ' +
-  'in the prose. Do not recite whole tables; the app renders the supporting ' +
-  'data panels alongside your answer.\n' +
+  '- Write plain markdown that scans at a glance: lead with the direct ' +
+  'answer in one short sentence, bold the verdict words and the numbers ' +
+  'the answer turns on (like **no**, **0%**, **4 of 25**), and enumerate ' +
+  'prompts or pages as a short bullet list rather than a packed sentence, ' +
+  'quoting at most one prompt verbatim. No headings, no JSON in the prose; ' +
+  'keep the whole answer tight. Do not recite whole tables; the app ' +
+  'renders the supporting data panels alongside your answer.\n' +
   '- Web results in the evidence are numbered S1, S2, ...: cite one in prose ' +
   'like (S2) only if you actually used it. The other numbered items are tool ' +
   'results, never citations; when there are no web results, use no citation ' +
