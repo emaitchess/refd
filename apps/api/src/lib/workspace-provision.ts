@@ -25,16 +25,16 @@ export const provisionWorkspace = async (
   const config = configForUser(user.email, env.ADMIN_EMAILS);
   const limit = config.limits.maxWorkspaces;
   const tier = defaultMonitoringTier(config.isAdmin);
-  const keyClause = provisioningKey
-    ? 'not exists (select 1 from workspaces where provisioning_key = ?)'
-    : '? is null';
-  const keyBindings = provisioningKey ? [provisioningKey] : [];
   // Keep the count guard and insert in one statement so concurrent requests
   // cannot both pass a stale preflight count.
   const row = await env.DB.prepare(
     `insert into workspaces (name, owner_user_id, monitoring_tier, provisioning_key)
      select ?, ?, ?, ?
-     where (${keyClause}) and (? is null or (
+     where exists (
+       select 1 from users where id = ? and deleting_at is null
+     ) and (? is null or not exists (
+       select 1 from workspaces where provisioning_key = ?
+     )) and (? is null or (
        select count(*) from workspaces where owner_user_id = ?
      ) < ?)
      returning id, name`,
@@ -44,7 +44,9 @@ export const provisionWorkspace = async (
       user.id,
       tier,
       provisioningKey,
-      ...keyBindings,
+      user.id,
+      provisioningKey,
+      provisioningKey,
       limit,
       user.id,
       limit,

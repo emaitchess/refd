@@ -2,9 +2,10 @@
 // truth: it generates the JSON Schema the model reads and validates what the
 // model sends back, so the two can never drift. Handlers stay in
 // agent-tools.ts; writes exist solely as human-confirmed proposals.
+
+import type { ChatScope } from '@refd/core/chat';
 import { SURFACES } from '@refd/core/surfaces';
 import { z } from 'zod';
-import { rangeSchema } from '../lib/range';
 
 export interface AgentTool<S extends z.ZodType = z.ZodType> {
   name: string;
@@ -12,6 +13,7 @@ export interface AgentTool<S extends z.ZodType = z.ZodType> {
   args: S;
   // Weighted cost against the exchange budget. Cheap D1 reads are 1.
   cost: number;
+  inheritsDateScope?: boolean;
 }
 
 // z.toJSONSchema emits a $schema key the API does not want.
@@ -56,11 +58,48 @@ export const readArgs = z.object({
     .positive()
     .describe('A resultId exactly as returned by get_prompt_results.'),
 });
-export const digestArgs = z.object({
-  range: rangeSchema.describe(
-    'Time window: "1d", "3d", "7d", "30d", "90d", or "all".',
-  ),
-});
+export const digestArgs = z.object({});
+
+export type AppliedToolScope =
+  | { ok: true; args: unknown }
+  | { ok: false; error: string };
+
+export const applyToolScope = (
+  tool: AgentTool,
+  args: unknown,
+  scope: ChatScope,
+): AppliedToolScope => {
+  if (!tool.inheritsDateScope) {
+    return { ok: true, args };
+  }
+  if (tool.name === 'get_digest' || tool.name === 'get_prompt_results') {
+    return { ok: true, args };
+  }
+  const parsed = z.record(z.string(), z.unknown()).safeParse(args);
+  if (!parsed.success) {
+    return { ok: false, error: 'date-scoped arguments must be an object' };
+  }
+  const suppliedFrom =
+    typeof parsed.data.from === 'string' ? parsed.data.from : undefined;
+  const suppliedTo =
+    typeof parsed.data.to === 'string' ? parsed.data.to : undefined;
+  const from = suppliedFrom ?? scope.from ?? undefined;
+  const to = suppliedTo ?? scope.to;
+  if (
+    (scope.from !== null && from !== undefined && from < scope.from) ||
+    to > scope.to ||
+    (from !== undefined && from > to)
+  ) {
+    return {
+      ok: false,
+      error: `requested dates must stay within ${scope.label}`,
+    };
+  }
+  return {
+    ok: true,
+    args: { ...parsed.data, ...(from ? { from } : {}), to },
+  };
+};
 
 // Entity-relative filters shared by the investigation tools. The flags
 // (mentioned, cited, sentiment, position) always describe one entity: the
@@ -197,6 +236,7 @@ export const AGENT_TOOLS: AgentTool[] = [
       'It cannot drill into a single answer.',
     args: digestArgs,
     cost: 1,
+    inheritsDateScope: true,
   },
   {
     name: 'get_prompt_results',
@@ -209,6 +249,7 @@ export const AGENT_TOOLS: AgentTool[] = [
       'It cannot return the answer text itself.',
     args: promptArgs,
     cost: 2,
+    inheritsDateScope: true,
   },
   {
     name: 'query_results',
@@ -221,6 +262,7 @@ export const AGENT_TOOLS: AgentTool[] = [
       'get_prompt_results calls. Returns metadata rows, never the answer text.',
     args: queryResultsArgs,
     cost: 2,
+    inheritsDateScope: true,
   },
   {
     name: 'aggregate',
@@ -232,6 +274,7 @@ export const AGENT_TOOLS: AgentTool[] = [
       'trend questions. Returns no row-level detail and no answer text.',
     args: aggregateArgs,
     cost: 2,
+    inheritsDateScope: true,
   },
   {
     name: 'read_answer',
@@ -261,6 +304,7 @@ export const AGENT_TOOLS: AgentTool[] = [
       'URLs, not page content.',
     args: getCitationsArgs,
     cost: 1,
+    inheritsDateScope: true,
   },
   {
     name: 'fetch_url',

@@ -343,6 +343,7 @@ export interface ChatWebSource {
   title: string;
   url: string;
   num?: number;
+  evidenceId?: string;
 }
 
 // Agent write drafts: shown as a confirmation card, applied only by a human.
@@ -364,6 +365,7 @@ export type ChatProposal =
 
 export interface ChatMessage {
   id: number;
+  exchangeId: string | null;
   role: 'user' | 'assistant';
   content: string;
   // Digest-section keys + the data frozen at answer time; the client renders
@@ -376,6 +378,8 @@ export interface ChatMessage {
   durationMs: number | null;
   proposal: ChatProposal | null;
   sources: ChatWebSource[] | null;
+  evidence: import('@refd/core/chat').ChatEvidenceRecord[] | null;
+  selectedEvidenceIds: string[] | null;
   createdAt: number;
 }
 

@@ -1,10 +1,12 @@
 import { workspaceDeletionIssue } from '@refd/core/workspaces';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AuthedBindings } from '../auth/middleware';
-import { getDb } from '../db/client';
-import { entities, results, runs, workspaces } from '../db/schema';
+import { purgeChatExchange } from '../chat/exchange-do';
+import { type Db, getDb } from '../db/client';
+import { chats, entities, results, runs, workspaces } from '../db/schema';
+import { deleteRunRawObjects } from '../ingest/deletion';
 import { parseBody, parseId } from '../lib/http';
 import { singleLineText } from '../lib/sanitize';
 import { provisionWorkspace } from '../lib/workspace-provision';
@@ -14,6 +16,31 @@ const nameSchema = z.object({ name: singleLineText(1, 60) });
 const deleteSchema = z.object({ confirmation: singleLineText(1, 60) });
 
 export const workspaceRoutes = new Hono<AuthedBindings>();
+
+export const claimWorkspaceDeletion = async (
+  db: Db,
+  userId: number,
+  workspaceId: number,
+): Promise<boolean> => {
+  const claimed = await db
+    .update(workspaces)
+    .set({ deletingAt: Date.now() })
+    .where(
+      and(
+        eq(workspaces.id, workspaceId),
+        eq(workspaces.ownerUserId, userId),
+        isNull(workspaces.deletingAt),
+        sql`exists (
+          select 1 from workspaces remaining
+          where remaining.owner_user_id = ${userId}
+            and remaining.id <> ${workspaceId}
+            and remaining.deleting_at is null
+        )`,
+      ),
+    )
+    .returning({ id: workspaces.id });
+  return claimed[0] !== undefined;
+};
 
 workspaceRoutes.get('/', async (c) => {
   const db = getDb(c.env);
@@ -98,7 +125,11 @@ workspaceRoutes.delete('/:id', async (c) => {
   const data = await parseBody(c, deleteSchema);
   const db = getDb(c.env);
   const owned = await db
-    .select({ id: workspaces.id, name: workspaces.name })
+    .select({
+      id: workspaces.id,
+      name: workspaces.name,
+      deletingAt: workspaces.deletingAt,
+    })
     .from(workspaces)
     .where(eq(workspaces.ownerUserId, c.get('user').id));
   const issue = workspaceDeletionIssue(owned, id, data.confirmation);
@@ -111,6 +142,12 @@ workspaceRoutes.delete('/:id', async (c) => {
   if (issue === 'confirmation_mismatch') {
     return c.json({ error: 'workspace name does not match' }, 400);
   }
+  const target = owned.find((workspace) => workspace.id === id);
+  if (target?.deletingAt === null) {
+    if (!(await claimWorkspaceDeletion(db, c.get('user').id, id))) {
+      return c.json({ error: 'at least one workspace is required' }, 409);
+    }
+  }
   await revokeOwnedConnections(c.env, c.get('user').id, id);
 
   const rawKeys = await db
@@ -118,11 +155,22 @@ workspaceRoutes.delete('/:id', async (c) => {
     .from(results)
     .innerJoin(runs, eq(results.runId, runs.id))
     .where(eq(runs.workspaceId, id));
-  const keys = rawKeys.flatMap((row) => (row.key ? [row.key] : []));
-  for (let start = 0; start < keys.length; start += 1000) {
-    await c.env.RAW.delete(keys.slice(start, start + 1000));
+  const runIds = await db
+    .select({ id: runs.id })
+    .from(runs)
+    .where(eq(runs.workspaceId, id));
+  const chatIds = await db
+    .select({ id: chats.id })
+    .from(chats)
+    .where(eq(chats.workspaceId, id));
+  for (const chat of chatIds) {
+    await purgeChatExchange(c.env, chat.id);
   }
-
+  await deleteRunRawObjects(
+    c.env,
+    runIds.map((run) => run.id),
+    rawKeys.map((row) => row.key),
+  );
   const statements = [
     `delete from citations where result_id in (
       select results.id from results
@@ -146,6 +194,7 @@ workspaceRoutes.delete('/:id', async (c) => {
     `delete from chat_messages where chat_id in (
       select id from chats where workspace_id = ?
     )`,
+    'delete from chat_exchanges where workspace_id = ?',
     'delete from chats where workspace_id = ?',
     'delete from mcp_connections where workspace_id = ?',
     'delete from setup_commits where workspace_id = ?',

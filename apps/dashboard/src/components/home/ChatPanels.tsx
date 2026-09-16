@@ -322,22 +322,33 @@ export const ChatPanels = ({
   panels: string[] | null;
   panelData: Record<string, unknown> | null;
 }) => {
-  if (!panels || panels.length === 0 || !panelData) {
+  if (!panelData) {
     return null;
   }
-  // The window the answer was grounded under, frozen at answer time.
-  const windowLabel = str(panelData._window) || 'last 30 days';
-  const rendered = panels
+  const scope = rec(panelData._scope);
+  const from = scope ? str(scope.from) : '';
+  const to = scope ? str(scope.to) : '';
+  const asOf = scope ? str(scope.asOf) : '';
+  const dataThrough = scope ? str(scope.dataThrough) : '';
+  const exactScope =
+    scope && to && asOf
+      ? `${from || 'all history'} to ${to} UTC · data through ${dataThrough || 'no collected run'} · as of ${asOf}`
+      : '';
+  const windowLabel = exactScope || str(panelData._window);
+  const rendered = (panels ?? [])
     .map((key) => ({
       key,
       node: renderPanel(key, panelData[key], windowLabel),
     }))
     .filter((p) => p.node !== null);
-  if (rendered.length === 0) {
+  if (rendered.length === 0 && !windowLabel) {
     return null;
   }
   return (
     <div className="mt-3 flex flex-col gap-3">
+      {windowLabel ? (
+        <p className="text-[11px] text-muted-foreground">{windowLabel}</p>
+      ) : null}
       {rendered.map((p) => (
         <div key={p.key}>{p.node}</div>
       ))}

@@ -1,3 +1,11 @@
+import type {
+  ChatEvidenceRecord,
+  ChatExchangePhase,
+  ChatExchangeStatus,
+} from '@refd/core/chat';
+
+export type { ChatEvidenceRecord, ChatScope } from '@refd/core/chat';
+
 import type { Alias } from '@refd/core/mentions';
 import type { RunSchedule } from '@refd/core/schedule';
 import type { SiteMetadata } from '@refd/core/site-metadata';
@@ -26,6 +34,7 @@ export const users = sqliteTable('users', {
   passwordHash: text('password_hash').notNull(),
   salt: text('salt').notNull(),
   tokenVersion: integer('token_version').notNull().default(0),
+  deletingAt: integer('deleting_at', { mode: 'number' }),
   createdAt: createdAt(),
 });
 
@@ -95,6 +104,7 @@ export const workspaces = sqliteTable(
     // Consent-time idempotency for OAuth workspace provisioning: duplicate
     // approval submissions with the same key resolve to the one workspace.
     provisioningKey: text('provisioning_key'),
+    deletingAt: integer('deleting_at', { mode: 'number' }),
     createdAt: createdAt(),
   },
   (t) => [
@@ -394,6 +404,16 @@ export const results = sqliteTable(
   ],
 );
 
+export const rawCleanupTasks = sqliteTable('raw_cleanup_tasks', {
+  key: text('key').primaryKey(),
+  availableAt: integer('available_at', { mode: 'number' }).notNull(),
+  token: text('token'),
+  leaseExpiresAt: integer('lease_expires_at', { mode: 'number' }),
+  attempts: integer('attempts').notNull().default(0),
+  lastError: text('last_error'),
+  createdAt: createdAt(),
+});
+
 export const entityScores = sqliteTable(
   'entity_scores',
   {
@@ -485,6 +505,37 @@ export const chats = sqliteTable(
   (t) => [index('chats_ws_idx').on(t.workspaceId)],
 );
 
+export const chatExchanges = sqliteTable(
+  'chat_exchanges',
+  {
+    id: text('id').primaryKey(),
+    requestId: text('request_id').notNull(),
+    chatId: integer('chat_id')
+      .notNull()
+      .references(() => chats.id),
+    workspaceId: integer('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    status: text('status').$type<ChatExchangeStatus>().notNull(),
+    phase: text('phase').$type<ChatExchangePhase>().notNull(),
+    questionId: integer('question_id'),
+    deadlineAt: integer('deadline_at', { mode: 'number' }).notNull(),
+    lastEventSeq: integer('last_event_seq').notNull().default(0),
+    error: text('error'),
+    acceptedAt: integer('accepted_at', { mode: 'number' }).notNull(),
+    startedAt: integer('started_at', { mode: 'number' }),
+    completedAt: integer('completed_at', { mode: 'number' }),
+  },
+  (t) => [
+    uniqueIndex('chat_exchanges_request_unique').on(t.workspaceId, t.requestId),
+    uniqueIndex('chat_exchanges_active_chat_unique')
+      .on(t.chatId)
+      .where(sql`status in ('accepted', 'running')`),
+    index('chat_exchanges_chat_idx').on(t.chatId, t.acceptedAt),
+    index('chat_exchanges_workspace_idx').on(t.workspaceId, t.acceptedAt),
+  ],
+);
+
 export interface ChatLink {
   label: string;
   to: string;
@@ -500,6 +551,7 @@ export interface ChatWebSource {
   url: string;
   // The S-number the answer prose cites (the stored list is the cited subset).
   num?: number;
+  evidenceId?: string;
 }
 
 // Agent write actions are proposals, never direct writes: the model drafts,
@@ -525,6 +577,7 @@ export const chatMessages = sqliteTable(
   'chat_messages',
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
+    exchangeId: text('exchange_id').references(() => chatExchanges.id),
     chatId: integer('chat_id')
       .notNull()
       .references(() => chats.id),
@@ -545,9 +598,16 @@ export const chatMessages = sqliteTable(
     // Confirmation-gated write draft + the web pages the answer cited.
     proposal: text('proposal', { mode: 'json' }).$type<ChatProposal>(),
     sources: text('sources', { mode: 'json' }).$type<ChatWebSource[]>(),
+    evidence: text('evidence', { mode: 'json' }).$type<ChatEvidenceRecord[]>(),
+    selectedEvidenceIds: text('selected_evidence_ids', { mode: 'json' }).$type<
+      string[]
+    >(),
     createdAt: createdAt(),
   },
-  (t) => [index('chat_messages_chat_idx').on(t.chatId)],
+  (t) => [
+    index('chat_messages_chat_idx').on(t.chatId),
+    uniqueIndex('chat_messages_exchange_role_unique').on(t.exchangeId, t.role),
+  ],
 );
 
 // Durable ledger behind the setup spend budgets (generation attempts and the

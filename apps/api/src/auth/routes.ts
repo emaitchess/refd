@@ -2,9 +2,11 @@ import { defaultMonitoringTier } from '@refd/core/workspaces';
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { purgeChatExchange } from '../chat/exchange-do';
 import { getDb } from '../db/client';
-import { results, runs, users, workspaces } from '../db/schema';
+import { chats, results, runs, users, workspaces } from '../db/schema';
 import type { AppBindings } from '../env';
+import { deleteRunRawObjects } from '../ingest/deletion';
 import { businessEmailError } from '../lib/email-policy';
 import { parseBody } from '../lib/http';
 import { emailField, singleLineText } from '../lib/sanitize';
@@ -202,12 +204,25 @@ account.delete('/', async (c) => {
   ) {
     return c.json({ error: 'current password is incorrect' }, 403);
   }
+  await db
+    .update(users)
+    .set({ deletingAt: Date.now() })
+    .where(eq(users.id, user.id));
+  await db
+    .update(workspaces)
+    .set({ deletingAt: Date.now() })
+    .where(eq(workspaces.ownerUserId, user.id));
   await revokeOwnedConnections(c.env, user.id);
 
   const rawKeys = await db
     .select({ key: results.r2Key })
     .from(results)
     .innerJoin(runs, eq(results.runId, runs.id))
+    .innerJoin(workspaces, eq(runs.workspaceId, workspaces.id))
+    .where(eq(workspaces.ownerUserId, user.id));
+  const runIds = await db
+    .select({ id: runs.id })
+    .from(runs)
     .innerJoin(workspaces, eq(runs.workspaceId, workspaces.id))
     .where(eq(workspaces.ownerUserId, user.id));
 
@@ -258,6 +273,9 @@ account.delete('/', async (c) => {
       join workspaces on chats.workspace_id = workspaces.id
       where workspaces.owner_user_id = ?
     )`,
+    `delete from chat_exchanges where workspace_id in (
+      select id from workspaces where owner_user_id = ?
+    )`,
     `delete from chats where workspace_id in (
       select id from workspaces where owner_user_id = ?
     )`,
@@ -267,19 +285,32 @@ account.delete('/', async (c) => {
     `delete from api_tokens where workspace_id in (
       select id from workspaces where owner_user_id = ?
     )`,
+    `delete from setup_commits where workspace_id in (
+      select id from workspaces where owner_user_id = ?
+    )`,
     'delete from workspaces where owner_user_id = ?',
   ].map((statement) => c.env.DB.prepare(statement).bind(user.id));
   statements.push(
     c.env.DB.prepare('delete from login_attempts where key = ?').bind(
       `email:${user.email}`,
     ),
+    c.env.DB.prepare('delete from setup_usage where user_id = ?').bind(user.id),
     c.env.DB.prepare('delete from users where id = ?').bind(user.id),
   );
 
-  const keys = rawKeys.flatMap((row) => (row.key ? [row.key] : []));
-  for (let start = 0; start < keys.length; start += 1000) {
-    await c.env.RAW.delete(keys.slice(start, start + 1000));
+  const chatIds = await db
+    .select({ id: chats.id })
+    .from(chats)
+    .innerJoin(workspaces, eq(chats.workspaceId, workspaces.id))
+    .where(eq(workspaces.ownerUserId, user.id));
+  for (const chat of chatIds) {
+    await purgeChatExchange(c.env, chat.id);
   }
+  await deleteRunRawObjects(
+    c.env,
+    runIds.map((run) => run.id),
+    rawKeys.map((row) => row.key),
+  );
   await c.env.DB.batch(statements);
   clearSession(c);
   return c.json({ ok: true });

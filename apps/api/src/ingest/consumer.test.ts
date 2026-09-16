@@ -34,6 +34,12 @@ const MIGRATIONS = [
   '0008_tricky_war_machine.sql',
   '0009_amazing_hydra.sql',
   '0010_nostalgic_swarm.sql',
+  '0011_spotty_hairball.sql',
+  '0012_youthful_yellow_claw.sql',
+  '0013_skinny_mindworm.sql',
+  '0014_calm_tomorrow_man.sql',
+  '0015_true_the_phantom.sql',
+  '0016_careless_queen_noir.sql',
 ];
 
 // bun:sqlite facade speaking the D1 API for the consumer handlers, which build
@@ -54,6 +60,7 @@ const makeD1 = (sqlite: Database) => ({
     return {
       bind: (...params: unknown[]) => ({
         all: async () => ({ results: all(...params) }),
+        first: async () => all(...params)[0] ?? null,
         run: async () => {
           const info = runStmt(...params);
           return {

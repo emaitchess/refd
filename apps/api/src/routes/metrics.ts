@@ -106,6 +106,7 @@ export const loadCoverageRows = async (
   db: Db,
   workspaceId: number,
   from: string,
+  to = '9999-99-99',
 ): Promise<CoverageRow[]> =>
   db
     .select({
@@ -119,6 +120,7 @@ export const loadCoverageRows = async (
       and(
         eq(results.ok, true),
         gte(runs.date, from),
+        lt(runs.date, to),
         eq(runs.workspaceId, workspaceId),
       ),
     );

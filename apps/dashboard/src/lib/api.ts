@@ -1,3 +1,10 @@
+import {
+  type ChatStartResponse,
+  type ChatStreamEvent,
+  chatStartResponseSchema,
+  chatStreamEventSchema,
+  isActiveChatExchange,
+} from '@refd/core/chat';
 import { PUBLIC_SITE_ORIGIN } from '@refd/core/public-pages';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -88,6 +95,7 @@ export const api = async <T>(path: string, init?: RequestInit): Promise<T> => {
 // SSE frames carried, so rendering is unchanged.
 export interface ExchangeOutcome {
   chatId: number;
+  exchangeId: string;
   // The terminal done frame, when the socket carried one.
   done: Record<string, unknown> | null;
   // Terminal exchange error the server reported, when it did.
@@ -99,81 +107,152 @@ export interface ExchangeOutcome {
   detached: boolean;
   // The persisted question's row id, for the post-detach poll.
   questionId: number | null;
+  lastEventSeq: number;
 }
+
+const startChatExchange = async (
+  path: string,
+  body: unknown,
+  requestId: string,
+): Promise<ChatStartResponse> => {
+  const start = () =>
+    api<unknown>(path, {
+      method: 'POST',
+      body: JSON.stringify({
+        ...(body && typeof body === 'object' ? body : {}),
+        requestId,
+      }),
+    });
+  let raw: unknown;
+  try {
+    raw = await start();
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+    raw = await start();
+  }
+  const parsed = chatStartResponseSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new ApiError(500, 'the server returned an invalid exchange receipt');
+  }
+  return parsed.data;
+};
+
+const websocketUrl = (path: string): string => {
+  const target = apiPath(path);
+  return target.startsWith('http')
+    ? target.replace(/^http/, 'ws')
+    : `${window.location.origin.replace(/^http/, 'ws')}${target}`;
+};
+
+export const watchChatExchange = async (
+  started: ChatStartResponse,
+  onEvent: (event: ChatStreamEvent) => void,
+  opts?: { signal?: AbortSignal; after?: number },
+): Promise<ExchangeOutcome> => {
+  const blank: ExchangeOutcome = {
+    chatId: started.chatId,
+    exchangeId: started.exchange.id,
+    done: null,
+    failure: null,
+    detached: false,
+    questionId: started.exchange.questionId,
+    lastEventSeq: opts?.after ?? 0,
+  };
+  let lastEventSeq = blank.lastEventSeq;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (opts?.signal?.aborted) {
+      return { ...blank, detached: true, lastEventSeq };
+    }
+    const url = new URL(
+      websocketUrl(`/chat/${started.chatId}/exchanges/${started.exchange.id}`),
+    );
+    url.searchParams.set('after', String(lastEventSeq));
+    const outcome = await new Promise<ExchangeOutcome>((resolve) => {
+      const socket = new WebSocket(url);
+      const settled = { value: false };
+      const connectionTimer = window.setTimeout(() => socket.close(), 10_000);
+      const settle = (value: ExchangeOutcome) => {
+        if (!settled.value) {
+          settled.value = true;
+          window.clearTimeout(connectionTimer);
+          resolve(value);
+        }
+      };
+      const abort = () => {
+        socket.onclose = null;
+        socket.close();
+        settle({ ...blank, detached: true, lastEventSeq });
+      };
+      opts?.signal?.addEventListener('abort', abort, { once: true });
+      socket.onopen = () => window.clearTimeout(connectionTimer);
+      socket.onmessage = (message) => {
+        let raw: unknown;
+        try {
+          raw = JSON.parse(String(message.data));
+        } catch {
+          return;
+        }
+        const parsed = chatStreamEventSchema.safeParse(raw);
+        if (
+          !parsed.success ||
+          parsed.data.exchangeId !== started.exchange.id ||
+          parsed.data.seq <= lastEventSeq
+        ) {
+          return;
+        }
+        const event = parsed.data;
+        lastEventSeq = event.seq;
+        onEvent(event);
+        if (event.type === 'done') {
+          settle({ ...blank, done: event, lastEventSeq });
+        } else if (event.type === 'error') {
+          settle({ ...blank, failure: event.message, lastEventSeq });
+        }
+      };
+      socket.onclose = () => {
+        opts?.signal?.removeEventListener('abort', abort);
+        settle({ ...blank, detached: true, lastEventSeq });
+      };
+      socket.onerror = () => {};
+    });
+    if (!outcome.detached || opts?.signal?.aborted) {
+      return outcome;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+  }
+  return { ...blank, detached: true, lastEventSeq };
+};
 
 export const apiExchange = async (
   path: string,
   body: unknown,
   onEvent: (event: Record<string, unknown>) => void,
-  opts?: { signal?: AbortSignal },
+  opts?: {
+    signal?: AbortSignal;
+    onAccepted?: (started: ChatStartResponse) => void;
+  },
 ): Promise<ExchangeOutcome> => {
-  const started = await api<{
-    chatId: number;
-    question?: { id?: number };
-  }>(path, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
-  const chatId = started.chatId;
-  const questionId =
-    typeof started.question?.id === 'number' ? started.question.id : null;
-  // Same-site subdomains, so the session cookie rides the upgrade exactly
-  // like it rides the credentialed POSTs.
-  const target = apiPath(`/chat/${chatId}/exchange`);
-  const url = target.startsWith('http')
-    ? target.replace(/^http/, 'ws')
-    : `${window.location.origin.replace(/^http/, 'ws')}${target}`;
-  const socket = new WebSocket(url);
-  const blank: ExchangeOutcome = {
-    chatId,
-    done: null,
-    failure: null,
-    detached: false,
-    questionId,
-  };
-  return new Promise<ExchangeOutcome>((resolve) => {
-    // Held in an object because tsc narrows a let to its initial literal
-    // when every write happens inside a closure.
-    const settled = { value: false };
-    const settle = (fn: () => void) => {
-      if (!settled.value) {
-        settled.value = true;
-        fn();
-      }
+  const started = await startChatExchange(path, body, crypto.randomUUID());
+  opts?.onAccepted?.(started);
+  if (!isActiveChatExchange(started.exchange.status)) {
+    const failed =
+      started.exchange.status === 'failed' ||
+      started.exchange.status === 'cancelled';
+    return {
+      chatId: started.chatId,
+      exchangeId: started.exchange.id,
+      done: null,
+      failure: failed
+        ? (started.exchange.error ?? 'The answer did not complete.')
+        : null,
+      detached: !failed,
+      questionId: started.exchange.questionId,
+      lastEventSeq: started.exchange.lastEventSeq,
     };
-    opts?.signal?.addEventListener(
-      'abort',
-      () => {
-        socket.onclose = null;
-        socket.close();
-        settle(() => resolve({ ...blank, detached: true }));
-      },
-      { once: true },
-    );
-    socket.onmessage = (message) => {
-      let event: Record<string, unknown>;
-      try {
-        event = JSON.parse(String(message.data)) as Record<string, unknown>;
-      } catch {
-        return;
-      }
-      onEvent(event);
-      if (event.type === 'done') {
-        settle(() => resolve({ ...blank, done: event }));
-      } else if (event.type === 'error' && typeof event.message === 'string') {
-        const failure = event.message;
-        settle(() => resolve({ ...blank, failure }));
-      }
-    };
-    socket.onclose = () => {
-      // A close without a terminal frame: the socket died early or never
-      // opened. The exchange keeps running server-side.
-      settle(() => resolve({ ...blank, detached: true }));
-    };
-    socket.onerror = () => {
-      // A close event follows; the close handler settles the outcome.
-    };
-  });
+  }
+  return watchChatExchange(started, onEvent, opts);
 };
 
 export interface Query<T> {
