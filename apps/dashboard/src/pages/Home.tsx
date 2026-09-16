@@ -734,11 +734,12 @@ export const Home = () => {
         autoFocus={autoFocus}
         className="w-full resize-none bg-transparent px-4 pt-3 text-[14px] text-primary outline-none placeholder:text-muted"
       />
-      <div className="flex items-center justify-between gap-3 px-3 pb-2.5">
-        <span className="min-w-0 font-mono text-[10px] text-muted uppercase tracking-[0.08em]">
-          your data plus web research · last 30 days unless you name a range
-          {input.length > 800 ? ` · ${1000 - input.length} left` : ''}
-        </span>
+      <div className="flex items-center justify-end gap-3 px-3 pb-2.5">
+        {input.length > 800 ? (
+          <span className="font-mono text-[10px] text-muted uppercase tracking-[0.08em]">
+            {1000 - input.length} left
+          </span>
+        ) : null}
         {busy ? (
           <button
             type="button"
@@ -862,7 +863,7 @@ export const Home = () => {
   }
 
   return (
-    <div className="mx-auto flex min-h-[calc(100svh-8rem)] w-full max-w-[860px] flex-col py-6">
+    <div className="mx-auto -mb-4 flex min-h-[calc(100svh-4rem)] w-full max-w-[860px] flex-col pt-6 sm:-mb-6 sm:min-h-[calc(100svh-4.5rem)] lg:min-h-[calc(100svh-1.5rem)]">
       <div className="flex items-center justify-between gap-3 border-border border-b pb-3">
         <div className="flex min-w-0 items-center gap-2">
           <Tooltip
