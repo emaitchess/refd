@@ -635,11 +635,13 @@ export const runExchange = async (
     prompts: { tracked: number };
     sources: { topCited: unknown[]; gap: unknown[] };
   };
+  const count = (n: number, word: string): string =>
+    `${n} ${word}${n === 1 ? '' : 's'}`;
   await step(
     'read the workspace snapshot',
-    `${digest.rangeLabel} · ${sections.surfaces.length} surfaces · ` +
-      `${sections.competitors.length} entities · ${sections.prompts.tracked} prompts · ` +
-      `${sections.runs.length} runs · ${sections.sources.topCited.length + sections.sources.gap.length} source domains`,
+    `${digest.rangeLabel} · ${count(sections.surfaces.length, 'surface')} · ` +
+      `${count(sections.competitors.length, 'entity')} · ${count(sections.prompts.tracked, 'prompt')} · ` +
+      `${count(sections.runs.length, 'run')} · ${count(sections.sources.topCited.length + sections.sources.gap.length, 'source domain')}`,
   );
   await opts.onPhase?.('answering');
 

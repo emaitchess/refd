@@ -126,6 +126,13 @@ describe('resolveChatScope', () => {
         }),
       );
     }
+    // The scope label reads to a human, so the month keeps its capital.
+    expect(resolveChatScope('the run on 16 September', SEP16).label).toBe(
+      '16 September (2026-09-16)',
+    );
+    expect(resolveChatScope('the run on 16 September 2026', SEP16).label).toBe(
+      '16 September 2026 (2026-09-16)',
+    );
   });
 
   test('absolute dates without a year bind to the most recent occurrence', () => {
