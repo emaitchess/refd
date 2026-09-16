@@ -101,6 +101,37 @@ export const applyToolScope = (
   };
 };
 
+// What a date-scoped call actually read, as a scope of its own: the model may
+// narrow `from`/`to` inside the question's bounds, and the evidence record
+// must describe that narrower window, not the question's whole span.
+export const effectiveToolScope = (
+  args: unknown,
+  scope: ChatScope,
+): ChatScope => {
+  const record = z.record(z.string(), z.unknown()).safeParse(args);
+  if (!record.success) {
+    return scope;
+  }
+  const suppliedFrom =
+    typeof record.data.from === 'string' ? record.data.from : undefined;
+  const suppliedTo =
+    typeof record.data.to === 'string' ? record.data.to : undefined;
+  if (suppliedFrom === undefined && suppliedTo === undefined) {
+    return scope;
+  }
+  const from = suppliedFrom ?? scope.from ?? undefined;
+  const to = suppliedTo ?? scope.to;
+  if (from === scope.from && to === scope.to) {
+    return scope;
+  }
+  return {
+    ...scope,
+    ...(from ? { from } : { from: null }),
+    to,
+    label: `${from ?? 'all history'} to ${to}`,
+  };
+};
+
 // Entity-relative filters shared by the investigation tools. The flags
 // (mentioned, cited, sentiment, position) always describe one entity: the
 // workspace brand unless `entity` names a tracked competitor.
@@ -215,6 +246,8 @@ export const fetchUrlArgs = z.object({
     ),
 });
 
+export const getChangesArgs = z.object({});
+
 export const AGENT_TOOLS: AgentTool[] = [
   {
     name: 'list_prompts',
@@ -275,6 +308,19 @@ export const AGENT_TOOLS: AgentTool[] = [
     args: aggregateArgs,
     cost: 2,
     inheritsDateScope: true,
+  },
+  {
+    name: 'get_changes',
+    description:
+      'The deterministic comparison of the most recent completed runs: ' +
+      'thresholded changes in mention rate, citation rate, share of voice, ' +
+      'sentiment, and position, each with its exact before and after values, ' +
+      'computed only over the (prompt x surface) cells both runs answered. ' +
+      'Call this FIRST for any "why did X change" question, then explain the ' +
+      'listed movements; causes beyond these numbers stay hypotheses. ' +
+      'It cannot compare arbitrary user-chosen date windows.',
+    args: getChangesArgs,
+    cost: 2,
   },
   {
     name: 'read_answer',

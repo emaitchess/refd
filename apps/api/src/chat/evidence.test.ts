@@ -8,6 +8,7 @@ import {
   registerToolEvidence,
   resolveEvidencePanels,
   selectEvidenceIds,
+  stripUnresolvedMarkers,
 } from './evidence';
 
 const scope: ChatScope = {
@@ -147,6 +148,41 @@ describe('evidence registry', () => {
     });
   });
 
+  test('a panel whose evidence read a different window is dropped', () => {
+    const registry = createEvidenceRegistry(digest);
+    const questionScope: ChatScope = {
+      ...scope,
+      from: '2026-09-16',
+      to: '2026-09-16',
+      label: '16 September (2026-09-16)',
+      source: 'explicit',
+    };
+    // The chat 47 failure: a 30-day digest panel beside a one-day answer.
+    expect(
+      resolveEvidencePanels(
+        registry,
+        ['E0'],
+        [{ evidenceId: 'E0', key: 'overview' }],
+        questionScope,
+      ),
+    ).toEqual({ panels: [], panelData: null });
+    expect(
+      resolveEvidencePanels(
+        registry,
+        ['E0'],
+        [{ evidenceId: 'E0', key: 'overview' }],
+        scope,
+      ),
+    ).toEqual({
+      panels: ['overview'],
+      panelData: {
+        _window: scope.label,
+        _scope: scope,
+        overview: { answers: 10 },
+      },
+    });
+  });
+
   test('sources derive deterministically from prose markers', () => {
     const registry = createEvidenceRegistry(digest);
     webRecord(registry, 1);
@@ -181,5 +217,28 @@ describe('evidence registry', () => {
     for (const record of persisted) {
       expect('panels' in record).toBe(false);
     }
+  });
+
+  test('markers that this exchange cannot resolve are stripped from the prose', () => {
+    // The follow-up turn that gathered nothing: only E0 exists, so an echoed
+    // (E1, E2) from the previous turn's numbering has no receipt to back it.
+    const registry = createEvidenceRegistry(digest);
+    expect(
+      stripUnresolvedMarkers('the tie held (E1, E2) across surfaces', registry),
+    ).toBe('the tie held across surfaces');
+    expect(stripUnresolvedMarkers('kept (E0) alive', registry)).toBe(
+      'kept (E0) alive',
+    );
+    const withTools = createEvidenceRegistry(digest);
+    registerToolEvidence(withTools, 'query_results', {}, 'rows', scope);
+    expect(stripUnresolvedMarkers('mixed (E0, E9) group', withTools)).toBe(
+      'mixed (E0) group',
+    );
+    expect(
+      stripUnresolvedMarkers('kept (E1) and dropped (S3)', withTools),
+    ).toBe('kept (E1) and dropped');
+    expect(stripUnresolvedMarkers('no markers at all', registry)).toBe(
+      'no markers at all',
+    );
   });
 });

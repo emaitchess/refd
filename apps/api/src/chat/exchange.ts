@@ -3,6 +3,7 @@
 // rows. The DO owns the live transport; this file owns what it streams.
 // Deliberately free of durable-object types so the engine stays portable.
 import type { ChatEvidenceRecord, ChatScope } from '@refd/core/chat';
+import { CHAT_EXCHANGE_TIMEOUT_MS } from '@refd/core/chat';
 import { normalizeDashes } from '@refd/core/dashes';
 import { desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
@@ -34,6 +35,7 @@ import {
   type AgentTool,
   applyToolScope,
   availableTools,
+  effectiveToolScope,
   offeredTool,
   toolDefinition,
 } from '../routes/tool-registry';
@@ -44,6 +46,7 @@ import {
   registerToolEvidence,
   resolveEvidencePanels,
   selectEvidenceIds,
+  stripUnresolvedMarkers,
 } from './evidence';
 
 // Conversation context sent back to the model (user + assistant turns).
@@ -181,11 +184,17 @@ const systemPlanning =
   '- If the user asks what a specific AI answer said, or about one tracked ' +
   "prompt's results, call get_prompt_results first, then read_answer with a " +
   'resultId it returned.\n' +
+  '- If the question asks why a metric changed, call get_changes first: it ' +
+  'compares the most recent completed runs on the cells both answered. ' +
+  'Explain the movements it lists; anything beyond them is a hypothesis.\n' +
   '- If the question needs information from the public web (other companies, ' +
   'reviews, trends, research for drafting), call search_web.\n' +
   '- For questions spanning many prompts, surfaces, or dates, prefer one ' +
   'query_results or aggregate call over repeated get_prompt_results calls.\n' +
-  '- Never repeat a call with identical arguments.\n' +
+  '- The user waits through every lookup: when the workspace data already ' +
+  'covers the question, gather nothing and reply at once.\n' +
+  '- Never repeat a call with identical arguments, and never re-run an ' +
+  'aggregation you already have under a trivially different date window.\n' +
   '- When the gathered information is enough, stop calling tools and reply ' +
   'with one short plain-text sentence; the real answer is written ' +
   'afterwards from the evidence you gathered.';
@@ -243,7 +252,20 @@ const systemPrompt = (): string =>
   'like (S2) only if you actually used it. The other numbered items are tool ' +
   'results. Evidence records are E0, E1, ...: cite material workspace claims ' +
   'with the supporting marker like (E1). When there are no web results, use ' +
-  'no S-markers.\n' +
+  'no S-markers. Evidence IDs from earlier answers are not valid here: cite ' +
+  'only the records gathered for this answer, and refer to an earlier answer ' +
+  'in words, never by its markers.\n' +
+  '- Evidence marked partial is a truncated sample of a larger set. Qualify ' +
+  'any claim that rests on it with what was actually sampled ("in the 12 ' +
+  'most recent answers"), and never state it as complete ("only", "always", ' +
+  '"never").\n' +
+  '- Report ties as ties. Never rank surfaces or entities with a score the ' +
+  'data does not define (blending mention and citation rates into one ' +
+  'verdict); offer the separate defined metrics instead.\n' +
+  '- "Cited" means the brand domain appears in the answer\'s source ' +
+  "metadata. A link inside a stored answer's text is not a citation flag: " +
+  'if an answer visibly links the brand while the flag says not cited, say ' +
+  'both rather than reconciling them.\n' +
   '- Never write em dashes or en dashes; recast the sentence with a comma, ' +
   'colon, or parentheses instead.\n' +
   '- Never mention tools, traces, or metadata in the prose.';
@@ -300,6 +322,10 @@ const ANSWER_DEADLINE_MS = 75_000;
 // the only ceiling, which is how live chats died at ~300s in the answer phase.
 const PLANNING_TURN_DEADLINE_MS = 90_000;
 const META_DEADLINE_MS = 60_000;
+// Gathering must yield before the object's alarm: past this point the loop
+// stops taking new planning turns and the answer phase runs on what was
+// gathered, so the deadline lands on an answer rather than a traceback.
+const SOFT_GATHER_DEADLINE_MS = 150_000;
 // Evidence lines kept for the retry. Measured on the same payload: the full
 // 87 rows and a 30-row slice both answer, the slice faster.
 const RETRY_EVIDENCE_LINES = 30;
@@ -545,6 +571,10 @@ export const runExchange = async (
     inheritedScope?: ChatScope | null;
     inheritedFromMessageId?: number;
     onPhase?: (phase: 'gathering' | 'answering' | 'metadata') => Promise<void>;
+    // Live copy of the evidence gathered so far. The durable object reads it
+    // when the alarm (or a crash) kills the exchange, so a timed-out turn
+    // still persists the receipt of the lookups that ran.
+    evidenceSink?: { records: ChatEvidenceRecord[] };
   },
   emit: Emit,
 ): Promise<Exchange> => {
@@ -584,6 +614,12 @@ export const runExchange = async (
     };
   }
   const registry = createEvidenceRegistry(digest);
+  const sinkEvidence = () => {
+    if (opts.evidenceSink) {
+      opts.evidenceSink.records = persistedEvidence(registry);
+    }
+  };
+  sinkEvidence();
 
   // The panel emit waits for the first streamed token: the text always leads.
   // The deferred settles after the answer phase too, so a no-prose exchange
@@ -630,6 +666,9 @@ export const runExchange = async (
   // actually registered here.
   const knownSourceUrls = new Map<string, number>();
   const seenCalls = new Set<string>();
+  // Date-scoped reads with the same filters but different windows are near
+  // duplicates; after two of them the third is a loop, not a comparison.
+  const nearDuplicateCounts = new Map<string, number>();
   const toolMessages: unknown[] = [];
   let spent = 0;
   let rounds = 0;
@@ -637,6 +676,13 @@ export const runExchange = async (
     `${evidence.length} ${evidence.length === 1 ? 'tool' : 'tools'} used`;
 
   for (;;) {
+    if (Date.now() - started >= SOFT_GATHER_DEADLINE_MS) {
+      await step(
+        'approaching the time limit',
+        'answering from what was gathered',
+      );
+      break;
+    }
     const turn = await runChatWithTools(
       env,
       [
@@ -703,6 +749,25 @@ export const runExchange = async (
         });
         continue;
       }
+      const semanticKey = `${tool.name}:${JSON.stringify(
+        Object.fromEntries(
+          Object.entries((scoped.args ?? {}) as Record<string, unknown>)
+            .filter(
+              ([key]) => key !== 'from' && key !== 'to' && key !== 'limit',
+            )
+            .sort(([a], [b]) => a.localeCompare(b)),
+        ),
+      )}`;
+      const nearDuplicates = nearDuplicateCounts.get(semanticKey) ?? 0;
+      if (nearDuplicates >= 2) {
+        await step('skipped a near-duplicate lookup', tool.name);
+        toolMessages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: `You have already run ${tool.name} with these filters over two different date windows. Use the evidence you gathered, or change the filters materially; repeating this shape wastes the time limit.`,
+        });
+        continue;
+      }
       // Reserve the cost before executing: checking only after a whole batch
       // let one round spend past the cap (the live run that hit 34 of 30).
       // The call is not marked seen, because it never ran.
@@ -716,6 +781,8 @@ export const runExchange = async (
         continue;
       }
       seenCalls.add(callKey);
+      nearDuplicateCounts.set(semanticKey, nearDuplicates + 1);
+      const toolScope = effectiveToolScope(scoped.args, digest.scope);
       const outcome = await executeTool(
         env,
         workspaceId,
@@ -723,7 +790,7 @@ export const runExchange = async (
         scoped.args,
         allSources.length,
         knownSourceUrls,
-        digest.scope,
+        toolScope,
       );
       if (outcome.sources) {
         for (const source of outcome.sources) {
@@ -739,9 +806,10 @@ export const runExchange = async (
         tool.name,
         scoped.args,
         outcome.result,
-        digest.scope,
+        toolScope,
         outcome.evidence,
       );
+      sinkEvidence();
       toolMessages.push({
         role: 'tool',
         tool_call_id: call.id,
@@ -794,7 +862,7 @@ export const runExchange = async (
   const evidenceCatalog = registry.records
     .map(
       (record) =>
-        `${record.id}: ${record.tool ?? 'workspace snapshot'}; scope=${record.scope.label}; ` +
+        `${record.id}: ${record.tool ?? 'workspace snapshot'}; status=${record.status}; scope=${record.scope.label}; ` +
         `panels=${Object.keys(record.panels ?? {}).join(',') || 'none'}; ` +
         `result=${record.result.slice(0, 500)}`,
     )
@@ -813,6 +881,7 @@ export const runExchange = async (
         registry,
         selectedEvidenceIds,
         requests,
+        digest.scope,
       );
       const panelData = resolved.panelData ?? {
         _window: digest.rangeLabel,
@@ -871,8 +940,11 @@ export const runExchange = async (
   // A draw that reasons past the deadline without writing anything is retried
   // once on a trimmed payload: fewer evidence lines measurably shortens the
   // reasoning pass, and a second attempt still lands far inside the object's
-  // alarm. A partial answer is kept as it is rather than redrawn.
-  if (first.timedOut && prose.length === 0) {
+  // alarm — but only when a full retry plus metadata still fits before it.
+  const hardEnd = (opts.acceptedAt ?? started) + CHAT_EXCHANGE_TIMEOUT_MS;
+  const retryFits =
+    Date.now() + ANSWER_DEADLINE_MS + META_DEADLINE_MS + 20_000 < hardEnd;
+  if (first.timedOut && prose.length === 0 && retryFits) {
     await step('the first draft stalled', 'retrying on a tighter brief');
     const retryStartedAt = Date.now();
     const retry = await runChatStream(
@@ -893,6 +965,10 @@ export const runExchange = async (
   // Both the metadata call and the stored answer read this cleaned prose, so
   // labels and titles copied from it inherit the dash-free form.
   prose = normalizeDashes(prose);
+  // Markers copied from an earlier answer's numbering would persist a receipt
+  // this exchange cannot back; unresolvable ones leave before anything reads
+  // the prose.
+  prose = stripUnresolvedMarkers(prose, registry);
   // Settle the panel gate here too: an exchange that produced no prose at all
   // (the fallback answer) still delivers its panels instead of hanging.
   resolveProseStarted();

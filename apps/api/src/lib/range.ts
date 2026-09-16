@@ -58,6 +58,105 @@ interface DetectedScope {
   label: string;
 }
 
+const MONTHS = [
+  'january',
+  'february',
+  'march',
+  'april',
+  'may',
+  'june',
+  'july',
+  'august',
+  'september',
+  'october',
+  'november',
+  'december',
+];
+const MONTH_ALIASES = new Map<string, number>(
+  MONTHS.flatMap((name, index) => [
+    [name, index],
+    [name.slice(0, 3), index],
+  ]),
+);
+const DAY_IN_MONTHS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+const isLeapYear = (year: number): boolean =>
+  year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+
+const isoFor = (year: number, month: number, day: number): string | null => {
+  if (month < 0 || month > 11 || day < 1) {
+    return null;
+  }
+  const maxDay =
+    month === 1 && isLeapYear(year) ? 29 : (DAY_IN_MONTHS[month] ?? 0);
+  if (day > maxDay) {
+    return null;
+  }
+  return new Date(Date.UTC(year, month, day)).toISOString().slice(0, 10);
+};
+
+// A standalone absolute date ("16th September", "September 16", "2026-09-16")
+// resolves to that one run date. Without a year the date binds to the most
+// recent occurrence at or before the question, so a September question asked
+// in October still lands on this year's September, never next year's.
+const detectSingleDate = (text: string, asOf: string): DetectedScope | null => {
+  const q = text.toLocaleLowerCase();
+  const asOfYear = Number.parseInt(
+    asOf.split('-')[0] ?? String(new Date(asOf).getUTCFullYear()),
+    10,
+  );
+
+  const dayMonth =
+    /\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?([a-z]+)\s*,?\s*(\d{4})?\b/.exec(
+      q,
+    );
+  const monthDay =
+    /\b([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?\s*,?\s*(\d{4})?\b/.exec(q);
+  const iso = /\b(\d{4})-(\d{2})-(\d{2})\b/.exec(q);
+
+  let year: number | null = null;
+  let month: number | null = null;
+  let day: number | null = null;
+  let yearExplicit = false;
+
+  if (dayMonth?.[1] && dayMonth[2]) {
+    day = Number.parseInt(dayMonth[1], 10);
+    month = MONTH_ALIASES.get(dayMonth[2]) ?? null;
+    if (dayMonth[3]) {
+      year = Number.parseInt(dayMonth[3], 10);
+      yearExplicit = true;
+    }
+  } else if (monthDay?.[1] && monthDay[2]) {
+    month = MONTH_ALIASES.get(monthDay[1]) ?? null;
+    day = Number.parseInt(monthDay[2], 10);
+    if (monthDay[3]) {
+      year = Number.parseInt(monthDay[3], 10);
+      yearExplicit = true;
+    }
+  } else if (iso?.[1] && iso[2] && iso[3]) {
+    year = Number.parseInt(iso[1], 10);
+    month = Number.parseInt(iso[2], 10) - 1;
+    day = Number.parseInt(iso[3], 10);
+    yearExplicit = true;
+  }
+  if (month === null || day === null) {
+    return null;
+  }
+  if (year === null) {
+    year = asOfYear;
+    const candidate = isoFor(year, month, day);
+    if (candidate && candidate > asOf) {
+      year -= 1;
+    }
+  }
+  const from = isoFor(year, month, day);
+  if (!from || from > asOf) {
+    return null;
+  }
+  const spoken = `${day} ${MONTHS[month]}${yearExplicit ? ` ${year}` : ''}`;
+  return { from, to: from, label: `${spoken} (${from})` };
+};
+
 const detectScope = (text: string, asOf: string): DetectedScope | null => {
   const q = text.toLocaleLowerCase();
   const exact =
@@ -70,6 +169,10 @@ const detectScope = (text: string, asOf: string): DetectedScope | null => {
       to: exact[2],
       label: `${exact[1]} to ${exact[2]}`,
     };
+  }
+  const single = detectSingleDate(text, asOf);
+  if (single) {
+    return single;
   }
   if (
     /\b(all[ -]?time|ever|entire history|all history|since (the )?(start|beginning|launch))\b/.test(

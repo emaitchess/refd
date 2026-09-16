@@ -72,6 +72,43 @@ const markerNumbers = (prose: string, prefix: 'E' | 'S'): number[] => [
   ),
 ];
 
+const validSourceNumbers = (registry: EvidenceRegistry): Set<number> => {
+  const numbers = new Set<number>();
+  for (const record of registry.records) {
+    for (const provenance of record.provenance) {
+      if (provenance.kind === 'web' && provenance.sourceNum) {
+        numbers.add(provenance.sourceNum);
+      }
+    }
+  }
+  return numbers;
+};
+
+// History replays earlier answers with their own evidence numbering, and an
+// answer that echoes those markers would persist a receipt it cannot back.
+// Members that resolve survive inside a group; a group with no survivor goes.
+export const stripUnresolvedMarkers = (
+  prose: string,
+  registry: EvidenceRegistry,
+): string =>
+  prose
+    .replace(
+      /( *)\(((?:[ES]\d+)(?:\s*,\s*[ES]\d+)*)\)/g,
+      (_group, space: string, list: string) => {
+        const validE = new Set(registry.records.map((record) => record.id));
+        const validS = validSourceNumbers(registry);
+        const kept = list
+          .split(/\s*,\s*/)
+          .filter((marker) =>
+            marker.startsWith('E')
+              ? validE.has(marker)
+              : validS.has(Number.parseInt(marker.slice(1), 10)),
+          );
+        return kept.length > 0 ? `${space}(${kept.join(', ')})` : '';
+      },
+    )
+    .trim();
+
 export const selectEvidenceIds = (
   prose: string,
   requested: string[],
@@ -107,6 +144,7 @@ export const resolveEvidencePanels = (
   registry: EvidenceRegistry,
   selectedIds: string[],
   requested: { evidenceId: string; key: string }[],
+  scope?: ChatScope,
 ): {
   panels: DigestPanel[];
   panelData: Record<string, unknown> | null;
@@ -125,6 +163,15 @@ export const resolveEvidencePanels = (
     if (
       !record?.panels ||
       !Object.hasOwn(record.panels as object, request.key)
+    ) {
+      continue;
+    }
+    // A panel is evidence for the answer's own window: one read under a
+    // different date span contradicts the prose instead of supporting it, so
+    // no panel beats a mismatched one.
+    if (
+      scope &&
+      (record.scope.from !== scope.from || record.scope.to !== scope.to)
     ) {
       continue;
     }

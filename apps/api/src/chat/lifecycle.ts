@@ -1,4 +1,9 @@
-import type { ChatExchangeSummary, ChatStartResponse } from '@refd/core/chat';
+import type {
+  ChatEvidenceRecord,
+  ChatExchangeSummary,
+  ChatStartResponse,
+} from '@refd/core/chat';
+import { CHAT_EXCHANGE_TIMEOUT_MS } from '@refd/core/chat';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { chatExchanges, chatMessages, chats } from '../db/schema';
@@ -6,7 +11,7 @@ import type { AppEnv } from '../env';
 import type { Exchange } from './exchange';
 import { messageShape } from './exchange';
 
-export const CHAT_EXCHANGE_TIMEOUT_MS = 5 * 60 * 1000;
+export { CHAT_EXCHANGE_TIMEOUT_MS };
 
 export class ChatBusyError extends Error {}
 
@@ -330,6 +335,10 @@ export const commitExchangeFailure = async (
     status: 'failed' | 'cancelled';
     lastEventSeq?: number;
     fromStatuses?: ('accepted' | 'running')[];
+    // A failed exchange still owes its evidence receipt: the lookups that ran
+    // before the stop are auditable work, and losing them makes a timeout
+    // indistinguishable from a dead end.
+    evidence?: ChatEvidenceRecord[];
   },
 ): Promise<boolean> => {
   const completedAt = Date.now();
@@ -339,8 +348,8 @@ export const commitExchangeFailure = async (
     env.DB.prepare(
       `insert into chat_messages
         (exchange_id, chat_id, role, content, panels, links, steps,
-         duration_ms, created_at)
-       select ?, ?, 'assistant', ?, '[]', '[]', ?, ?, ?
+         duration_ms, evidence, selected_evidence_ids, created_at)
+       select ?, ?, 'assistant', ?, '[]', '[]', ?, ?, ?, ?, '[]'
        from chat_exchanges
        where id = ? and chat_id = ? and status in (${placeholders})
        on conflict(exchange_id, role) do nothing`,
@@ -350,6 +359,7 @@ export const commitExchangeFailure = async (
       input.message,
       JSON.stringify(input.steps),
       input.durationMs,
+      jsonValue(input.evidence),
       completedAt,
       input.exchangeId,
       input.chatId,
