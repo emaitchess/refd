@@ -62,6 +62,10 @@ either). Highlights:
 - Make sure the four checks above pass before requesting review.
 - New behavior should come with tests where practical (scoring, metrics, and
   change-detection logic all have unit-test suites to extend).
+- Merging to `main` is the release: Cloudflare's Git integration builds and
+  deploys all three Workers on every push (the API deploy applies remote D1
+  migrations first). There is no manual deploy step, and you are never
+  expected to deploy anything.
 
 ## Reporting bugs and requesting features
 
