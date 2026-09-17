@@ -230,7 +230,9 @@ export const messagesForExchange = async (db: Db, exchangeId: string) =>
     .orderBy(chatMessages.id);
 
 const jsonValue = (value: unknown): string | null =>
-  value === null ? null : JSON.stringify(value);
+  // JSON.stringify(undefined) returns undefined, and D1 rejects an undefined
+  // bind outright, which would turn every failure commit into a 500.
+  value == null ? null : JSON.stringify(value);
 
 export const commitExchangeAnswer = async (
   env: AppEnv,
