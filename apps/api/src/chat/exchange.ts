@@ -19,10 +19,12 @@ import {
 import type { AppEnv } from '../env';
 import type { WebResult } from '../lib/exa';
 import {
+  EXPIRED,
   llmText,
   PLANNING_MODEL,
   PROMPT_CATEGORIES,
   parseJson,
+  raceDeadline,
   runChat,
   runChatStream,
   runChatWithTools,
@@ -302,6 +304,11 @@ const TOOL_BUDGET = 30;
 // Hard bound on planning round trips, so a misbehaving model cannot spin
 // forever even if every call it makes is free.
 const MAX_PLANNING_ROUNDS = 20;
+// One tool execution must not outlive the gather budget's ability to react:
+// the soft deadline only fires between rounds, so a hung tool (a Browser
+// render, a stalled fetch) would otherwise wedge the loop until the 5-minute
+// alarm with no steps and no evidence beyond E0.
+const TOOL_DEADLINE_MS = 60_000;
 // Generous but bounded. glm-5.3 bills its reasoning pass against the same
 // completion budget, so a tight ceiling truncates or erases the answer rather
 // than shortening it: measured on an 87-row evidence payload, 2000 finished
@@ -635,13 +642,24 @@ export const runExchange = async (
     prompts: { tracked: number };
     sources: { topCited: unknown[]; gap: unknown[] };
   };
-  const count = (n: number, word: string): string =>
-    `${n} ${word}${n === 1 ? '' : 's'}`;
+  const count = (n: number, word: string): string => {
+    const plural =
+      word.endsWith('y') && !/[aeiou]y$/.test(word)
+        ? `${word.slice(0, -1)}ies`
+        : `${word}s`;
+    return `${n} ${n === 1 ? word : plural}`;
+  };
+  // sections.runs is the trend pair (two most recent runs), not the window's
+  // run count; say so when the window holds more.
+  const runPart =
+    digest.runsInWindow === sections.runs.length
+      ? count(sections.runs.length, 'run')
+      : `${count(sections.runs.length, 'recent run')} of ${digest.runsInWindow} in window`;
   await step(
     'read the workspace snapshot',
     `${digest.rangeLabel} · ${count(sections.surfaces.length, 'surface')} · ` +
       `${count(sections.competitors.length, 'entity')} · ${count(sections.prompts.tracked, 'prompt')} · ` +
-      `${count(sections.runs.length, 'run')} · ${count(sections.sources.topCited.length + sections.sources.gap.length, 'source domain')}`,
+      `${runPart} · ${count(sections.sources.topCited.length + sections.sources.gap.length, 'source domain')}`,
   );
   await opts.onPhase?.('answering');
 
@@ -785,15 +803,28 @@ export const runExchange = async (
       seenCalls.add(callKey);
       nearDuplicateCounts.set(semanticKey, nearDuplicates + 1);
       const toolScope = effectiveToolScope(scoped.args, digest.scope);
-      const outcome = await executeTool(
-        env,
-        workspaceId,
-        tool.name,
-        scoped.args,
-        allSources.length,
-        knownSourceUrls,
-        toolScope,
+      const settled = await raceDeadline(
+        executeTool(
+          env,
+          workspaceId,
+          tool.name,
+          scoped.args,
+          allSources.length,
+          knownSourceUrls,
+          toolScope,
+        ),
+        TOOL_DEADLINE_MS,
       );
+      if (settled === EXPIRED) {
+        await step(`${tool.name} timed out`, 'no result within the time limit');
+        toolMessages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: `Tool ${tool.name} did not finish within the time limit and produced no result. Continue with other tools, or answer from the evidence already gathered.`,
+        });
+        continue;
+      }
+      const outcome = settled;
       if (outcome.sources) {
         for (const source of outcome.sources) {
           if (!knownSourceUrls.has(source.url)) {
