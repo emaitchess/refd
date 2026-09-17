@@ -339,6 +339,27 @@ describe('chat exchange persistence', () => {
     ).toEqual({ evidence: null });
   });
 
+  test('the sweep leaves exchanges inside the alarm grace window alone', async () => {
+    const sqlite = exchangeDb();
+    insertExchange(sqlite, 'exchange-1', 'request-1', 'running');
+    // Deadline passed 30 seconds ago: the DO's alarm owns this settlement
+    // (it carries the evidence receipt), so the read-path sweep must wait
+    // out its grace window instead of committing the failure without one.
+    sqlite.run(
+      `update chat_exchanges set deadline_at = ${Date.now() - 30_000} where id = 'exchange-1'`,
+    );
+    await expect(
+      expireStaleExchanges(d1Env(sqlite), drizzle(sqlite) as unknown as Db, 1),
+    ).resolves.toBeUndefined();
+    expect(
+      sqlite
+        .query(
+          "select status, phase from chat_exchanges where id = 'exchange-1'",
+        )
+        .get(),
+    ).toEqual({ status: 'running', phase: 'accepted' });
+  });
+
   test('does not accept an exchange after workspace deletion starts', async () => {
     const sqlite = exchangeDb();
     sqlite.run('update workspaces set deleting_at = 1000 where id = 1');

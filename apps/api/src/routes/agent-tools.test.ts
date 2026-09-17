@@ -444,6 +444,10 @@ describe('aggregate', () => {
     if (!digest) {
       throw new Error('fixture workspace should build a digest');
     }
+    // sections.runs is the trend pair; the window holds a third scored run,
+    // and the step trace needs the true count to say so.
+    expect(digest.sections.runs).toHaveLength(2);
+    expect(digest.runsInWindow).toBe(3);
     const outcome = await run(1, 'aggregate', {
       groupBy: 'prompt',
       metric: 'mentionRate',

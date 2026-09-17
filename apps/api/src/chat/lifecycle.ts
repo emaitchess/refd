@@ -433,6 +433,13 @@ export const settleDispatchFailure = async (
   );
 };
 
+// The DO's own 5-minute alarm settles a timed-out exchange and carries the
+// evidence receipt of the lookups that ran before the stop; the sweep is the
+// last resort for a DO that never settles. The grace window keeps read-path
+// expiry from winning the CAS race seconds after the deadline and committing
+// the failure without the receipt.
+const SWEEP_GRACE_MS = 90_000;
+
 export const expireStaleExchanges = async (
   env: AppEnv,
   db: Db,
@@ -450,7 +457,7 @@ export const expireStaleExchanges = async (
       and(
         eq(chatExchanges.workspaceId, workspaceId),
         sql`${chatExchanges.status} in ('accepted', 'running')`,
-        sql`${chatExchanges.deadlineAt} <= ${Date.now()}`,
+        sql`${chatExchanges.deadlineAt} <= ${Date.now() - SWEEP_GRACE_MS}`,
       ),
     );
   for (const exchange of stale) {

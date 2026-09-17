@@ -126,6 +126,10 @@ export interface WorkspaceDigest {
   rangeLabel: string;
   scope: ChatScope;
   sections: DigestSections;
+  // Distinct runs with scored answers in the window. sections.runs is capped
+  // at the two most recent (the trend pair), so the step trace and the model
+  // need this to tell the pair from the window's true run count.
+  runsInWindow: number;
 }
 
 // Null when the workspace has no brand yet (needsSetup).
@@ -391,5 +395,6 @@ export const buildDigest = async (
     rangeLabel: resolvedScope.label,
     scope: resolvedScope,
     sections,
+    runsInWindow: new Set(rows.map((r) => r.runId)).size,
   };
 };
