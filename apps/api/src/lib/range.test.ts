@@ -10,6 +10,7 @@ import {
 
 // 2026-09-16 is a Wednesday; every expectation below is pinned to it.
 const SEP16 = Date.UTC(2026, 8, 16, 14, 30);
+const SEP17 = Date.UTC(2026, 8, 17, 14, 30);
 const JAN5 = Date.UTC(2026, 0, 5, 9);
 const MAR31_2024 = Date.UTC(2024, 2, 31, 9);
 
@@ -64,6 +65,37 @@ describe('resolveChatScope', () => {
     );
     expect(resolveChatScope('what about yesterday', SEP16)).toEqual(
       expect.objectContaining({ from: '2026-09-15', to: '2026-09-15' }),
+    );
+  });
+
+  test('relative day offsets resolve instead of inheriting the prior scope', () => {
+    // The production follow-up that inherited "yesterday (2026-09-16)"
+    // because nothing detected the phrase: the answer must be scoped to the
+    // asked-about day, never the inherited one.
+    const inherited = resolveChatScope('what about yesterday', SEP17);
+    expect(
+      resolveChatScope(
+        'what about the day before yesterday?',
+        SEP17,
+        inherited,
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        from: '2026-09-15',
+        to: '2026-09-15',
+        source: 'explicit',
+        label: 'day before yesterday (2026-09-15)',
+      }),
+    );
+    expect(resolveChatScope('and two days ago', SEP16)).toEqual(
+      expect.objectContaining({
+        from: '2026-09-14',
+        to: '2026-09-14',
+        label: '2 days ago (2026-09-14)',
+      }),
+    );
+    expect(resolveChatScope('the citation rate 3 days ago', SEP16)).toEqual(
+      expect.objectContaining({ from: '2026-09-13', to: '2026-09-13' }),
     );
   });
 

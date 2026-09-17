@@ -230,7 +230,9 @@ export const messagesForExchange = async (db: Db, exchangeId: string) =>
     .orderBy(chatMessages.id);
 
 const jsonValue = (value: unknown): string | null =>
-  value === null ? null : JSON.stringify(value);
+  // JSON.stringify(undefined) returns undefined, and D1 rejects an undefined
+  // bind outright, which would turn every failure commit into a 500.
+  value == null ? null : JSON.stringify(value);
 
 export const commitExchangeAnswer = async (
   env: AppEnv,
@@ -431,6 +433,13 @@ export const settleDispatchFailure = async (
   );
 };
 
+// The DO's own 5-minute alarm settles a timed-out exchange and carries the
+// evidence receipt of the lookups that ran before the stop; the sweep is the
+// last resort for a DO that never settles. The grace window keeps read-path
+// expiry from winning the CAS race seconds after the deadline and committing
+// the failure without the receipt.
+const SWEEP_GRACE_MS = 90_000;
+
 export const expireStaleExchanges = async (
   env: AppEnv,
   db: Db,
@@ -448,7 +457,7 @@ export const expireStaleExchanges = async (
       and(
         eq(chatExchanges.workspaceId, workspaceId),
         sql`${chatExchanges.status} in ('accepted', 'running')`,
-        sql`${chatExchanges.deadlineAt} <= ${Date.now()}`,
+        sql`${chatExchanges.deadlineAt} <= ${Date.now() - SWEEP_GRACE_MS}`,
       ),
     );
   for (const exchange of stale) {

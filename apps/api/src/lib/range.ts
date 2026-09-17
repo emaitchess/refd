@@ -182,6 +182,44 @@ const detectScope = (text: string, asOf: string): DetectedScope | null => {
   ) {
     return { from: null, to: asOf, label: `all history through ${asOf}` };
   }
+  // Relative offsets must sit ahead of the bare `yesterday` test: the phrase
+  // contains the word, so a fall-through here silently inherits the previous
+  // turn's scope in follow-ups instead of resolving the newer date.
+  if (/\b(?:the )?day before yesterday\b/.test(q)) {
+    const day = addUtcDays(asOf, -2);
+    return { from: day, to: day, label: `day before yesterday (${day})` };
+  }
+  const numberWord = (word: string): number | null => {
+    const names = [
+      'one',
+      'two',
+      'three',
+      'four',
+      'five',
+      'six',
+      'seven',
+      'eight',
+      'nine',
+      'ten',
+      'eleven',
+      'twelve',
+    ];
+    const index = names.indexOf(word);
+    return index >= 0 ? index + 1 : null;
+  };
+  const daysAgo =
+    /\b(\d{1,4}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+days?\s+ago\b/.exec(
+      q,
+    );
+  if (daysAgo?.[1]) {
+    const days = /^\d+$/.test(daysAgo[1])
+      ? Number.parseInt(daysAgo[1], 10)
+      : numberWord(daysAgo[1]);
+    if (days !== null && days > 0 && days <= 3650) {
+      const day = addUtcDays(asOf, -days);
+      return { from: day, to: day, label: `${days} days ago (${day})` };
+    }
+  }
   if (/\byesterday\b/.test(q)) {
     const day = addUtcDays(asOf, -1);
     return { from: day, to: day, label: `yesterday (${day})` };

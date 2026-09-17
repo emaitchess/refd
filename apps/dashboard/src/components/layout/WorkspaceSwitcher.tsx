@@ -6,6 +6,7 @@ import { Tooltip } from '@/components/dither-kit/tooltip';
 import { Modal } from '@/components/ui';
 import { useAsyncAction } from '@/lib/api';
 import { useOnKeyPress } from '@/lib/keyboard';
+import { useSwitchWorkspace } from '@/lib/nav';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/providers/workspace';
 import { Fade } from './Fade';
@@ -15,11 +16,12 @@ import { WorkspaceIcon } from './WorkspaceIcon';
 // The menu is a fixed-position flyout (beside the collapsed rail, below the
 // expanded button) so the rail's width never squeezes it.
 export const WorkspaceSwitcher = ({ expanded }: { expanded: boolean }) => {
-  const { config, workspaces, current, switchTo, create } = useWorkspace();
+  const { config, workspaces, current, create } = useWorkspace();
   const workspaceLimit = config.limits.maxWorkspaces;
   const atWorkspaceLimit = limitReached(workspaces.length, workspaceLimit);
   const limitCopy =
     workspaceLimit === null ? null : workspaceLimitMessage(workspaceLimit);
+  const switchWorkspace = useSwitchWorkspace();
   const navigate = useNavigate();
   const [menuPos, setMenuPos] = useState<{
     top: number;
@@ -128,10 +130,10 @@ export const WorkspaceSwitcher = ({ expanded }: { expanded: boolean }) => {
               aria-selected={ws.id === current?.id}
               onClick={() => {
                 setMenuPos(null);
-                switchTo(ws.id);
-                if (!ws.onboardingCompleted) {
-                  navigate('/onboarding');
+                if (ws.id === current?.id) {
+                  return;
                 }
+                switchWorkspace(ws.id);
               }}
               className={cn(
                 'flex w-full cursor-pointer items-center gap-2 whitespace-nowrap px-3 py-1.5 text-left font-mono text-[11px] transition-colors hover:bg-bg-card-hover',

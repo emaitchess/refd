@@ -8,6 +8,7 @@ import {
   acceptExchange,
   commitExchangeAnswer,
   commitExchangeFailure,
+  expireStaleExchanges,
 } from '../chat/lifecycle';
 import type { Db } from '../db/client';
 import type { AppEnv } from '../env';
@@ -122,6 +123,14 @@ const d1Env = (sqlite: Database): AppEnv => {
   const adapter = {
     prepare: (query: string) => ({
       bind: (...params: unknown[]): BoundStatement => {
+        // Production D1 rejects an undefined bind outright, while bun:sqlite
+        // silently coerces it to null. Enforce the real behavior here so a
+        // stray undefined parameter fails the test instead of hiding.
+        if (params.some((param) => param === undefined)) {
+          throw new Error(
+            "D1_TYPE_ERROR: Type 'undefined' not supported for value 'undefined'",
+          );
+        }
         const statement = sqlite.prepare(query);
         const all = statement.all.bind(statement) as (
           ...values: unknown[]
@@ -299,6 +308,56 @@ describe('chat exchange persistence', () => {
         )
         .get(),
     ).toEqual({ content: 'Answer' });
+  });
+
+  test('the deadline sweep settles a stale exchange without evidence', async () => {
+    const sqlite = exchangeDb();
+    insertExchange(sqlite, 'exchange-1', 'request-1', 'running');
+    // insertExchange's fixed deadline_at (2000) is in the past, so the row is
+    // already stale; the sweep must commit its failure without an evidence
+    // field. With an undefined bind this is the exact production failure.
+    await expect(
+      expireStaleExchanges(d1Env(sqlite), drizzle(sqlite) as unknown as Db, 1),
+    ).resolves.toBeUndefined();
+    expect(
+      sqlite
+        .query(
+          "select status, phase, error from chat_exchanges where id = 'exchange-1'",
+        )
+        .get(),
+    ).toEqual({
+      status: 'failed',
+      phase: 'terminal',
+      error: 'The answer took too long and was stopped. Try again.',
+    });
+    expect(
+      sqlite
+        .query(
+          "select evidence from chat_messages where exchange_id = 'exchange-1' and role = 'assistant'",
+        )
+        .get(),
+    ).toEqual({ evidence: null });
+  });
+
+  test('the sweep leaves exchanges inside the alarm grace window alone', async () => {
+    const sqlite = exchangeDb();
+    insertExchange(sqlite, 'exchange-1', 'request-1', 'running');
+    // Deadline passed 30 seconds ago: the DO's alarm owns this settlement
+    // (it carries the evidence receipt), so the read-path sweep must wait
+    // out its grace window instead of committing the failure without one.
+    sqlite.run(
+      `update chat_exchanges set deadline_at = ${Date.now() - 30_000} where id = 'exchange-1'`,
+    );
+    await expect(
+      expireStaleExchanges(d1Env(sqlite), drizzle(sqlite) as unknown as Db, 1),
+    ).resolves.toBeUndefined();
+    expect(
+      sqlite
+        .query(
+          "select status, phase from chat_exchanges where id = 'exchange-1'",
+        )
+        .get(),
+    ).toEqual({ status: 'running', phase: 'accepted' });
   });
 
   test('does not accept an exchange after workspace deletion starts', async () => {

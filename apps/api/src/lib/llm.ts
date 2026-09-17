@@ -31,13 +31,13 @@ export const tokenInputs = (maxTokens: number | null | undefined) =>
 // Deadline expiry marker for the races below. The losing promise keeps
 // running in the background, so its rejection is handled here rather than
 // surfacing as an unhandled rejection after the deadline already won.
-const EXPIRED = Symbol('deadline-expired');
+export const EXPIRED = Symbol('deadline-expired');
 
 // Race a promise against a wall-clock budget. Expiry resolves to EXPIRED
 // rather than rejecting: the caller decides what a timeout means (a partial
 // answer, an unreadable turn, an empty string). `null` runs unbounded, so
 // callers that never chose a deadline behave exactly as before.
-const raceDeadline = <T>(
+export const raceDeadline = <T>(
   promise: Promise<T>,
   ms: number | null,
 ): Promise<T | typeof EXPIRED> => {
