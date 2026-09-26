@@ -1,5 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/server';
-import { promptLimitMessage } from '@refd/core/config';
+import { promptLimitMessage, surfaceLimitMessage } from '@refd/core/config';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { isOperatorEmail } from '../auth/operator';
@@ -7,6 +7,11 @@ import { getDb } from '../db/client';
 import { prompts, workspaces } from '../db/schema';
 import type { AppEnv } from '../env';
 import { createManualRun } from '../ingest/runs';
+import {
+  createEntity,
+  type EntityRow,
+  removeEntity,
+} from '../lib/entity-store';
 import { PROMPT_CATEGORIES } from '../lib/llm';
 import {
   createPrompt,
@@ -16,9 +21,11 @@ import {
   setPromptActive,
   updatePromptFields,
 } from '../lib/prompt-store';
-import { multiLineText } from '../lib/sanitize';
+import { domainField, multiLineText, singleLineText } from '../lib/sanitize';
 import { configForUser } from '../lib/user-config';
-import { categorySchema } from '../onboarding/contracts';
+import { aliasSchema, categorySchema } from '../onboarding/contracts';
+import { enabledSurfaces, SURFACES, type Surface } from '../providers/types';
+import { listEntities } from '../routes/metrics';
 import { runOptionsBodySchema } from '../routes/runs';
 import {
   McpAccessError,
@@ -347,7 +354,164 @@ export const runNow = async (
   };
 };
 
-export const registerPromptTools = (
+// Competitor CRUD and surface selection complete the operational picture:
+// like the prompt tools, they write the live configuration after onboarding
+// instead of editing the dead setup draft.
+
+const entityPayload = (row: EntityRow) => ({
+  id: row.id,
+  name: row.name,
+  domains: row.domains,
+  aliases: row.aliases,
+});
+
+const addCompetitorBodySchema = z.object({
+  name: singleLineText(1, 100),
+  domains: z.array(domainField()).min(1).max(10),
+  aliases: z.array(aliasSchema).max(8).default([]),
+});
+
+export const addCompetitor = async (
+  env: AppEnv,
+  _principal: McpPrincipal,
+  workspace: McpWorkspace,
+  body: z.infer<typeof addCompetitorBodySchema>,
+) => {
+  await ensureOperationalWorkspace(env, workspace);
+  const created = await createEntity(env, workspace.id, {
+    name: body.name,
+    domains: body.domains,
+    aliases: body.aliases,
+    isBrand: false,
+  });
+  if (!created.ok) {
+    return promptFailure(
+      'duplicate_name',
+      'An entity with this name already exists in this workspace (the brand included); names are unique.',
+      409,
+    );
+  }
+  return { ok: true as const, entity: entityPayload(created.entity) };
+};
+
+const removeCompetitorBodySchema = z.object({
+  name: singleLineText(1, 100),
+});
+
+export const removeCompetitor = async (
+  env: AppEnv,
+  _principal: McpPrincipal,
+  workspace: McpWorkspace,
+  body: z.infer<typeof removeCompetitorBodySchema>,
+) => {
+  await ensureOperationalWorkspace(env, workspace);
+  const all = await listEntities(getDb(env), workspace.id);
+  const match = all.find(
+    (entity) => entity.name.toLowerCase() === body.name.toLowerCase(),
+  );
+  if (!match) {
+    return notFound();
+  }
+  const removed = await removeEntity(env, workspace.id, match.id);
+  if (!removed.ok) {
+    if (removed.reason === 'is-brand') {
+      return promptFailure(
+        'is_brand',
+        'The brand entity cannot be removed; use set_brand to change it.',
+        409,
+      );
+    }
+    if (removed.reason === 'has-history') {
+      return promptFailure(
+        'has_history',
+        'This competitor has scored results; removal would destroy trend data, so it is refused (the dashboard refuses the same way).',
+        409,
+      );
+    }
+    return notFound();
+  }
+  return {
+    ok: true as const,
+    removed: match.name,
+    note: 'The competitor had no scored results and is deleted. Historical results keep their frozen entity snapshot.',
+  };
+};
+
+export const listCompetitors = async (
+  env: AppEnv,
+  _principal: McpPrincipal,
+  workspace: McpWorkspace,
+) => {
+  await ensureOperationalWorkspace(env, workspace);
+  const all = await listEntities(getDb(env), workspace.id);
+  return {
+    ok: true as const,
+    competitors: all
+      .filter((entity) => !entity.isBrand)
+      .map((entity) => ({
+        id: entity.id,
+        name: entity.name,
+        domains: entity.domains,
+        aliases: entity.aliases,
+      })),
+  };
+};
+
+const surfaceBodySchema = z.object({
+  surface: z.enum(SURFACES),
+});
+
+// Surfaces are stored as an explicit array in canonical SURFACES order; null
+// means the entitlement default, which these tools materialize on first edit
+// exactly like the dashboard Settings page does.
+export const setSurfaceEnabled = async (
+  env: AppEnv,
+  principal: McpPrincipal,
+  workspace: McpWorkspace,
+  surface: Surface,
+  enabled: boolean,
+) => {
+  await ensureOperationalWorkspace(env, workspace);
+  const max = configForUser(principal.userEmail, env.ADMIN_EMAILS).limits
+    .maxEnabledSurfacesPerWorkspace;
+  const row = (
+    await getDb(env)
+      .select({ surfaces: workspaces.surfaces })
+      .from(workspaces)
+      .where(eq(workspaces.id, workspace.id))
+      .limit(1)
+  )[0];
+  if (!row) {
+    throw new McpAccessError('workspace is not part of this connection');
+  }
+  const current = enabledSurfaces(row.surfaces, max);
+  const next = enabled
+    ? [...new Set([...current, surface])]
+    : current.filter((s) => s !== surface);
+  if (enabled && !current.includes(surface) && next.length > max) {
+    return promptFailure('surface_limit', surfaceLimitMessage(max), 409);
+  }
+  if (next.length === 0) {
+    return promptFailure(
+      'last_surface',
+      'At least one surface must stay enabled; runs would have nothing to collect.',
+      409,
+    );
+  }
+  const ordered = SURFACES.filter((s) => next.includes(s));
+  await getDb(env)
+    .update(workspaces)
+    .set({ surfaces: ordered })
+    .where(eq(workspaces.id, workspace.id));
+  return {
+    ok: true as const,
+    surfaces: ordered,
+    changed: surface,
+    note: 'Applies to the next run; each additional surface multiplies provider records per run.',
+  };
+};
+
+export const registerOpsTools = (
   server: McpServer,
   env: AppEnv,
   executionContext: ExecutionContext,
@@ -560,5 +724,177 @@ export const registerPromptTools = (
           unwrapPrompt(await runNow(env, principal, workspace, parsed.body)),
       );
     },
+  );
+
+  server.registerTool(
+    'add_competitor',
+    {
+      title: 'Add a competitor',
+      description:
+        'Adds one tracked competitor to an onboarded workspace: name (unique per workspace), 1-10 verified domains (run check_domain first; a wrong domain silently breaks citation matching forever), and up to 8 optional aliases. Returns the assigned id.',
+      inputSchema: addCompetitorBodySchema.extend(
+        workspaceSelectorSchema.shape,
+      ),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (args) => {
+      const parsed = selectorArgs(args, addCompetitorBodySchema);
+      if (!parsed) {
+        return invalidSetupArgs();
+      }
+      return runSetupTool(
+        env,
+        executionContext,
+        'add_competitor',
+        {
+          ...MUTATIONS,
+          workspaceArg: parsed.workspaceArg,
+          errorKind: PROMPT_ERROR_KIND,
+        },
+        async (principal, workspace) =>
+          unwrapPrompt(
+            await addCompetitor(env, principal, workspace, parsed.body),
+          ),
+      );
+    },
+  );
+
+  server.registerTool(
+    'remove_competitor',
+    {
+      title: 'Remove a competitor',
+      description:
+        'Removes one tracked competitor by name (names are unique per workspace). A competitor with scored results is refused: removal would destroy trend data. The brand entity is not a competitor; use set_brand to change it.',
+      inputSchema: removeCompetitorBodySchema.extend(
+        workspaceSelectorSchema.shape,
+      ),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (args) => {
+      const parsed = selectorArgs(args, removeCompetitorBodySchema);
+      if (!parsed) {
+        return invalidSetupArgs();
+      }
+      return runSetupTool(
+        env,
+        executionContext,
+        'remove_competitor',
+        {
+          ...MUTATIONS,
+          workspaceArg: parsed.workspaceArg,
+          errorKind: PROMPT_ERROR_KIND,
+        },
+        async (principal, workspace) =>
+          unwrapPrompt(
+            await removeCompetitor(env, principal, workspace, parsed.body),
+          ),
+      );
+    },
+  );
+
+  server.registerTool(
+    'list_competitors',
+    {
+      title: 'List tracked competitors',
+      description:
+        'Returns the tracked competitors of an onboarded workspace with id, name, domains, and aliases. Use it before remove_competitor; get_workspace_info shows the brand separately.',
+      inputSchema: z.object({}).extend(workspaceSelectorSchema.shape),
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (args) => {
+      const parsed = selectorArgs(args, z.object({}));
+      if (!parsed) {
+        return invalidSetupArgs();
+      }
+      return runSetupTool(
+        env,
+        executionContext,
+        'list_competitors',
+        {
+          ...MUTATIONS,
+          workspaceArg: parsed.workspaceArg,
+          errorKind: PROMPT_ERROR_KIND,
+        },
+        async (principal, workspace) =>
+          unwrapPrompt(await listCompetitors(env, principal, workspace)),
+      );
+    },
+  );
+
+  const surfaceTool = (
+    name: string,
+    title: string,
+    description: string,
+    enabled: boolean,
+  ) => {
+    server.registerTool(
+      name,
+      {
+        title,
+        description,
+        inputSchema: surfaceBodySchema.extend(workspaceSelectorSchema.shape),
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      async (args) => {
+        const parsed = selectorArgs(args, surfaceBodySchema);
+        if (!parsed) {
+          return invalidSetupArgs();
+        }
+        return runSetupTool(
+          env,
+          executionContext,
+          name,
+          {
+            ...MUTATIONS,
+            workspaceArg: parsed.workspaceArg,
+            errorKind: PROMPT_ERROR_KIND,
+          },
+          async (principal, workspace) =>
+            unwrapPrompt(
+              await setSurfaceEnabled(
+                env,
+                principal,
+                workspace,
+                parsed.body.surface,
+                enabled,
+              ),
+            ),
+        );
+      },
+    );
+  };
+
+  surfaceTool(
+    'enable_surface',
+    'Enable an AI surface',
+    "Enables one AI surface (chatgpt, perplexity, gemini, google_ai_mode, google_aio) on an onboarded workspace, effective from the next run. Refused at the caller's surface ceiling (standard users: 3; administrators: all 5). Every additional surface multiplies the provider records a run buys.",
+    true,
+  );
+
+  surfaceTool(
+    'disable_surface',
+    'Disable an AI surface',
+    'Disables one AI surface on an onboarded workspace, effective from the next run. At least one surface must stay enabled. Disabling stops collection cost immediately; historical data is untouched.',
+    false,
   );
 };

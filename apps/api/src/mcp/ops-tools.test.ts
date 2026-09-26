@@ -3,25 +3,37 @@ import { describe, expect, test } from 'bun:test';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import type { Db } from '../db/client';
 import * as schema from '../db/schema';
-import { prompts, runs, users, workspaces } from '../db/schema';
+import {
+  entities,
+  entityScores,
+  prompts,
+  results,
+  runs,
+  users,
+  workspaces,
+} from '../db/schema';
 import type { AppEnv } from '../env';
 import type { IngestMessage } from '../ingest/messages';
 import type { McpPrincipal, McpWorkspace } from './context';
 import {
+  addCompetitor,
   addPrompt,
   addPromptBodySchema,
   ensureOperationalWorkspace,
+  listCompetitors,
   listPrompts,
+  removeCompetitor,
   removePromptBodySchema,
   removePromptTool,
   runNow,
   runNowBodySchema,
+  setSurfaceEnabled,
   togglePrompt,
   togglePromptBodySchema,
   unwrapPrompt,
   updatePrompt,
   updatePromptBodySchema,
-} from './prompt-tools';
+} from './ops-tools';
 
 // Migrations applied to an in-memory SQLite so the gates, limits, and
 // run-creation execute against real rows, not mocks.
@@ -51,11 +63,17 @@ const makeD1 = (sqlite: Database) => ({
     const all = stmt.all.bind(stmt) as (
       ...params: unknown[]
     ) => Record<string, unknown>[];
+    const runStmt = stmt.run.bind(stmt) as (...params: unknown[]) => void;
     return {
       bind: (...params: unknown[]) => ({
         all: async () => ({ results: all(...params) }),
         first: async () => all(...params)[0] ?? null,
-        run: async () => ({ success: true, meta: {} }),
+        // run must execute: without it, updates through the D1 driver
+        // (getDb) silently no-op and the tests lie.
+        run: async () => {
+          runStmt(...params);
+          return { success: true, meta: {} };
+        },
         raw: async () => all(...params).map((row) => Object.values(row)),
       }),
     };
@@ -129,6 +147,43 @@ const setup = async (
     principal: standardPrincipal(),
     sent,
   };
+};
+
+const db_history = async (db: Db, entityId: number) => {
+  const prompt = (
+    await db
+      .insert(prompts)
+      .values({ workspaceId: 9, text: 'history question?', tags: [] })
+      .returning({ id: prompts.id })
+  )[0];
+  if (!prompt) {
+    throw new Error('history prompt seed failed');
+  }
+  await db.insert(runs).values({
+    id: 70,
+    workspaceId: 9,
+    key: 'cron:9:2026-01-01',
+    date: '2026-01-01',
+    trigger: 'cron',
+    status: 'complete',
+  });
+  const result = (
+    await db
+      .insert(results)
+      .values({
+        runId: 70,
+        promptId: prompt.id,
+        surface: 'chatgpt',
+        sample: 1,
+        provider: 'brightdata',
+        ok: true,
+      })
+      .returning({ id: results.id })
+  )[0];
+  if (!result) {
+    throw new Error('history seed failed');
+  }
+  await db.insert(entityScores).values({ resultId: result.id, entityId });
 };
 
 const seedPrompt = async (
@@ -350,6 +405,148 @@ describe('prompt tool operations', () => {
       promptId: 424242,
     });
     expect(result).toMatchObject({ error: { code: 'not_found' } });
+  });
+});
+
+describe('competitor tools', () => {
+  test('add assigns an id after the brand; duplicate names are refused', async () => {
+    const f = await setup({ onboarded: true });
+    const created = await addCompetitor(f.env, f.principal, f.workspace, {
+      name: 'Rival',
+      domains: ['rival.example'],
+      aliases: [{ value: 'Rivalry', caseSensitive: false }],
+    });
+    expect(created).toMatchObject({
+      ok: true,
+      entity: { name: 'Rival', domains: ['rival.example'] },
+    });
+    const brandClash = await addCompetitor(f.env, f.principal, f.workspace, {
+      name: 'rival',
+      domains: ['other.example'],
+      aliases: [],
+    });
+    expect(brandClash).toMatchObject({ error: { code: 'duplicate_name' } });
+  });
+
+  test('remove works by name, refuses the brand and scored competitors', async () => {
+    const f = await setup({ onboarded: true });
+    const competitor = await addCompetitor(f.env, f.principal, f.workspace, {
+      name: 'Rival',
+      domains: ['rival.example'],
+      aliases: [],
+    });
+    expect(competitor.ok).toBe(true);
+    const removed = await removeCompetitor(f.env, f.principal, f.workspace, {
+      name: 'rival',
+    });
+    expect(removed).toMatchObject({ ok: true, removed: 'Rival' });
+
+    const scored = await addCompetitor(f.env, f.principal, f.workspace, {
+      name: 'Entrenched',
+      domains: ['entrenched.example'],
+      aliases: [],
+    });
+    expect(scored.ok).toBe(true);
+    if (!scored.ok) {
+      return;
+    }
+    await db_history(f.db, scored.entity.id);
+    const refused = await removeCompetitor(f.env, f.principal, f.workspace, {
+      name: 'Entrenched',
+    });
+    expect(refused).toMatchObject({ error: { code: 'has_history' } });
+    await f.db.insert(entities).values({
+      id: 50,
+      workspaceId: 9,
+      name: 'Brand',
+      domains: ['brand.example'],
+      aliases: [],
+      isBrand: true,
+      sortOrder: 0,
+    });
+    const brand = await removeCompetitor(f.env, f.principal, f.workspace, {
+      name: 'Brand',
+    });
+    expect(brand).toMatchObject({ error: { code: 'is_brand' } });
+  });
+
+  test('list returns competitors with ids and excludes the brand', async () => {
+    const f = await setup({ onboarded: true });
+    await addCompetitor(f.env, f.principal, f.workspace, {
+      name: 'Rival',
+      domains: ['rival.example'],
+      aliases: [],
+    });
+    const list = await listCompetitors(f.env, f.principal, f.workspace);
+    expect(list.competitors).toEqual([
+      {
+        id: expect.any(Number),
+        name: 'Rival',
+        domains: ['rival.example'],
+        aliases: [],
+      },
+    ]);
+  });
+});
+
+describe('surface tools', () => {
+  test('enable and disable update the stored set in canonical order', async () => {
+    const f = await setup({
+      onboarded: true,
+      adminEmails: 'owner@example.com',
+    });
+    const off = await setSurfaceEnabled(
+      f.env,
+      f.principal,
+      f.workspace,
+      'perplexity',
+      false,
+    );
+    expect(off).toMatchObject({
+      ok: true,
+      changed: 'perplexity',
+      surfaces: ['chatgpt', 'gemini', 'google_ai_mode', 'google_aio'],
+    });
+    const on = await setSurfaceEnabled(
+      f.env,
+      f.principal,
+      f.workspace,
+      'perplexity',
+      true,
+    );
+    expect(on).toMatchObject({
+      ok: true,
+      surfaces: [
+        'chatgpt',
+        'perplexity',
+        'gemini',
+        'google_ai_mode',
+        'google_aio',
+      ],
+    });
+  });
+
+  test('a standard user is capped; the last surface cannot be disabled', async () => {
+    const f = await setup({ onboarded: true });
+    const capped = await setSurfaceEnabled(
+      f.env,
+      f.principal,
+      f.workspace,
+      'google_ai_mode',
+      true,
+    );
+    expect(capped).toMatchObject({ error: { code: 'surface_limit' } });
+    for (const surface of ['chatgpt', 'perplexity'] as const) {
+      await setSurfaceEnabled(f.env, f.principal, f.workspace, surface, false);
+    }
+    const last = await setSurfaceEnabled(
+      f.env,
+      f.principal,
+      f.workspace,
+      'gemini',
+      false,
+    );
+    expect(last).toMatchObject({ error: { code: 'last_surface' } });
   });
 });
 

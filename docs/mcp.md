@@ -195,6 +195,9 @@ exported, or narrowed to fewer prompts than the workspace tracks.
 | `find_prompt_results` | Fuzzy prompt lookup with result IDs |
 | `read_answer` | Clipped, ownership-checked AI answer evidence |
 | `get_digest` | Complete grounded workspace snapshot |
+| `get_run_history` | Recent run cycles, newest first: date, trigger, status, collected/total answers, dispatch state, entity-set hash, and the frozen prompt count |
+| `get_prompt_changes` | Per-prompt diff of the two most recent completed runs: mention/citation rate deltas, zero-visibility transitions, and prompts that entered or exited the set |
+| `get_prompt_citations` | The URLs cited for one prompt over a range, grouped by URL with counts and an isOurs flag |
 
 Ranges accept `1d`, `3d`, `7d`, `30d`, `90d`, or `all` and default to `30d`.
 Every tool, read or setup, accepts an optional `workspace` argument (the
@@ -240,12 +243,14 @@ the only provider-spending setup action a connector can reach.
 
 ## Keeping an onboarded workspace current
 
-After onboarding, prompt changes should be an operational task, not a setup
-migration: six data:write tools manage tracked prompts **row by row**, so a
-single prompt change never rewrites the whole list or touches the setup draft.
-All of them refuse a workspace whose setup has neither committed nor completed
-(finish onboarding first); every one takes the usual optional `workspace`
-selector.
+After onboarding, tracking changes should be an operational task, not a setup
+migration: eleven data:write tools manage tracked prompts, competitors, and
+surfaces **row by row**, so a single change never rewrites the whole
+configuration or touches the setup draft. All of them refuse a workspace whose
+setup has neither committed nor completed (finish onboarding first); every one
+takes the usual optional `workspace` selector. Brand edits keep using
+`set_brand`, which already applies immediately to the live brand entity, before
+or after onboarding.
 
 | Tool | Purpose |
 | --- | --- |
@@ -255,6 +260,10 @@ selector.
 | `toggle_prompt` | Enables or disables a prompt while keeping its history; re-activating is refused when the workspace is at its active-prompt ceiling |
 | `remove_prompt` | Retires a prompt that has results (history preserved, re-activatable) and deletes one that has none; the only destructive prompt tool |
 | `run_now` | Triggers an immediate collection run over the current active prompt set on every enabled surface. Spends paid provider quota and is limited to administrator accounts (`ADMIN_EMAILS`); at most 5 manual runs per hour per workspace, the same guard the operator HTTP route enforces. Optional `promptIds` select a subset of the active prompts; optional `samples` (1-10) overrides the default |
+| `add_competitor` | Adds one tracked competitor: unique name, 1-10 domains (verify with `check_domain` first), up to 8 aliases; returns the assigned id |
+| `remove_competitor` | Removes a competitor by name; refused when it has scored results (trend data) and for the brand entity |
+| `list_competitors` | The tracked competitors with id, name, domains, and aliases |
+| `enable_surface` / `disable_surface` | Switch one AI surface (chatgpt, perplexity, gemini, google_ai_mode, google_aio) on or off, effective next run; the standard-user ceiling of 3 applies, and the last surface cannot be disabled |
 
 These tools are deliberately row-scoped: no `expectedVersion`, no draft, no
 list rewrite — the draftId collision class of the setup flow cannot happen.

@@ -176,6 +176,7 @@ export const getPromptPerformance = async (
   env: AppEnv,
   workspaceId: number,
   range: Range,
+  summary = false,
 ) => {
   const db = getDb(env);
   const { from } = rangeWindows(range);
@@ -209,17 +210,24 @@ export const getPromptPerformance = async (
       mentionRate,
       citationRate: r3(cellRate(rows, brand.id, 'cited')),
       sentiment: sentimentDist(rows, brand.id),
-      surfaces: [...new Set(rows.map((row) => row.surface))]
-        .sort()
-        .map((surface) => {
-          const scope = rows.filter((row) => row.surface === surface);
-          return {
-            surface,
-            mentionRate: r3(cellRate(scope, brand.id, 'mentioned')),
-            citationRate: r3(cellRate(scope, brand.id, 'cited')),
-            answers: answerCount(scope),
-          };
-        }),
+      // summary=true skips the per-surface breakdown: with 30+ prompts the
+      // full response outruns what an audit needs, and the headline numbers
+      // live above regardless.
+      ...(summary
+        ? {}
+        : {
+            surfaces: [...new Set(rows.map((row) => row.surface))]
+              .sort()
+              .map((surface) => {
+                const scope = rows.filter((row) => row.surface === surface);
+                return {
+                  surface,
+                  mentionRate: r3(cellRate(scope, brand.id, 'mentioned')),
+                  citationRate: r3(cellRate(scope, brand.id, 'cited')),
+                  answers: answerCount(scope),
+                };
+              }),
+          }),
     };
   });
   return {
@@ -530,4 +538,312 @@ export const getDigest = async (
 ) => {
   const digest = await buildDigest(getDb(env), workspaceId, range);
   return digest ?? { needsSetup: true, range, rangeLabel: rangeLabel(range) };
+};
+
+export const getRunHistory = async (
+  env: AppEnv,
+  workspaceId: number,
+  limit = 10,
+) => {
+  const rows = await getDb(env)
+    .select({
+      id: runs.id,
+      key: runs.key,
+      date: runs.date,
+      trigger: runs.trigger,
+      status: runs.status,
+      okCount: runs.okCount,
+      totalCount: runs.totalCount,
+      dispatchState: runs.dispatchState,
+      entitySetHash: runs.entitySetHash,
+      promptCount: sql<
+        number | null
+      >`json_array_length(${runs.dispatchPlan}, '$.prompts')`,
+      createdAt: runs.createdAt,
+      completedAt: runs.completedAt,
+    })
+    .from(runs)
+    .where(eq(runs.workspaceId, workspaceId))
+    .orderBy(desc(runs.id))
+    .limit(Math.max(1, Math.min(limit, 50)));
+  return {
+    runs: rows.map((row) => ({
+      ...row,
+      promptCount: row.promptCount === null ? null : Number(row.promptCount),
+    })),
+  };
+};
+
+// Per-prompt diff between the two most recent completed runs. Single-run
+// deltas carry answer non-determinism (the changes engine compares 7-day
+// windows for exactly that reason), so the response says so — but the prompt
+// granularity here is what a changed prompt set needs to be navigable.
+export interface PromptDiffRow {
+  promptId: number;
+  text: string;
+  previous: {
+    answers: number;
+    mentionRate: number | null;
+    citationRate: number | null;
+    zeroVisibility: boolean;
+  };
+  current: {
+    answers: number;
+    mentionRate: number | null;
+    citationRate: number | null;
+    zeroVisibility: boolean;
+  };
+  mentionDelta: number | null;
+  citationDelta: number | null;
+  transition: 'entered-zero' | 'exited-zero' | null;
+}
+
+export const getPromptRunDiff = async (env: AppEnv, workspaceId: number) => {
+  const db = getDb(env);
+  const { brand } = await loadEntitiesWithBrand(db, workspaceId);
+  if (!brand) {
+    return { needsSetup: true };
+  }
+  const pair = await db
+    .select({
+      id: runs.id,
+      key: runs.key,
+      date: runs.date,
+      trigger: runs.trigger,
+      entitySetHash: runs.entitySetHash,
+    })
+    .from(runs)
+    .where(and(eq(runs.workspaceId, workspaceId), eq(runs.status, 'complete')))
+    .orderBy(desc(runs.id))
+    .limit(2);
+  const emptyRows: PromptDiffRow[] = [];
+  if (pair.length < 2) {
+    return {
+      status: 'needs-runs' as const,
+      latestRun: pair[0] ?? null,
+      previousRun: null,
+      prompts: emptyRows,
+      entered: [] as { promptId: number; text: string }[],
+      exited: [] as { promptId: number; text: string }[],
+    };
+  }
+  const latest = pair[0];
+  const previous = pair[1];
+  if (!latest || !previous) {
+    return {
+      status: 'needs-runs' as const,
+      latestRun: null,
+      previousRun: null,
+      prompts: emptyRows,
+      entered: [],
+      exited: [],
+    };
+  }
+  const [rows, promptRows] = await Promise.all([
+    loadScoreRows(db, workspaceId, previous.date),
+    db
+      .select({ id: prompts.id, text: prompts.text })
+      .from(prompts)
+      .where(eq(prompts.workspaceId, workspaceId)),
+  ]);
+  const texts = new Map(promptRows.map((row) => [row.id, row.text]));
+  const scoped = rows.filter(
+    (row) =>
+      row.entityId === brand.id &&
+      (row.runId === latest.id || row.runId === previous.id),
+  );
+  const aggregate = (runId: number) => {
+    const byPrompt = new Map<
+      number,
+      { answers: number; mentioned: number; cited: number }
+    >();
+    for (const row of scoped) {
+      if (row.runId !== runId) {
+        continue;
+      }
+      const cell = byPrompt.get(row.promptId) ?? {
+        answers: 0,
+        mentioned: 0,
+        cited: 0,
+      };
+      cell.answers += 1;
+      if (row.mentioned) {
+        cell.mentioned += 1;
+      }
+      if (row.cited) {
+        cell.cited += 1;
+      }
+      byPrompt.set(row.promptId, cell);
+    }
+    return byPrompt;
+  };
+  const current = aggregate(latest.id);
+  const prior = aggregate(previous.id);
+  const metrics = (cell: {
+    answers: number;
+    mentioned: number;
+    cited: number;
+  }): {
+    answers: number;
+    mentionRate: number;
+    citationRate: number;
+    zeroVisibility: boolean;
+  } => {
+    const mentionRate = cell.answers > 0 ? cell.mentioned / cell.answers : 0;
+    const citationRate = cell.answers > 0 ? cell.cited / cell.answers : 0;
+    return {
+      answers: cell.answers,
+      mentionRate,
+      citationRate,
+      // Zero visibility is a real state, not absence: answers were collected
+      // and the brand simply never appeared.
+      zeroVisibility: cell.answers > 0 && mentionRate === 0,
+    };
+  };
+  const diffs: PromptDiffRow[] = [];
+  const entered: { promptId: number; text: string }[] = [];
+  const exited: { promptId: number; text: string }[] = [];
+  for (const promptId of new Set([...current.keys(), ...prior.keys()])) {
+    const text = texts.get(promptId) ?? '';
+    const cur = current.get(promptId);
+    const prev = prior.get(promptId);
+    if (!cur) {
+      exited.push({ promptId, text });
+      continue;
+    }
+    if (!prev) {
+      entered.push({ promptId, text });
+      continue;
+    }
+    const previousMetrics = metrics(prev);
+    const currentMetrics = metrics(cur);
+    diffs.push({
+      promptId,
+      text,
+      previous: {
+        ...previousMetrics,
+        mentionRate: r3(previousMetrics.mentionRate),
+        citationRate: r3(previousMetrics.citationRate),
+      },
+      current: {
+        ...currentMetrics,
+        mentionRate: r3(currentMetrics.mentionRate),
+        citationRate: r3(currentMetrics.citationRate),
+      },
+      mentionDelta: r3(
+        currentMetrics.mentionRate - previousMetrics.mentionRate,
+      ),
+      citationDelta: r3(
+        currentMetrics.citationRate - previousMetrics.citationRate,
+      ),
+      transition:
+        currentMetrics.zeroVisibility !== previousMetrics.zeroVisibility
+          ? currentMetrics.zeroVisibility
+            ? 'entered-zero'
+            : 'exited-zero'
+          : null,
+    });
+  }
+  diffs.sort(
+    (a, b) =>
+      (a as { promptId: number }).promptId -
+      (b as { promptId: number }).promptId,
+  );
+  return {
+    status: 'ok' as const,
+    latestRun: {
+      id: latest.id,
+      key: latest.key,
+      date: latest.date,
+      trigger: latest.trigger,
+    },
+    previousRun: {
+      id: previous.id,
+      key: previous.key,
+      date: previous.date,
+      trigger: previous.trigger,
+    },
+    entitySetChanged: latest.entitySetHash !== previous.entitySetHash,
+    note: 'Single-run deltas include answer non-determinism; a rate swing within a few points is noise. get_recent_changes compares seven-day windows for that reason.',
+    sharedPrompts: diffs.length,
+    prompts: diffs,
+    entered,
+    exited,
+  };
+};
+
+export const getPromptCitations = async (
+  env: AppEnv,
+  workspaceId: number,
+  promptId: number,
+  range: Range,
+) => {
+  const db = getDb(env);
+  const { brand } = await loadEntitiesWithBrand(db, workspaceId);
+  if (!brand) {
+    return { needsSetup: true, range, rangeLabel: rangeLabel(range) };
+  }
+  const prompt = (
+    await db
+      .select({ id: prompts.id, text: prompts.text, active: prompts.active })
+      .from(prompts)
+      .where(
+        and(eq(prompts.id, promptId), eq(prompts.workspaceId, workspaceId)),
+      )
+      .limit(1)
+  )[0];
+  if (!prompt) {
+    return { found: false, promptId };
+  }
+  const { from } = rangeWindows(range);
+  const [urls, totals] = await Promise.all([
+    db
+      .select({
+        url: citations.url,
+        domain: citations.registrableDomain,
+        isOurs: sql<number>`max(case when ${citations.entityId} = ${brand.id} then 1 else 0 end)`,
+        citations: sql<number>`count(*)`,
+        answers: sql<number>`count(distinct ${citations.resultId})`,
+      })
+      .from(citations)
+      .innerJoin(results, eq(citations.resultId, results.id))
+      .innerJoin(runs, eq(results.runId, runs.id))
+      .where(
+        and(
+          eq(runs.workspaceId, workspaceId),
+          eq(results.promptId, promptId),
+          gte(runs.date, from),
+        ),
+      )
+      .groupBy(citations.url)
+      .orderBy(sql`count(*) desc`)
+      .limit(100),
+    db
+      .select({ citations: sql<number>`count(*)` })
+      .from(citations)
+      .innerJoin(results, eq(citations.resultId, results.id))
+      .innerJoin(runs, eq(results.runId, runs.id))
+      .where(
+        and(
+          eq(runs.workspaceId, workspaceId),
+          eq(results.promptId, promptId),
+          gte(runs.date, from),
+        ),
+      ),
+  ]);
+  return {
+    found: true,
+    prompt,
+    range,
+    rangeLabel: rangeLabel(range),
+    brand: brand.name,
+    citationCount: Number(totals[0]?.citations ?? 0),
+    urls: urls.map((row) => ({
+      url: row.url,
+      domain: row.domain ?? '',
+      isOurs: row.isOurs === 1,
+      citations: Number(row.citations),
+      answers: Number(row.answers),
+    })),
+  };
 };

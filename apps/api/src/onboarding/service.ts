@@ -35,6 +35,7 @@ import {
 } from './canonical';
 import {
   type BrandInput,
+  duplicateDraftIds,
   type OnboardingFailure,
   type OnboardingState,
   REGEN_LIMIT,
@@ -873,6 +874,22 @@ export const updateDraft = async (
     return { error: promptLimitMessage(promptLimit), status: 409 };
   }
   const { expectedVersion, surfaces: requestedSurfaces, ...patch } = data;
+  const conflictingIds = [
+    ...new Set([
+      ...(data.prompts ? duplicateDraftIds(data.prompts) : []),
+      ...(data.competitors ? duplicateDraftIds(data.competitors) : []),
+    ]),
+  ];
+  if (conflictingIds.length > 0) {
+    return {
+      error: {
+        code: 'duplicate_draft_id',
+        message: `draftIds must be unique within a request; these repeat: ${conflictingIds.join(', ')}. Omit the id to have one generated.`,
+        duplicates: conflictingIds,
+      },
+      status: 400,
+    };
+  }
   let surfaces: Surface[] | undefined;
   if (requestedSurfaces !== undefined) {
     const selected = new Set(requestedSurfaces);

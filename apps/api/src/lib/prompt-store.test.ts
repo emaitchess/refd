@@ -42,11 +42,17 @@ const makeD1 = (sqlite: Database) => ({
     const all = stmt.all.bind(stmt) as (
       ...params: unknown[]
     ) => Record<string, unknown>[];
+    const runStmt = stmt.run.bind(stmt) as (...params: unknown[]) => void;
     return {
       bind: (...params: unknown[]) => ({
         all: async () => ({ results: all(...params) }),
         first: async () => all(...params)[0] ?? null,
-        run: async () => ({ success: true, meta: {} }),
+        // run must execute: without it, updates through the D1 driver
+        // (getDb) silently no-op and the tests lie.
+        run: async () => {
+          runStmt(...params);
+          return { success: true, meta: {} };
+        },
         raw: async () => all(...params).map((row) => Object.values(row)),
       }),
     };

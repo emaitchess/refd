@@ -5,11 +5,11 @@ export const MCP_ENDPOINT = 'https://api.refd.ai/mcp';
 export const AGENT_SCOPES: [scope: string, description: string][] = [
   [
     'data:read',
-    'Nine analytics tools plus a metric-glossary resource. Read-only.',
+    'Twelve analytics tools plus a metric-glossary resource. Read-only.',
   ],
   [
     'data:write',
-    'Adds twelve setup tools plus revoke_connection covering the whole lifecycle: verify domains, provision a workspace, configure it, start one provider-backed onboarding report, finish onboarding, and revoke the connection when it is no longer needed. Onboarded workspaces also get row-scoped prompt management (six tools) and run_now, an immediate paid run limited to administrator accounts.',
+    'Adds twelve setup tools plus revoke_connection covering the whole lifecycle: verify domains, provision a workspace, configure it, start one provider-backed onboarding report, finish onboarding, and revoke the connection when it is no longer needed. Onboarded workspaces also get row-scoped prompt management, competitor CRUD, and surface toggles (eleven tools) plus run_now, an immediate paid run limited to administrator accounts.',
   ],
 ];
 
@@ -101,6 +101,29 @@ export const AGENT_PROMPT_TOOLS: [name: string, description: string][] = [
   ],
 ];
 
+export const AGENT_TRACKING_TOOLS: [name: string, description: string][] = [
+  [
+    'add_competitor',
+    'Adds one tracked competitor: unique name, verified domains, and optional aliases; returns the assigned id.',
+  ],
+  [
+    'remove_competitor',
+    'Removes a competitor by name; refused when scored results would be destroyed.',
+  ],
+  [
+    'list_competitors',
+    'The tracked competitors with id, name, domains, and aliases.',
+  ],
+  [
+    'enable_surface',
+    'Turns on one AI surface for the next run; respects the surface ceiling.',
+  ],
+  [
+    'disable_surface',
+    'Turns one AI surface off; the last surface cannot be disabled.',
+  ],
+];
+
 export const AGENT_PROMPT_WORKFLOW =
   'list_prompts to resolve ids, add_prompt / update_prompt / toggle_prompt / remove_prompt for row-scoped changes (no setup draft, no list rewrite; in-flight runs keep their frozen prompt set), then run_now when the next scheduled run is too far away and get_prompt_performance with range 1d to check the results.';
 
@@ -174,6 +197,18 @@ export const AGENT_TOOLS: [name: string, description: string][] = [
   [
     'get_digest',
     'A 30-day rollup of the workspace, the same one that grounds the dashboard chat.',
+  ],
+  [
+    'get_run_history',
+    'Recent run cycles with status, answer counts, dispatch state, and the frozen prompt count.',
+  ],
+  [
+    'get_prompt_changes',
+    'A per-prompt diff of the two most recent completed runs, including zero-visibility transitions.',
+  ],
+  [
+    'get_prompt_citations',
+    'The URLs cited for one prompt, with counts and an isOurs flag, in a single call.',
   ],
 ];
 

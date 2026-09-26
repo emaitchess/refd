@@ -120,6 +120,21 @@ const MCP_TOOLS = [
       'Returns a complete grounded snapshot of a connected workspace in one call.',
   },
   {
+    name: 'get_run_history',
+    purpose:
+      'Lists recent run cycles with status, answer counts, dispatch state, and the frozen prompt count.',
+  },
+  {
+    name: 'get_prompt_changes',
+    purpose:
+      'Diffs the two most recent completed runs per prompt, including zero-visibility transitions.',
+  },
+  {
+    name: 'get_prompt_citations',
+    purpose:
+      'Lists the URLs cited for one prompt over a range, with counts and an isOurs flag.',
+  },
+  {
     name: 'get_setup_state',
     scope: 'data:write',
     purpose:
@@ -205,6 +220,34 @@ const MCP_TOOLS = [
     scope: 'data:write',
     purpose:
       'Triggers an immediate paid collection run; administrator accounts only, 5 per hour per workspace.',
+  },
+  {
+    name: 'add_competitor',
+    scope: 'data:write',
+    purpose:
+      'Adds one tracked competitor with verified domains and optional aliases; returns its id.',
+  },
+  {
+    name: 'remove_competitor',
+    scope: 'data:write',
+    purpose:
+      'Removes a competitor by name; refused when scored results would be destroyed.',
+  },
+  {
+    name: 'list_competitors',
+    scope: 'data:write',
+    purpose: 'Lists tracked competitors with id, name, domains, and aliases.',
+  },
+  {
+    name: 'enable_surface',
+    scope: 'data:write',
+    purpose:
+      'Turns on one AI surface for the next run; respects the surface ceiling.',
+  },
+  {
+    name: 'disable_surface',
+    scope: 'data:write',
+    purpose: 'Turns one AI surface off; the last surface cannot be disabled.',
   },
 ] as const;
 

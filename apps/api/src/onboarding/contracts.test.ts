@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  duplicateDraftIds,
   patchRequestSchema,
   promptDraft,
   stepAfterBrandSave,
@@ -72,5 +73,23 @@ describe('stepAfterBrandSave', () => {
     expect(stepAfterBrandSave('competitors')).toBe('competitors');
     expect(stepAfterBrandSave('prompts')).toBe('prompts');
     expect(stepAfterBrandSave('report')).toBe('report');
+  });
+});
+
+describe('duplicateDraftIds', () => {
+  test('flags only ids repeated within one request', () => {
+    expect(
+      duplicateDraftIds([
+        { draftId: 'a' },
+        { draftId: 'b' },
+        { draftId: 'a' },
+        { draftId: 'a' },
+      ]),
+    ).toEqual(['a']);
+    expect(duplicateDraftIds([{ draftId: 'a' }, { draftId: 'b' }])).toEqual([]);
+  });
+
+  test('absent ids are generated server-side, never conflicts', () => {
+    expect(duplicateDraftIds([{}, {}, { draftId: 'x' }])).toEqual([]);
   });
 });

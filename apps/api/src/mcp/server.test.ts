@@ -4,9 +4,12 @@ import {
   MCP_INSTRUCTIONS,
   MCP_TOOL_ANNOTATIONS,
   MCP_TOOL_NAMES,
+  promptCitationsArgsSchema,
+  promptPerformanceArgsSchema,
   promptResultsArgsSchema,
   rangeArgsSchema,
   readAnswerArgsSchema,
+  runHistoryArgsSchema,
   workspaceArgSchema,
 } from './server';
 
@@ -22,6 +25,9 @@ describe('MCP tool catalog', () => {
       'find_prompt_results',
       'read_answer',
       'get_digest',
+      'get_run_history',
+      'get_prompt_changes',
+      'get_prompt_citations',
     ]);
   });
 
@@ -47,6 +53,20 @@ describe('MCP tool catalog', () => {
     expect(
       rangeArgsSchema.safeParse({ range: '30d', workspace: 5 }).success,
     ).toBeTrue();
+    expect(runHistoryArgsSchema.safeParse({ limit: 5 }).data).toMatchObject({
+      limit: 5,
+    });
+    expect(runHistoryArgsSchema.safeParse({ limit: 51 }).success).toBeFalse();
+    expect(
+      promptCitationsArgsSchema.safeParse({ promptId: 3, range: '7d' }).data,
+    ).toMatchObject({ promptId: 3, range: '7d' });
+    expect(
+      promptCitationsArgsSchema.safeParse({ promptId: 0 }).success,
+    ).toBeFalse();
+    expect(
+      promptPerformanceArgsSchema.safeParse({ range: '30d', summary: true })
+        .data,
+    ).toMatchObject({ summary: true });
   });
 
   test('declares read-only, closed-world annotations for every tool', () => {
@@ -77,8 +97,16 @@ describe('MCP tool catalog', () => {
   test('server instructions include the operational prompt tools', () => {
     expect(MCP_INSTRUCTIONS).toContain('list_prompts');
     expect(MCP_INSTRUCTIONS).toContain('add_prompt');
+    expect(MCP_INSTRUCTIONS).toContain('add_competitor');
+    expect(MCP_INSTRUCTIONS).toContain('enable_surface');
     expect(MCP_INSTRUCTIONS).toContain('run_now');
     expect(MCP_INSTRUCTIONS).toContain('administrator accounts only');
+  });
+
+  test('server instructions orient agents through the run cycle', () => {
+    expect(MCP_INSTRUCTIONS).toContain('get_run_history');
+    expect(MCP_INSTRUCTIONS).toContain('get_prompt_changes');
+    expect(MCP_INSTRUCTIONS).toContain('get_prompt_citations');
   });
 
   test('server instructions state the provisioning rule', () => {

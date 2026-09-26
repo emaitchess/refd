@@ -10,6 +10,7 @@ import {
   AGENT_INSTALLS,
   AGENT_PAT_EXAMPLE,
   AGENT_PROMPT_TOOLS,
+  AGENT_TRACKING_TOOLS,
   AGENT_PROMPT_WORKFLOW,
   AGENT_SCOPES,
   AGENT_SETUP_TOOLS,
@@ -139,6 +140,21 @@ import '../styles/global.css';
         <div class="agent-grid tools-grid">
           {
             AGENT_PROMPT_TOOLS.map(([name, desc]) => (
+              <div class="cell">
+                <h3><code>{name}</code></h3>
+                <p>{desc}</p>
+              </div>
+            ))
+          }
+        </div>
+        <p class="k" style="margin-top:44px">tracking tools · data:write</p>
+        <div class="section-head" style="margin-top:8px">
+          <h2>Competitors and surfaces, without the dashboard.</h2>
+          <p>Brand edits stay in <code>set_brand</code>, which applies immediately to the live brand entity.</p>
+        </div>
+        <div class="agent-grid tools-grid">
+          {
+            AGENT_TRACKING_TOOLS.map(([name, desc]) => (
               <div class="cell">
                 <h3><code>{name}</code></h3>
                 <p>{desc}</p>

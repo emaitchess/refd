@@ -12,6 +12,7 @@ import {
   AGENT_SETUP_WORKFLOW,
   AGENT_TOKEN_STEPS,
   AGENT_TOOLS,
+  AGENT_TRACKING_TOOLS,
   AGENT_WORKSPACE_ENTITLEMENT,
   MCP_ENDPOINT,
 } from '../lib/agent-access';
@@ -45,11 +46,13 @@ ${AGENT_SETUP_TOOLS.map(([name, description]) => `- \`${name}\`: ${description}`
 
 With the \`data:write\` scope the setup tools onboard a workspace end to end: ${AGENT_SETUP_WORKFLOW} The workflow is budgeted, and \`confirm_setup\` starts exactly one provider-backed onboarding report. Past onboarding, prompt changes stay operational: the row-scoped prompt tools manage single prompts without rewriting the setup draft, and only an administrator's connection can trigger an extra paid run. No grant can delete run history or manage billing.
 
-## Prompt tools (data:write)
+## Prompt and tracking tools (data:write)
 
 ${AGENT_PROMPT_TOOLS.map(([name, description]) => `- \`${name}\`: ${description}`).join('\n')}
 
-After onboarding, keep the workspace current with ${AGENT_PROMPT_WORKFLOW}
+${AGENT_TRACKING_TOOLS.map(([tname, tdescription]) => `- \`${tname}\`: ${tdescription}`).join('\n')}
+
+After onboarding, keep the workspace current with ${AGENT_PROMPT_WORKFLOW} Brand edits keep using \`set_brand\`, which applies immediately to the live brand entity.
 
 ## Connect a client
 
