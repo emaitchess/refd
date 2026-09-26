@@ -444,7 +444,7 @@ export const renderConsent = (
     : 'Approve read-only access to the workspaces you choose. Pick any number below, or allow all: the app receives your monitored AI visibility evidence for those workspaces, never account-wide access.';
   const permissionRows = writeMode
     ? `<div class="permission-row"><strong>Read your AI visibility data</strong><small>Visibility, citations, competitors, tracked prompts, changes, and answer evidence.</small></div>
-              <div class="permission-row"><strong>Configure tracking and start one report per approved workspace</strong><small>The app can set up the approved workspaces: brand, competitors, prompts, and surfaces, and start one provider-backed onboarding report per workspace. It cannot delete data, manage billing, or start further runs.</small></div>`
+              <div class="permission-row"><strong>Configure tracking and keep prompts current</strong><small>The app can set up the approved workspaces: brand, competitors, prompts, and surfaces, and start one provider-backed onboarding report per workspace. On onboarded workspaces it can add, edit, retire, and re-check tracked prompts. Only an administrator's app may trigger an immediate paid run (run_now). It cannot delete run history, manage billing, or reach account settings.</small></div>`
     : `<div class="permission-row"><strong>Read your AI visibility data</strong><small>Visibility, citations, competitors, tracked prompts, changes, and answer evidence. This app cannot change data or start paid runs.</small></div>`;
 
   return new Response(

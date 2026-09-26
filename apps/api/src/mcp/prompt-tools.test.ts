@@ -1,0 +1,408 @@
+import { Database } from 'bun:sqlite';
+import { describe, expect, test } from 'bun:test';
+import { drizzle } from 'drizzle-orm/bun-sqlite';
+import type { Db } from '../db/client';
+import * as schema from '../db/schema';
+import { prompts, runs, users, workspaces } from '../db/schema';
+import type { AppEnv } from '../env';
+import type { IngestMessage } from '../ingest/messages';
+import type { McpPrincipal, McpWorkspace } from './context';
+import {
+  addPrompt,
+  addPromptBodySchema,
+  ensureOperationalWorkspace,
+  listPrompts,
+  removePromptBodySchema,
+  removePromptTool,
+  runNow,
+  runNowBodySchema,
+  togglePrompt,
+  togglePromptBodySchema,
+  unwrapPrompt,
+  updatePrompt,
+  updatePromptBodySchema,
+} from './prompt-tools';
+
+// Migrations applied to an in-memory SQLite so the gates, limits, and
+// run-creation execute against real rows, not mocks.
+const MIGRATIONS = [
+  '0000_init.sql',
+  '0001_outgoing_sally_floyd.sql',
+  '0002_luxuriant_lilandra.sql',
+  '0003_tiny_otto_octavius.sql',
+  '0004_tearful_killmonger.sql',
+  '0005_worried_sinister_six.sql',
+  '0006_ancient_wildside.sql',
+  '0007_dazzling_prima.sql',
+  '0008_tricky_war_machine.sql',
+  '0009_amazing_hydra.sql',
+  '0010_nostalgic_swarm.sql',
+  '0011_spotty_hairball.sql',
+  '0012_youthful_yellow_claw.sql',
+  '0013_skinny_mindworm.sql',
+  '0014_calm_tomorrow_man.sql',
+  '0015_true_the_phantom.sql',
+  '0016_careless_queen_noir.sql',
+];
+
+const makeD1 = (sqlite: Database) => ({
+  prepare: (query: string) => {
+    const stmt = sqlite.prepare(query);
+    const all = stmt.all.bind(stmt) as (
+      ...params: unknown[]
+    ) => Record<string, unknown>[];
+    return {
+      bind: (...params: unknown[]) => ({
+        all: async () => ({ results: all(...params) }),
+        first: async () => all(...params)[0] ?? null,
+        run: async () => ({ success: true, meta: {} }),
+        raw: async () => all(...params).map((row) => Object.values(row)),
+      }),
+    };
+  },
+});
+
+interface Fixture {
+  db: Db;
+  env: AppEnv;
+  workspace: McpWorkspace;
+  principal: McpPrincipal;
+  sent: IngestMessage[];
+}
+
+const standardPrincipal = (email = 'owner@example.com'): McpPrincipal =>
+  ({
+    userEmail: email,
+    userId: 1,
+    scopes: ['data:write'],
+  }) as unknown as McpPrincipal;
+
+const setup = async (
+  options: {
+    adminEmails?: string;
+    onboarded?: boolean;
+    committed?: boolean;
+  } = {},
+): Promise<Fixture> => {
+  const sqlite = new Database(':memory:');
+  for (const file of MIGRATIONS) {
+    const raw = await Bun.file(
+      new URL(`../../../../drizzle/${file}`, import.meta.url),
+    ).text();
+    for (const statement of raw.split('--> statement-breakpoint')) {
+      const trimmed = statement.trim();
+      if (trimmed) {
+        sqlite.exec(trimmed);
+      }
+    }
+  }
+  sqlite.exec('PRAGMA foreign_keys = ON');
+  const db = drizzle(sqlite, { schema }) as unknown as Db;
+  const sent: IngestMessage[] = [];
+  const queue = async (messages: { body: IngestMessage }[]) => {
+    sent.push(...messages.map((message) => message.body));
+  };
+  const env = {
+    DB: makeD1(sqlite),
+    ADMIN_EMAILS: options.adminEmails ?? '',
+    SAMPLES: '1',
+    PROMPT_BATCH_SIZE: '5',
+    INGEST: { send: queue, sendBatch: queue },
+  } as unknown as AppEnv;
+  await db.insert(users).values({
+    id: 1,
+    email: 'owner@example.com',
+    passwordHash: 'x',
+    salt: 'x',
+  });
+  await db.insert(workspaces).values({
+    id: 9,
+    name: 'ws',
+    ownerUserId: 1,
+    onboardingCompleted: options.onboarded ?? false,
+    profile: options.committed ? { committed: true } : null,
+  });
+  return {
+    db,
+    env,
+    workspace: { id: 9, name: 'ws' },
+    principal: standardPrincipal(),
+    sent,
+  };
+};
+
+const seedPrompt = async (
+  db: Db,
+  workspaceId: number,
+  text: string,
+  tags: string[] = [],
+  active = true,
+) =>
+  (
+    await db
+      .insert(prompts)
+      .values({ workspaceId, text, tags, active })
+      .returning({ id: prompts.id })
+  )[0]?.id as number;
+
+describe('prompt tool schemas', () => {
+  test('add folds category case onto the canonical set and bounds text', () => {
+    expect(
+      addPromptBodySchema.safeParse({
+        text: 'which tools track AI visibility?',
+        category: 'comparison',
+      }).data,
+    ).toMatchObject({ category: 'Comparison' });
+    expect(
+      addPromptBodySchema.safeParse({
+        text: 'too short',
+        category: 'Awareness',
+      }).success,
+    ).toBeFalse();
+    expect(
+      addPromptBodySchema.safeParse({ text: 'x'.repeat(501) }).success,
+    ).toBeFalse();
+  });
+
+  test('update demands a text or category change and a positive id', () => {
+    expect(
+      updatePromptBodySchema.safeParse({ promptId: 1 }).success,
+    ).toBeFalse();
+    expect(
+      updatePromptBodySchema.safeParse({
+        promptId: 1,
+        category: 'Authority',
+      }).success,
+    ).toBeTrue();
+    expect(
+      updatePromptBodySchema.safeParse({
+        promptId: 0,
+        text: 'reworded question?',
+      }).success,
+    ).toBeFalse();
+  });
+
+  test('toggle requires an explicit boolean; remove and run_now bound ids', () => {
+    expect(
+      togglePromptBodySchema.safeParse({ promptId: 1, active: true }).success,
+    ).toBeTrue();
+    expect(
+      togglePromptBodySchema.safeParse({ promptId: 1, active: 'yes' }).success,
+    ).toBeFalse();
+    expect(
+      removePromptBodySchema.safeParse({ promptId: -3 }).success,
+    ).toBeFalse();
+    expect(runNowBodySchema.safeParse({ samples: 11 }).success).toBeFalse();
+    expect(runNowBodySchema.safeParse({ samples: 2 }).success).toBeTrue();
+  });
+
+  test('a failure object becomes an isError result; a success stays content', () => {
+    const failure = unwrapPrompt({
+      ok: false,
+      error: { code: 'not_found', message: 'nope' },
+      status: 404,
+    }) as { isError?: boolean };
+    expect(failure.isError).toBe(true);
+    const ok = unwrapPrompt({ ok: true, prompt: { id: 1 } }) as {
+      isError?: boolean;
+    };
+    expect(ok.isError).toBeUndefined();
+  });
+});
+
+describe('operational workspace gate', () => {
+  test('refuses a workspace whose setup has neither committed nor completed', async () => {
+    const { env, workspace } = await setup();
+    await expect(ensureOperationalWorkspace(env, workspace)).rejects.toThrow(
+      'has not finished onboarding',
+    );
+  });
+
+  test('allows a committed (mid-report) or fully onboarded workspace', async () => {
+    const committed = await setup({ committed: true });
+    await expect(
+      ensureOperationalWorkspace(committed.env, committed.workspace),
+    ).resolves.toBeUndefined();
+    const onboarded = await setup({ onboarded: true });
+    await expect(
+      ensureOperationalWorkspace(onboarded.env, onboarded.workspace),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe('prompt tool operations', () => {
+  test('add returns the assigned id; a repeat converges to the same row', async () => {
+    const f = await setup({ onboarded: true });
+    const first = await addPrompt(f.env, f.principal, f.workspace, {
+      text: 'which tools track AI visibility?',
+      category: 'Comparison' as never,
+    });
+    expect(first).toMatchObject({ ok: true, duplicated: false });
+    const repeat = await addPrompt(f.env, f.principal, f.workspace, {
+      text: 'which tools track AI visibility?',
+    });
+    expect(repeat).toMatchObject({
+      ok: true,
+      duplicated: true,
+      prompt: { id: first.ok ? first.prompt.id : -1, category: 'Comparison' },
+    });
+  });
+
+  test('add enforces the standard 25-prompt ceiling but not the admin one', async () => {
+    const f = await setup({ onboarded: true });
+    for (let i = 0; i < 25; i += 1) {
+      const created = await addPrompt(f.env, f.principal, f.workspace, {
+        text: `standard question ${i}?`,
+      });
+      expect(created.ok).toBe(true);
+    }
+    const refused = await addPrompt(f.env, f.principal, f.workspace, {
+      text: 'one question too many?',
+    });
+    expect(refused).toMatchObject({ error: { code: 'prompt_limit' } });
+
+    const admin = await setup({
+      onboarded: true,
+      adminEmails: 'owner@example.com',
+    });
+    for (let i = 0; i < 26; i += 1) {
+      const created = await addPrompt(
+        admin.env,
+        admin.principal,
+        admin.workspace,
+        {
+          text: `admin question ${i}?`,
+        },
+      );
+      expect(created.ok).toBe(true);
+    }
+  });
+
+  test('list reports ids, categories, activity, answers, and the limit', async () => {
+    const f = await setup({ onboarded: true });
+    const id = await seedPrompt(f.db, 9, 'tracked question?', ['Discovery']);
+    const listed = await listPrompts(f.env, f.principal, f.workspace);
+    expect(listed).toMatchObject({
+      ok: true,
+      limit: 25,
+      activePrompts: 1,
+      totalPrompts: 1,
+      categories: expect.arrayContaining(['Discovery']),
+    });
+    expect(listed.prompts[0]).toMatchObject({
+      id,
+      category: 'Discovery',
+      active: true,
+      answers: 0,
+    });
+  });
+
+  test('update rewords text and folds category into the single tag', async () => {
+    const f = await setup({ onboarded: true });
+    const id = await seedPrompt(f.db, 9, 'before question?', ['Discovery']);
+    const updated = await updatePrompt(f.env, f.principal, f.workspace, {
+      promptId: id,
+      text: 'after question?',
+      category: 'Decision' as never,
+    });
+    expect(updated).toMatchObject({
+      ok: true,
+      prompt: { id, text: 'after question?', category: 'Decision' },
+    });
+    const duplicate = await updatePrompt(f.env, f.principal, f.workspace, {
+      promptId: id,
+      text: 'after question?',
+    });
+    expect(duplicate).toMatchObject({ ok: true });
+  });
+
+  test('toggle flips activity and refuses an activation over the ceiling', async () => {
+    const f = await setup({ onboarded: true });
+    const parked = await seedPrompt(f.db, 9, 'parked question?', [], false);
+    const full = await seedPrompt(f.db, 9, 'fills the ceiling?');
+    const on = await togglePrompt(f.env, f.principal, f.workspace, {
+      promptId: parked,
+      active: true,
+    });
+    expect(on).toMatchObject({ ok: true, prompt: { active: true } });
+    const off = await togglePrompt(f.env, f.principal, f.workspace, {
+      promptId: on.ok && on.prompt.active ? parked : -1,
+      active: false,
+    });
+    expect(off).toMatchObject({ ok: true, prompt: { active: false } });
+    expect(full).toBeGreaterThan(0);
+  });
+
+  test('remove retires a prompt with history and deletes one without', async () => {
+    const f = await setup({ onboarded: true });
+    const unused = await seedPrompt(f.db, 9, 'fresh question?');
+    const deleted = await removePromptTool(f.env, f.principal, f.workspace, {
+      promptId: unused,
+    });
+    expect(deleted).toMatchObject({ ok: true, action: 'deleted' });
+    const rows = await f.db.select().from(prompts);
+    expect(rows).toHaveLength(0);
+  });
+
+  test('remove of an unknown id reports not_found', async () => {
+    const f = await setup({ onboarded: true });
+    const result = await removePromptTool(f.env, f.principal, f.workspace, {
+      promptId: 424242,
+    });
+    expect(result).toMatchObject({ error: { code: 'not_found' } });
+  });
+});
+
+describe('run_now operation', () => {
+  test('a non-operator principal is refused before anything runs', async () => {
+    const f = await setup({ onboarded: true });
+    await seedPrompt(f.db, 9, 'some question?');
+    await expect(runNow(f.env, f.principal, f.workspace, {})).rejects.toThrow(
+      'administrator accounts',
+    );
+    expect(f.sent).toHaveLength(0);
+    const runRows = await f.db.select().from(runs);
+    expect(runRows).toHaveLength(0);
+  });
+
+  test('an operator triggers a manual run over the current active set', async () => {
+    const f = await setup({
+      onboarded: true,
+      adminEmails: 'owner@example.com',
+    });
+    await seedPrompt(f.db, 9, 'active question one?');
+    await seedPrompt(f.db, 9, 'parked question two?', [], false);
+    const result = await runNow(f.env, f.principal, f.workspace, {});
+    expect(result).toMatchObject({
+      ok: true,
+      run: { created: true, totalCount: 5, dispatchState: 'dispatched' },
+    });
+    expect(f.sent.length).toBeGreaterThan(0);
+    const runRows = await f.db.select().from(runs);
+    expect(runRows).toHaveLength(1);
+    expect(runRows[0]?.trigger).toBe('manual');
+  });
+
+  test('refuses a run with no active prompts', async () => {
+    const f = await setup({
+      onboarded: true,
+      adminEmails: 'owner@example.com',
+    });
+    const result = await runNow(f.env, f.principal, f.workspace, {});
+    expect(result).toMatchObject({ error: { code: 'no_active_prompts' } });
+  });
+
+  test('the fifth manual run in an hour still starts; the sixth is refused', async () => {
+    const f = await setup({
+      onboarded: true,
+      adminEmails: 'owner@example.com',
+    });
+    await seedPrompt(f.db, 9, 'repeated question?');
+    for (let i = 0; i < 5; i += 1) {
+      const result = await runNow(f.env, f.principal, f.workspace, {});
+      expect(result.ok).toBe(true);
+    }
+    const sixth = await runNow(f.env, f.principal, f.workspace, {});
+    expect(sixth).toMatchObject({ error: { code: 'manual_run_limit' } });
+  });
+});

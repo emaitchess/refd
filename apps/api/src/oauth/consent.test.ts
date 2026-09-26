@@ -165,6 +165,9 @@ describe('OAuth consent', () => {
     expect(html).toContain('name="all_workspaces"');
     expect(html).toContain('Allow all workspaces');
     expect(html).toContain('Create a new workspace with this agent');
+    expect(html).toContain('keep prompts current');
+    expect(html).toContain('run_now');
+    expect(html).toContain("administrator's app");
     expect(html).not.toContain('type="radio"');
   });
 

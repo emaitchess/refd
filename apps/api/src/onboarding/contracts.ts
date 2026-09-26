@@ -85,7 +85,7 @@ export const canonicalPromptCategory = (value: string) =>
   PROMPT_CATEGORIES.find(
     (category) => category.toLowerCase() === value.trim().toLowerCase(),
   );
-const categorySchema = singleLineText(1, 40)
+export const categorySchema = singleLineText(1, 40)
   .transform((value) => canonicalPromptCategory(value) ?? value)
   .pipe(
     z.enum(PROMPT_CATEGORIES, {

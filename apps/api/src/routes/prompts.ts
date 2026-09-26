@@ -6,7 +6,12 @@ import type { WorkspaceBindings } from '../auth/middleware';
 import { getDb } from '../db/client';
 import { prompts, results, runs } from '../db/schema';
 import { parseBody, parseId } from '../lib/http';
-import { insertActivePrompt } from '../lib/prompt-limit';
+import {
+  createPrompt,
+  removePrompt,
+  setPromptActive,
+  updatePromptFields,
+} from '../lib/prompt-store';
 import { parseRange } from '../lib/range';
 import { multiLineText, singleLineText } from '../lib/sanitize';
 import { configForUser } from '../lib/user-config';
@@ -83,46 +88,26 @@ const createSchema = z.object({
   text: multiLineText(8, 500),
   tags: z.array(singleLineText(1, 40)).max(10).default([]),
 });
-const insertedPromptSchema = z.object({ id: z.number().int().positive() });
 
 promptRoutes.post('/', async (c) => {
   const data = await parseBody(c, createSchema);
-  const db = getDb(c.env);
   const workspaceId = c.get('workspace').id;
   const limit = configForUser(c.get('user').email, c.env.ADMIN_EMAILS).limits
     .maxActivePromptsPerWorkspace;
-  const insertedId = await insertActivePrompt(
+  const created = await createPrompt(
     c.env,
     workspaceId,
     data.text,
     data.tags,
     limit,
   );
-  if (insertedId === null) {
-    const duplicate = await db
-      .select({ id: prompts.id })
-      .from(prompts)
-      .where(
-        and(eq(prompts.workspaceId, workspaceId), eq(prompts.text, data.text)),
-      )
-      .limit(1);
-    if (duplicate[0]) {
-      return c.json({ error: 'prompt already exists' }, 409);
-    }
-    if (limit === null) {
-      throw new Error('unlimited prompt insert returned no row');
-    }
-    return c.json({ error: promptLimitMessage(limit) }, 409);
+  if (!created.ok) {
+    return c.json({ error: promptLimitMessage(created.limit) }, 409);
   }
-  const created = await db
-    .select()
-    .from(prompts)
-    .where(eq(prompts.id, insertedId))
-    .limit(1);
-  if (!created[0]) {
-    throw new Error('inserted prompt not found');
+  if (created.duplicated) {
+    return c.json({ error: 'prompt already exists' }, 409);
   }
-  return c.json(created[0], 201);
+  return c.json(created.prompt, 201);
 });
 
 const updateSchema = z.object({
@@ -131,66 +116,24 @@ const updateSchema = z.object({
   active: z.boolean().optional(),
 });
 
-const reactivatePrompt = async (
+const promptUpdateResponses = (
   c: Context<WorkspaceBindings>,
-  id: number,
-  data: z.infer<typeof updateSchema>,
+  result:
+    | { ok: true; prompt: unknown }
+    | { ok: false; reason: 'not-found' }
+    | { ok: false; reason: 'duplicate' }
+    | { ok: false; reason: 'limit'; limit: number },
 ) => {
-  const workspaceId = c.get('workspace').id;
-  const limit = configForUser(c.get('user').email, c.env.ADMIN_EMAILS).limits
-    .maxActivePromptsPerWorkspace;
-  const assignments: string[] = [];
-  const values: unknown[] = [];
-  if (data.text !== undefined) {
-    assignments.push('text = ?');
-    values.push(data.text);
-  }
-  if (data.tags !== undefined) {
-    assignments.push('tags = ?');
-    values.push(JSON.stringify(data.tags));
-  }
-  assignments.push('active = 1');
-  const row = await c.env.DB.prepare(
-    `update prompts
-     set ${assignments.join(', ')}
-     where id = ? and workspace_id = ?
-       and (
-         active = 1 or ? is null or (
-           select count(*) from prompts
-           where workspace_id = ? and active = 1
-         ) < ?
-       )
-     returning id`,
-  )
-    .bind(...values, id, workspaceId, limit, workspaceId, limit)
-    .first();
-  if (row === null) {
-    const owned = await getDb(c.env)
-      .select({ id: prompts.id })
-      .from(prompts)
-      .where(and(eq(prompts.id, id), eq(prompts.workspaceId, workspaceId)))
-      .limit(1);
-    if (!owned[0]) {
+  if (!result.ok) {
+    if (result.reason === 'not-found') {
       return c.json({ error: 'not found' }, 404);
     }
-    if (limit === null) {
-      throw new Error('unlimited prompt activation returned no row');
+    if (result.reason === 'duplicate') {
+      return c.json({ error: 'prompt already exists' }, 409);
     }
-    return c.json({ error: promptLimitMessage(limit) }, 409);
+    return c.json({ error: promptLimitMessage(result.limit) }, 409);
   }
-  const updatedId = insertedPromptSchema.safeParse(row);
-  if (!updatedId.success) {
-    throw new Error('prompt activation returned an invalid row');
-  }
-  const updated = await getDb(c.env)
-    .select()
-    .from(prompts)
-    .where(eq(prompts.id, updatedId.data.id))
-    .limit(1);
-  if (!updated[0]) {
-    throw new Error('activated prompt not found');
-  }
-  return c.json(updated[0]);
+  return c.json(result.prompt);
 };
 
 promptRoutes.patch('/:id', async (c) => {
@@ -199,21 +142,22 @@ promptRoutes.patch('/:id', async (c) => {
     return c.json({ error: 'invalid id' }, 400);
   }
   const data = await parseBody(c, updateSchema);
-  if (data.active === true) {
-    return reactivatePrompt(c, id, data);
-  }
-  const db = getDb(c.env);
-  const updated = await db
-    .update(prompts)
-    .set(data)
-    .where(
-      and(eq(prompts.id, id), eq(prompts.workspaceId, c.get('workspace').id)),
-    )
-    .returning();
-  if (!updated[0]) {
-    return c.json({ error: 'not found' }, 404);
-  }
-  return c.json(updated[0]);
+  const workspaceId = c.get('workspace').id;
+  const limit = configForUser(c.get('user').email, c.env.ADMIN_EMAILS).limits
+    .maxActivePromptsPerWorkspace;
+  const patch = { text: data.text, tags: data.tags };
+  const result =
+    data.active === undefined
+      ? await updatePromptFields(c.env, id, workspaceId, patch)
+      : await setPromptActive(
+          c.env,
+          id,
+          workspaceId,
+          data.active,
+          limit,
+          patch,
+        );
+  return promptUpdateResponses(c, result);
 });
 
 promptRoutes.delete('/:id', async (c) => {
@@ -221,35 +165,16 @@ promptRoutes.delete('/:id', async (c) => {
   if (id === null) {
     return c.json({ error: 'invalid id' }, 400);
   }
-  const db = getDb(c.env);
-  const owned = (
-    await db
-      .select({ id: prompts.id })
-      .from(prompts)
-      .where(
-        and(eq(prompts.id, id), eq(prompts.workspaceId, c.get('workspace').id)),
-      )
-  )[0];
-  if (!owned) {
-    return c.json({ error: 'not found' }, 404);
-  }
-  const used = await db
-    .select({ id: results.id })
-    .from(results)
-    .where(eq(results.promptId, id))
-    .limit(1);
-  if (used.length > 0) {
-    // History references it — retire instead of destroying trend data.
-    return c.json(
-      { error: 'prompt has results; set active=false instead' },
-      409,
-    );
-  }
-  const deleted = await db
-    .delete(prompts)
-    .where(eq(prompts.id, id))
-    .returning();
-  if (!deleted[0]) {
+  const removed = await removePrompt(c.env, id, c.get('workspace').id, {
+    retireWhenUsed: false,
+  });
+  if (!removed.ok) {
+    if (removed.reason === 'has-results') {
+      return c.json(
+        { error: 'prompt has results; set active=false instead' },
+        409,
+      );
+    }
     return c.json({ error: 'not found' }, 404);
   }
   return c.json({ ok: true });

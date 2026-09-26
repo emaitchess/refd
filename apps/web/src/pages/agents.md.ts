@@ -5,6 +5,8 @@ import {
   AGENT_INJECTION_BOUNDARY,
   AGENT_INSTALLS,
   AGENT_PAT_EXAMPLE,
+  AGENT_PROMPT_TOOLS,
+  AGENT_PROMPT_WORKFLOW,
   AGENT_SCOPES,
   AGENT_SETUP_TOOLS,
   AGENT_SETUP_WORKFLOW,
@@ -41,7 +43,13 @@ Call \`tools/list\` after connecting. Every tool resolves the granted workspaces
 
 ${AGENT_SETUP_TOOLS.map(([name, description]) => `- \`${name}\`: ${description}`).join('\n')}
 
-With the \`data:write\` scope the setup tools onboard a workspace end to end: ${AGENT_SETUP_WORKFLOW} The workflow is budgeted, and \`confirm_setup\` starts exactly one provider-backed onboarding report; no grant can delete data, manage billing, or start further runs.
+With the \`data:write\` scope the setup tools onboard a workspace end to end: ${AGENT_SETUP_WORKFLOW} The workflow is budgeted, and \`confirm_setup\` starts exactly one provider-backed onboarding report. Past onboarding, prompt changes stay operational: the row-scoped prompt tools manage single prompts without rewriting the setup draft, and only an administrator's connection can trigger an extra paid run. No grant can delete run history or manage billing.
+
+## Prompt tools (data:write)
+
+${AGENT_PROMPT_TOOLS.map(([name, description]) => `- \`${name}\`: ${description}`).join('\n')}
+
+After onboarding, keep the workspace current with ${AGENT_PROMPT_WORKFLOW}
 
 ## Connect a client
 

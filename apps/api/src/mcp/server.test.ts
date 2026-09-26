@@ -74,6 +74,13 @@ describe('MCP tool catalog', () => {
     expect(MCP_INSTRUCTIONS).toContain('complete_setup');
   });
 
+  test('server instructions include the operational prompt tools', () => {
+    expect(MCP_INSTRUCTIONS).toContain('list_prompts');
+    expect(MCP_INSTRUCTIONS).toContain('add_prompt');
+    expect(MCP_INSTRUCTIONS).toContain('run_now');
+    expect(MCP_INSTRUCTIONS).toContain('administrator accounts only');
+  });
+
   test('server instructions state the provisioning rule', () => {
     expect(MCP_INSTRUCTIONS).toContain('create_workspace');
     expect(MCP_INSTRUCTIONS).toContain('Allow all workspaces');

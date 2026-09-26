@@ -1,5 +1,7 @@
 import type { APIRoute } from 'astro';
 import {
+  AGENT_PROMPT_TOOLS,
+  AGENT_PROMPT_WORKFLOW,
   AGENT_SETUP_TOOLS,
   AGENT_SETUP_WORKFLOW,
   AGENT_TOOLS,
@@ -11,9 +13,10 @@ name: refd
 description: Work with refd AI search monitoring through its MCP server. Use when
   a user asks about refd, AI search visibility, brand monitoring in ChatGPT /
   Perplexity / Gemini / Google AI answers, asks an agent to query refd data, or
-  asks an agent to set up or onboard a refd workspace. Covers the nine read
-  tools, the bounded data:write setup lifecycle, auth, and
-  honest-interpretation rules.
+  asks an agent to set up or onboard a refd workspace, or to change the
+  tracked prompts of one that is already onboarded. Covers the nine read
+  tools, the bounded data:write setup lifecycle, row-scoped prompt
+  management, auth, and honest-interpretation rules.
 ---
 
 # refd: AI search monitoring via MCP
@@ -39,8 +42,8 @@ workspace tracks one brand.
   credential, never the tool arguments, defines what it may target.
   \`get_workspace_info\` lists the choices.
 - Scopes: \`data:read\` (nine analytics tools, the default) and \`data:write\`
-  (twelve setup tools plus \`revoke_connection\`; \`create_workspace\` needs an
-  Allow all connection).
+  (twelve setup tools, six row-scoped prompt tools, plus
+  \`revoke_connection\`; \`create_workspace\` needs an Allow all connection).
 
 ## Reading data (data:read)
 
@@ -77,7 +80,7 @@ Rules the server enforces, so do not fight them:
 - Generation failures carry a \`detail\` cause and a \`guidance\` next action;
   competitor failures may also list the raw candidate domains that back the
   search - verify them with \`check_domain\` before saving.
-- \`confirm_setup\` is the only provider-spending action: it starts one
+- \`confirm_setup\` is the only provider-spending setup action: it starts one
   provider-backed onboarding report per workspace (one per user per day, five
   lifetime). Always present the \`preview_setup\` result to the user and get
   explicit approval before calling it.
@@ -89,6 +92,20 @@ Rules the server enforces, so do not fight them:
   the grant, every token under it, and access to all approved workspaces die
   together. Only ever revokes the connection the credential belongs to, so
   ask the user before calling it.
+
+## Keeping an onboarded workspace current (data:write)
+
+After onboarding, prompt changes are row-scoped operations, not a setup
+migration. Workflow: ${AGENT_PROMPT_WORKFLOW}
+
+${AGENT_PROMPT_TOOLS.map(([name, description]) => `- \`${name}\`: ${description}`).join('\n')}
+
+- The prompt tools refuse a workspace whose setup has neither committed nor
+  completed; finish onboarding first.
+- In-flight runs keep their frozen prompt set, so edits land on the next run.
+  \`run_now\` closes that gap; it spends paid provider quota, is limited to
+  administrator accounts (ADMIN_EMAILS), and allows at most 5 manual runs per
+  hour per workspace.
 
 ## Interpreting results honestly
 

@@ -66,16 +66,16 @@ const reportBodySchema = z.object({
   setupId: z.number().int().positive().optional(),
 });
 
-const textResult = (value: unknown) => ({
+export const textResult = (value: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }],
 });
 
-const errorResult = (body: unknown) => ({
+export const errorResult = (body: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(body, null, 2) }],
   isError: true,
 });
 
-const invalidSetupArgs = () =>
+export const invalidSetupArgs = () =>
   errorResult({
     error: {
       code: 'invalid_arguments',
@@ -134,11 +134,17 @@ const contextFor = (
   source: 'mcp',
 });
 
-const runSetupTool = async (
+export const runSetupTool = async (
   env: AppEnv,
   executionContext: ExecutionContext,
   name: string,
-  options: { requireWrite: boolean; workspaceArg?: number },
+  options: {
+    requireWrite: boolean;
+    workspaceArg?: number;
+    // Failure label for errors an operation did not classify itself; each
+    // tool family names its own domain instead of borrowing "setup".
+    errorKind?: { code: string; message: string };
+  },
   operation: (
     principal: McpPrincipal,
     workspace: McpWorkspace,
@@ -191,9 +197,14 @@ const runSetupTool = async (
     );
     return errorResult({
       error: {
-        code: denied ? 'forbidden' : 'setup_error',
-        message:
-          error instanceof Error ? error.message : 'The setup tool failed.',
+        code: denied ? 'forbidden' : (options.errorKind?.code ?? 'setup_error'),
+        message: denied
+          ? error instanceof Error
+            ? error.message
+            : 'Connection refused.'
+          : error instanceof Error
+            ? error.message
+            : (options.errorKind?.message ?? 'The setup tool failed.'),
       },
     });
   }
@@ -213,7 +224,7 @@ const unwrapState = (result: unknown): unknown => {
 // The published inputSchema is the body shape plus the workspace selector.
 // Both schemas strip unknown keys, so parsing them separately over the same
 // arguments accepts exactly the same inputs the merged schema would.
-const selectorArgs = <T extends z.ZodObject<z.ZodRawShape>>(
+export const selectorArgs = <T extends z.ZodObject<z.ZodRawShape>>(
   args: unknown,
   body: T,
 ): { workspaceArg: number | undefined; body: z.infer<T> } | null => {
