@@ -85,7 +85,7 @@ export const canonicalPromptCategory = (value: string) =>
   PROMPT_CATEGORIES.find(
     (category) => category.toLowerCase() === value.trim().toLowerCase(),
   );
-const categorySchema = singleLineText(1, 40)
+export const categorySchema = singleLineText(1, 40)
   .transform((value) => canonicalPromptCategory(value) ?? value)
   .pipe(
     z.enum(PROMPT_CATEGORIES, {
@@ -140,7 +140,32 @@ export type OnboardingErrorBody =
       code: 'setup_budget_exhausted';
       message: string;
       retryAfterSeconds: number;
+    }
+  | {
+      code: 'duplicate_draft_id';
+      message: string;
+      duplicates: string[];
     };
+
+// A draftId names one editable entry to the client; two entries sharing one
+// id turn every later edit-by-id into a lottery. Absent ids are generated
+// server-side, so only explicit repeats are a conflict.
+export const duplicateDraftIds = (
+  entries: { draftId?: string }[],
+): string[] => {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const entry of entries) {
+    if (entry.draftId === undefined) {
+      continue;
+    }
+    if (seen.has(entry.draftId)) {
+      duplicates.add(entry.draftId);
+    }
+    seen.add(entry.draftId);
+  }
+  return [...duplicates];
+};
 
 export type OnboardingFailure = {
   error: OnboardingErrorBody;

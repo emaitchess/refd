@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, gte, isNull, sql } from 'drizzle-orm';
 import { type Db, getDb } from '../db/client';
 import {
   entities,
@@ -262,3 +262,46 @@ export const createRun = (
   date: string,
   opts: { promptIds?: number[]; samples?: number } = {},
 ) => createRunWith(getDb(env), env, workspaceId, trigger, key, date, opts);
+
+// Manual trigger spends provider quota. ADMIN_EMAILS is the server-side
+// boundary enforced by the callers; the rate limit is a second cost guard,
+// not authorization. Shared by the operator HTTP route and the MCP run_now
+// tool so both surfaces drift-proof the same cost policy.
+export const MANUAL_RUNS_PER_HOUR = 5;
+
+export type ManualRunStart =
+  | { ok: true; run: CreatedRun; date: string }
+  | { ok: false; reason: 'rate_limited' };
+
+export const createManualRun = async (
+  db: Db,
+  env: AppEnv,
+  workspaceId: number,
+  opts: { promptIds?: number[]; samples?: number } = {},
+): Promise<ManualRunStart> => {
+  const hourAgo = Date.now() - 60 * 60 * 1000;
+  const recent = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(runs)
+    .where(
+      and(
+        eq(runs.trigger, 'manual'),
+        gte(runs.createdAt, hourAgo),
+        eq(runs.workspaceId, workspaceId),
+      ),
+    );
+  if ((recent[0]?.count ?? 0) >= MANUAL_RUNS_PER_HOUR) {
+    return { ok: false, reason: 'rate_limited' };
+  }
+  const date = new Date().toISOString().slice(0, 10);
+  const run = await createRunWith(
+    db,
+    env,
+    workspaceId,
+    'manual',
+    `manual:${crypto.randomUUID()}`,
+    date,
+    opts,
+  );
+  return { ok: true, run, date };
+};

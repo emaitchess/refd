@@ -120,6 +120,21 @@ const MCP_TOOLS = [
       'Returns a complete grounded snapshot of a connected workspace in one call.',
   },
   {
+    name: 'get_run_history',
+    purpose:
+      'Lists recent run cycles with status, answer counts, dispatch state, and the frozen prompt count.',
+  },
+  {
+    name: 'get_prompt_changes',
+    purpose:
+      'Diffs the two most recent completed runs per prompt, including zero-visibility transitions.',
+  },
+  {
+    name: 'get_prompt_citations',
+    purpose:
+      'Lists the URLs cited for one prompt over a range, with counts and an isOurs flag.',
+  },
+  {
     name: 'get_setup_state',
     scope: 'data:write',
     purpose:
@@ -169,6 +184,70 @@ const MCP_TOOLS = [
     name: 'get_setup_report',
     scope: 'data:write',
     purpose: 'Live progress and the pinned setup report for the run group.',
+  },
+  {
+    name: 'list_prompts',
+    scope: 'data:write',
+    purpose:
+      "Lists an onboarded workspace's tracked prompts with ids, categories, activity, and answer counts.",
+  },
+  {
+    name: 'add_prompt',
+    scope: 'data:write',
+    purpose:
+      'Adds one tracked prompt and returns its id; a repeated text converges to the existing prompt.',
+  },
+  {
+    name: 'update_prompt',
+    scope: 'data:write',
+    purpose:
+      "Rewords a prompt's text or changes its category without touching the setup draft.",
+  },
+  {
+    name: 'toggle_prompt',
+    scope: 'data:write',
+    purpose:
+      'Enables or disables a prompt while keeping its history; activation respects the prompt limit.',
+  },
+  {
+    name: 'remove_prompt',
+    scope: 'data:write',
+    purpose:
+      'Retires a prompt that has results or deletes one that does not, so history always survives.',
+  },
+  {
+    name: 'run_now',
+    scope: 'data:write',
+    purpose:
+      'Triggers an immediate paid collection run; administrator accounts only, 5 per hour per workspace.',
+  },
+  {
+    name: 'add_competitor',
+    scope: 'data:write',
+    purpose:
+      'Adds one tracked competitor with verified domains and optional aliases; returns its id.',
+  },
+  {
+    name: 'remove_competitor',
+    scope: 'data:write',
+    purpose:
+      'Removes a competitor by name; refused when scored results would be destroyed.',
+  },
+  {
+    name: 'list_competitors',
+    scope: 'data:write',
+    purpose: 'Lists tracked competitors with id, name, domains, and aliases.',
+  },
+  {
+    name: 'enable_surface',
+    scope: 'data:write',
+    purpose:
+      'Turns on one AI surface for the next run; respects the surface ceiling.',
+  },
+  {
+    name: 'disable_surface',
+    scope: 'data:write',
+    purpose: 'Turns one AI surface off; the last surface cannot be disabled.',
   },
 ] as const;
 
@@ -223,9 +302,10 @@ export const McpGuide = () => (
         <code className="font-mono text-[11px] text-primary">data:read</code>{' '}
         scope. With the optional{' '}
         <code className="font-mono text-[11px] text-primary">data:write</code>{' '}
-        scope it can also set up a workspace with you and start its one
-        provider-backed onboarding report; every other provider run stays
-        operator-only.
+        scope it can also set up a workspace with you, start its one
+        provider-backed onboarding report, and keep an onboarded workspace's
+        prompts current row by row. Triggering additional paid runs (run_now)
+        stays administrator-only; every other provider run stays operator-only.
       </p>
       <div className="mt-4 border border-border bg-bg">
         <div className="section-label border-border border-b px-3 py-2 text-muted">
@@ -368,11 +448,11 @@ claude mcp login refd`}</CodeBlock>
             },
             {
               label: 'scoped access',
-              text: 'data:read covers every analytics tool and cannot edit data. The optional data:write scope adds setup only: configure the draft, preview it, and confirm it once.',
+              text: 'data:read covers every analytics tool and cannot edit data. The optional data:write scope adds setup plus row-scoped prompt management on onboarded workspaces: configure the draft, confirm it once, then add, edit, retire, or re-check individual prompts.',
             },
             {
               label: 'bounded spend',
-              text: 'The only provider spend a connector can trigger is the single free onboarding report that confirm_setup starts. Scheduled, manual, and rescore runs stay operator-only.',
+              text: 'The provider spend a connector can reach is the single free onboarding report that confirm_setup starts. run_now adds one immediate paid run, and only when the account owner is a refd administrator; it counts against the same 5-per-hour manual-run guard as the dashboard. Other scheduled and rescore runs stay operator-only.',
             },
             {
               label: 'OAuth protected',
@@ -415,7 +495,7 @@ claude mcp login refd`}</CodeBlock>
       <GuideSection
         id="mcp-tools"
         title="Available tools"
-        description="Analytics tools are read-only; setup tools require data:write. Every tool resolves the granted workspaces from the credential, and the optional workspace argument only picks among them."
+        description="Analytics tools are read-only; setup and prompt tools require data:write. Every tool resolves the granted workspaces from the credential, and the optional workspace argument only picks among them."
       >
         <div className="overflow-x-auto">
           <table className="w-full min-w-[680px] border-collapse text-left">
@@ -480,9 +560,9 @@ claude mcp login refd`}</CodeBlock>
           </p>
           <p className="mt-2 text-[12px] text-muted leading-relaxed">
             refd does not expose web search, arbitrary raw-payload access, chat,
-            authentication, account controls, operator tools, or workspace
-            deletion through MCP. Setup writes stop at the confirmed snapshot;
-            post-onboarding changes belong to the dashboard.
+            authentication, account controls, rescore levers, or workspace
+            deletion through MCP. Prompt writes are row-scoped on onboarded
+            workspaces; the setup draft itself stops at the confirmed snapshot.
           </p>
         </div>
       </GuideSection>

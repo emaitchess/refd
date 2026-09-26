@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { WorkspaceBindings } from '../auth/middleware';
@@ -19,14 +19,12 @@ import {
   rescoreProgress,
   rescoreStoredResult,
 } from '../ingest/rescore';
-import { createRun, entitiesForRun } from '../ingest/runs';
+import { createManualRun, entitiesForRun } from '../ingest/runs';
 import { gunzipJson } from '../ingest/storage';
 import { parseBody, parseId } from '../lib/http';
 import type { DATASET_SURFACES } from '../providers/types';
 import { SCORING_VERSION } from '../scoring';
 import { loadEntitiesWithBrand } from './metrics';
-
-const MANUAL_RUNS_PER_HOUR = 5;
 
 const runResponseColumns = {
   id: runs.id,
@@ -57,55 +55,26 @@ const getOwnedRun = async (db: Db, id: number, workspaceId: number) =>
 
 export const runRoutes = new Hono<WorkspaceBindings>();
 
-runRoutes.get('/', async (c) => {
-  const db = getDb(c.env);
-  const rows = await db
-    .select(runResponseColumns)
-    .from(runs)
-    .where(eq(runs.workspaceId, c.get('workspace').id))
-    .orderBy(desc(runs.id))
-    .limit(100);
-  return c.json({ runs: rows });
+export const runOptionsBodySchema = z.object({
+  promptIds: z.array(z.number().int().positive()).min(1).optional(),
+  samples: z.number().int().min(1).max(10).optional(),
 });
-
-// Manual trigger spends provider quota. ADMIN_EMAILS is the server-side
-// boundary; the rate limit is a second cost guard, not authorization.
-const runOptionsSchema = z
-  .object({
-    promptIds: z.array(z.number().int().positive()).min(1).optional(),
-    samples: z.number().int().min(1).max(10).optional(),
-  })
-  .nullable();
+const runOptionsSchema = runOptionsBodySchema.nullable();
 
 runRoutes.post('/', requireOperator, async (c) => {
   const opts = (await parseBody(c, runOptionsSchema)) ?? {};
-  const db = getDb(c.env);
   const ws = c.get('workspace').id;
-  const hourAgo = Date.now() - 60 * 60 * 1000;
-  const recent = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(runs)
-    .where(
-      and(
-        eq(runs.trigger, 'manual'),
-        gte(runs.createdAt, hourAgo),
-        eq(runs.workspaceId, ws),
-      ),
-    );
-  if ((recent[0]?.count ?? 0) >= MANUAL_RUNS_PER_HOUR) {
+  const started = await createManualRun(getDb(c.env), c.env, ws, {
+    promptIds: opts?.promptIds,
+    samples: opts?.samples,
+  });
+  if (!started.ok) {
     return c.json({ error: 'manual run limit reached (5/hour)' }, 429);
   }
-
-  const date = new Date().toISOString().slice(0, 10);
-  const created = await createRun(
-    c.env,
-    ws,
-    'manual',
-    `manual:${crypto.randomUUID()}`,
-    date,
-    { promptIds: opts?.promptIds, samples: opts?.samples },
+  return c.json(
+    started.run,
+    started.run.dispatchState === 'dispatched' ? 201 : 202,
   );
-  return c.json(created, created.dispatchState === 'dispatched' ? 201 : 202);
 });
 
 // Recover paid provider data: re-enqueue the batch trigger for every dataset

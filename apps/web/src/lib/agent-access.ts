@@ -5,11 +5,11 @@ export const MCP_ENDPOINT = 'https://api.refd.ai/mcp';
 export const AGENT_SCOPES: [scope: string, description: string][] = [
   [
     'data:read',
-    'Nine analytics tools plus a metric-glossary resource. Read-only.',
+    'Twelve analytics tools plus a metric-glossary resource. Read-only.',
   ],
   [
     'data:write',
-    'Adds twelve setup tools plus revoke_connection covering the whole lifecycle: verify domains, provision a workspace, configure it, start one provider-backed onboarding report, finish onboarding, and revoke the connection when it is no longer needed.',
+    'Adds twelve setup tools plus revoke_connection covering the whole lifecycle: verify domains, provision a workspace, configure it, start one provider-backed onboarding report, finish onboarding, and revoke the connection when it is no longer needed. Onboarded workspaces also get row-scoped prompt management, competitor CRUD, and surface toggles (eleven tools) plus run_now, an immediate paid run limited to administrator accounts.',
   ],
 ];
 
@@ -17,7 +17,7 @@ export const AGENT_WORKSPACE_ENTITLEMENT =
   'At consent you pick the workspaces the connection may target: check the ones you want, use Allow all to cover every workspace on the account (including ones you create later), or provision a new workspace for the agent to onboard (the create_workspace tool needs an Allow all connection, since only those can target workspaces created after approval). Every tool takes an optional workspace selector, and the credential, never the tool arguments, defines what it may target. Personal access tokens always cover exactly one workspace.';
 
 export const AGENT_INJECTION_BOUNDARY =
-  'Web prompt-injection can, at worst, act inside the workspaces the human authorized: a setup-scoped agent can edit configuration and start the one onboarding report, and no grant can delete data, manage billing, or start further runs.';
+  "Web prompt-injection can, at worst, act inside the workspaces the human authorized: a setup-scoped agent can edit configuration, start the one onboarding report, and manage tracked prompts row by row; no grant can delete run history or manage billing, and only an administrator's connection can trigger an extra paid run (run_now).";
 
 export const AGENT_SETUP_TOOLS: [name: string, description: string][] = [
   [
@@ -73,6 +73,59 @@ export const AGENT_SETUP_TOOLS: [name: string, description: string][] = [
 
 export const AGENT_SETUP_WORKFLOW =
   'get_setup_state, check_domain on every candidate domain, set_brand, draft_description, suggest or update competitors and prompts (prompt generation is steerable by count and theme), preview_setup, explicit user approval, confirm_setup, then get_setup_report until the runs land, then complete_setup to finish. When the connection is no longer wanted, revoke_connection ends the access it had.';
+
+export const AGENT_PROMPT_TOOLS: [name: string, description: string][] = [
+  [
+    'list_prompts',
+    'Every tracked prompt with id, text, category, tags, active status, and answer counts, plus the active-prompt limit and the valid categories.',
+  ],
+  [
+    'add_prompt',
+    'Adds one prompt (optional category becomes its single tag) and returns the assigned id; a repeated text converges to the existing prompt.',
+  ],
+  [
+    'update_prompt',
+    'Rewords the text and/or changes the category of one prompt; text is unique per workspace.',
+  ],
+  [
+    'toggle_prompt',
+    'Enables or disables a prompt while keeping its history; activation respects the active-prompt ceiling.',
+  ],
+  [
+    'remove_prompt',
+    'Retires a prompt that has results (history preserved, re-activatable) and deletes one that has none.',
+  ],
+  [
+    'run_now',
+    'Triggers an immediate paid collection run over the current active prompt set; administrator accounts only, at most 5 per hour per workspace.',
+  ],
+];
+
+export const AGENT_TRACKING_TOOLS: [name: string, description: string][] = [
+  [
+    'add_competitor',
+    'Adds one tracked competitor: unique name, verified domains, and optional aliases; returns the assigned id.',
+  ],
+  [
+    'remove_competitor',
+    'Removes a competitor by name; refused when scored results would be destroyed.',
+  ],
+  [
+    'list_competitors',
+    'The tracked competitors with id, name, domains, and aliases.',
+  ],
+  [
+    'enable_surface',
+    'Turns on one AI surface for the next run; respects the surface ceiling.',
+  ],
+  [
+    'disable_surface',
+    'Turns one AI surface off; the last surface cannot be disabled.',
+  ],
+];
+
+export const AGENT_PROMPT_WORKFLOW =
+  'list_prompts to resolve ids, add_prompt / update_prompt / toggle_prompt / remove_prompt for row-scoped changes (no setup draft, no list rewrite; in-flight runs keep their frozen prompt set), then run_now when the next scheduled run is too far away and get_prompt_performance with range 1d to check the results.';
 
 // The editor-native server entry: the shape Cursor, VS Code, and Claude Code
 // all accept for a remote Streamable HTTP server. Encoded per client below.
@@ -144,6 +197,18 @@ export const AGENT_TOOLS: [name: string, description: string][] = [
   [
     'get_digest',
     'A 30-day rollup of the workspace, the same one that grounds the dashboard chat.',
+  ],
+  [
+    'get_run_history',
+    'Recent run cycles with status, answer counts, dispatch state, and the frozen prompt count.',
+  ],
+  [
+    'get_prompt_changes',
+    'A per-prompt diff of the two most recent completed runs, including zero-visibility transitions.',
+  ],
+  [
+    'get_prompt_citations',
+    'The URLs cited for one prompt, with counts and an isOurs flag, in a single call.',
   ],
 ];
 

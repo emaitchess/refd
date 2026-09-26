@@ -66,16 +66,16 @@ const reportBodySchema = z.object({
   setupId: z.number().int().positive().optional(),
 });
 
-const textResult = (value: unknown) => ({
+export const textResult = (value: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }],
 });
 
-const errorResult = (body: unknown) => ({
+export const errorResult = (body: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(body, null, 2) }],
   isError: true,
 });
 
-const invalidSetupArgs = () =>
+export const invalidSetupArgs = () =>
   errorResult({
     error: {
       code: 'invalid_arguments',
@@ -134,11 +134,17 @@ const contextFor = (
   source: 'mcp',
 });
 
-const runSetupTool = async (
+export const runSetupTool = async (
   env: AppEnv,
   executionContext: ExecutionContext,
   name: string,
-  options: { requireWrite: boolean; workspaceArg?: number },
+  options: {
+    requireWrite: boolean;
+    workspaceArg?: number;
+    // Failure label for errors an operation did not classify itself; each
+    // tool family names its own domain instead of borrowing "setup".
+    errorKind?: { code: string; message: string };
+  },
   operation: (
     principal: McpPrincipal,
     workspace: McpWorkspace,
@@ -191,9 +197,14 @@ const runSetupTool = async (
     );
     return errorResult({
       error: {
-        code: denied ? 'forbidden' : 'setup_error',
-        message:
-          error instanceof Error ? error.message : 'The setup tool failed.',
+        code: denied ? 'forbidden' : (options.errorKind?.code ?? 'setup_error'),
+        message: denied
+          ? error instanceof Error
+            ? error.message
+            : 'Connection refused.'
+          : error instanceof Error
+            ? error.message
+            : (options.errorKind?.message ?? 'The setup tool failed.'),
       },
     });
   }
@@ -213,7 +224,7 @@ const unwrapState = (result: unknown): unknown => {
 // The published inputSchema is the body shape plus the workspace selector.
 // Both schemas strip unknown keys, so parsing them separately over the same
 // arguments accepts exactly the same inputs the merged schema would.
-const selectorArgs = <T extends z.ZodObject<z.ZodRawShape>>(
+export const selectorArgs = <T extends z.ZodObject<z.ZodRawShape>>(
   args: unknown,
   body: T,
 ): { workspaceArg: number | undefined; body: z.infer<T> } | null => {
@@ -273,7 +284,7 @@ export const registerSetupTools = (
     {
       title: 'Set the tracked brand',
       description:
-        'Sets or updates the workspace brand: name, domains, and aliases. Matching note: aliases and domains fold case-insensitively and separator-differences ("Coca-Cola" equals "coca cola") and the brand name always matches case-insensitively; each domain also acts as a mention alias, so a visible "example.com" in answer prose names the brand. Dictionary-word names cannot be safely narrowed from here (a caseSensitive override lives in Settings). Requires expectedVersion from the latest setup state. With several approved workspaces, pass workspace to target one.',
+        'Sets or updates the workspace brand: name, domains, and aliases. Applies immediately to the live brand entity, before or after onboarding; it is not draft-only. Alias edits carry caseSensitive flags over for surviving values, so adding a misspelling or removing a stale alias is a three-field full-list edit. Matching note: aliases and domains fold case-insensitively and separator-differences ("Coca-Cola" equals "coca cola") and the brand name always matches case-insensitively; each domain also acts as a mention alias, so a visible "example.com" in answer prose names the brand. Dictionary-word names cannot be safely narrowed from here (a caseSensitive override lives in Settings). Requires expectedVersion from the latest get_setup_state. With several approved workspaces, pass workspace to target one.',
       inputSchema: brandRequestSchema.extend(workspaceSelectorSchema.shape),
       annotations: {
         readOnlyHint: false,

@@ -29,8 +29,10 @@ Two scopes exist:
   can draft, edit, and preview a workspace's setup, and `confirm_setup`
   starts exactly one provider-backed onboarding report per workspace; the
   same per-workspace draft versions and spend budgets that bound the
-  dashboard apply. No other provider run is reachable over MCP. The consent
-  screen discloses what write access allows before approval.
+  dashboard apply. On onboarded workspaces the write scope also carries
+  row-scoped prompt management (below) and `run_now`, an immediate paid run
+  limited to administrator accounts. The consent screen discloses what write
+  access allows before approval.
 
 Write integrity does not rest on the token: setup mutations carry an
 optimistic-concurrency version, and `confirm_setup` verifies a canonical
@@ -193,6 +195,9 @@ exported, or narrowed to fewer prompts than the workspace tracks.
 | `find_prompt_results` | Fuzzy prompt lookup with result IDs |
 | `read_answer` | Clipped, ownership-checked AI answer evidence |
 | `get_digest` | Complete grounded workspace snapshot |
+| `get_run_history` | Recent run cycles, newest first: date, trigger, status, collected/total answers, dispatch state, entity-set hash, and the frozen prompt count |
+| `get_prompt_changes` | Per-prompt diff of the two most recent completed runs: mention/citation rate deltas, zero-visibility transitions, and prompts that entered or exited the set |
+| `get_prompt_citations` | The URLs cited for one prompt over a range, grouped by URL with counts and an isOurs flag |
 
 Ranges accept `1d`, `3d`, `7d`, `30d`, `90d`, or `all` and default to `30d`.
 Every tool, read or setup, accepts an optional `workspace` argument (the
@@ -202,8 +207,9 @@ granted set is rejected. The server also publishes
 the dashboard.
 
 With the `data:write` scope, twelve setup tools plus `revoke_connection` cover
-the whole lifecycle. `create_workspace` provisions a brand-new workspace; the
-other ten onboard one:
+the whole lifecycle, and six prompt tools keep an onboarded workspace current.
+`create_workspace` provisions a brand-new workspace; the other ten onboard
+one:
 
 | Tool | Purpose |
 | --- | --- |
@@ -233,8 +239,37 @@ competitors and prompts, `preview_setup`, explicit user approval,
 `complete_setup` to finish. Every mutation carries `expectedVersion` from the
 latest state (a stale version returns a structured conflict naming what moved
 it), the workflow is budgeted per user and workspace, and `confirm_setup` is
-the only provider-spending action a connector can reach: no grant can delete
-data, manage billing, or start further runs.
+the only provider-spending setup action a connector can reach.
+
+## Keeping an onboarded workspace current
+
+After onboarding, tracking changes should be an operational task, not a setup
+migration: eleven data:write tools manage tracked prompts, competitors, and
+surfaces **row by row**, so a single change never rewrites the whole
+configuration or touches the setup draft. All of them refuse a workspace whose
+setup has neither committed nor completed (finish onboarding first); every one
+takes the usual optional `workspace` selector. Brand edits keep using
+`set_brand`, which already applies immediately to the live brand entity, before
+or after onboarding.
+
+| Tool | Purpose |
+| --- | --- |
+| `list_prompts` | Every tracked prompt with id, text, category, tags, active status, and answer counts, plus the active-prompt limit and the valid categories |
+| `add_prompt` | Adds one prompt (8-500 chars, optional category from Discovery, Evaluation, Comparison, Decision, Authority that becomes its single tag) and returns the assigned id; a repeated text converges to the existing prompt instead of erroring |
+| `update_prompt` | Rewords the text and/or changes the category (tags become just that category); text is unique per workspace, and a clash returns `duplicate_prompt` |
+| `toggle_prompt` | Enables or disables a prompt while keeping its history; re-activating is refused when the workspace is at its active-prompt ceiling |
+| `remove_prompt` | Retires a prompt that has results (history preserved, re-activatable) and deletes one that has none; the only destructive prompt tool |
+| `run_now` | Triggers an immediate collection run over the current active prompt set on every enabled surface. Spends paid provider quota and is limited to administrator accounts (`ADMIN_EMAILS`); at most 5 manual runs per hour per workspace, the same guard the operator HTTP route enforces. Optional `promptIds` select a subset of the active prompts; optional `samples` (1-10) overrides the default |
+| `add_competitor` | Adds one tracked competitor: unique name, 1-10 domains (verify with `check_domain` first), up to 8 aliases; returns the assigned id |
+| `remove_competitor` | Removes a competitor by name; refused when it has scored results (trend data) and for the brand entity |
+| `list_competitors` | The tracked competitors with id, name, domains, and aliases |
+| `enable_surface` / `disable_surface` | Switch one AI surface (chatgpt, perplexity, gemini, google_ai_mode, google_aio) on or off, effective next run; the standard-user ceiling of 3 applies, and the last surface cannot be disabled |
+
+These tools are deliberately row-scoped: no `expectedVersion`, no draft, no
+list rewrite — the draftId collision class of the setup flow cannot happen.
+In-flight runs keep their frozen prompt set, so edits land on the next run;
+call `run_now` when the next scheduled run is too far away, then poll
+`get_prompt_performance` with range `1d`.
 
 Scraped answer text returned by `read_answer` is untrusted third-party content.
 Clients should treat it as evidence, never as instructions.

@@ -9,6 +9,9 @@ import {
   AGENT_INJECTION_BOUNDARY,
   AGENT_INSTALLS,
   AGENT_PAT_EXAMPLE,
+  AGENT_PROMPT_TOOLS,
+  AGENT_TRACKING_TOOLS,
+  AGENT_PROMPT_WORKFLOW,
   AGENT_SCOPES,
   AGENT_SETUP_TOOLS,
   AGENT_SETUP_WORKFLOW,
@@ -114,13 +117,44 @@ import '../styles/global.css';
             With the <code>data:write</code> scope, the setup tools onboard a
             workspace end to end: {AGENT_SETUP_WORKFLOW} The workflow is
             budgeted, and <code>confirm_setup</code> starts exactly one
-            provider-backed onboarding report; no grant can delete data,
-            manage billing, or start further runs.
+            provider-backed onboarding report. Past onboarding, prompt changes
+            stay operational; only an administrator's connection can trigger an
+            extra paid run. No grant can delete run history or manage billing.
           </p>
         </div>
         <div class="agent-grid tools-grid">
           {
             AGENT_SETUP_TOOLS.map(([name, desc]) => (
+              <div class="cell">
+                <h3><code>{name}</code></h3>
+                <p>{desc}</p>
+              </div>
+            ))
+          }
+        </div>
+        <p class="k" style="margin-top:44px">prompt tools · data:write</p>
+        <div class="section-head" style="margin-top:8px">
+          <h2>Keep an onboarded workspace current.</h2>
+          <p>Row-scoped prompt management: a single prompt changes without rewriting the setup draft. {AGENT_PROMPT_WORKFLOW}</p>
+        </div>
+        <div class="agent-grid tools-grid">
+          {
+            AGENT_PROMPT_TOOLS.map(([name, desc]) => (
+              <div class="cell">
+                <h3><code>{name}</code></h3>
+                <p>{desc}</p>
+              </div>
+            ))
+          }
+        </div>
+        <p class="k" style="margin-top:44px">tracking tools · data:write</p>
+        <div class="section-head" style="margin-top:8px">
+          <h2>Competitors and surfaces, without the dashboard.</h2>
+          <p>Brand edits stay in <code>set_brand</code>, which applies immediately to the live brand entity.</p>
+        </div>
+        <div class="agent-grid tools-grid">
+          {
+            AGENT_TRACKING_TOOLS.map(([name, desc]) => (
               <div class="cell">
                 <h3><code>{name}</code></h3>
                 <p>{desc}</p>

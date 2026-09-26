@@ -3,6 +3,8 @@ import {
   AGENT_DISCOVERY,
   AGENT_INJECTION_BOUNDARY,
   AGENT_INSTALLS,
+  AGENT_PROMPT_TOOLS,
+  AGENT_PROMPT_WORKFLOW,
   AGENT_SCOPES,
   AGENT_SETUP_TOOLS,
   AGENT_SETUP_WORKFLOW,
@@ -78,7 +80,31 @@ describe('shared agent-access facts', () => {
 
   test('injection boundary names the worst case for both scopes', () => {
     expect(AGENT_INJECTION_BOUNDARY).toContain('the human authorized');
-    expect(AGENT_INJECTION_BOUNDARY).toContain('no grant can delete data');
+    expect(AGENT_INJECTION_BOUNDARY).toContain(
+      'no grant can delete run history',
+    );
+    expect(AGENT_INJECTION_BOUNDARY).toContain('run_now');
+  });
+
+  test('prompt tools list the six registered tools in workflow order', () => {
+    expect(AGENT_PROMPT_TOOLS.map(([name]) => name)).toEqual([
+      'list_prompts',
+      'add_prompt',
+      'update_prompt',
+      'toggle_prompt',
+      'remove_prompt',
+      'run_now',
+    ]);
+    expect(AGENT_PROMPT_WORKFLOW).toContain('list_prompts');
+    expect(AGENT_PROMPT_WORKFLOW).toContain('run_now');
+    expect(AGENT_PROMPT_WORKFLOW).toContain('1d');
+  });
+
+  test('run_now is disclosed as an administrator-gated paid run', () => {
+    const runNow = AGENT_PROMPT_TOOLS.find(([name]) => name === 'run_now')?.[1];
+    expect(runNow).toContain('paid');
+    expect(runNow).toContain('administrator');
+    expect(runNow).toContain('5 per hour');
   });
 
   test('setup tools list the thirteen registered tools in workflow order', () => {

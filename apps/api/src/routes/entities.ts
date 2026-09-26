@@ -3,7 +3,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { WorkspaceBindings } from '../auth/middleware';
 import { getDb } from '../db/client';
-import { entities, entityScores } from '../db/schema';
+import { entities } from '../db/schema';
+import { createEntity, removeEntity } from '../lib/entity-store';
 import { parseBody, parseId } from '../lib/http';
 import { domainField, singleLineText } from '../lib/sanitize';
 
@@ -34,33 +35,24 @@ const createSchema = z.object({
 
 entityRoutes.post('/', async (c) => {
   const data = await parseBody(c, createSchema);
-  const db = getDb(c.env);
   const ws = c.get('workspace').id;
-  const existing = await db
-    .select()
+  const existing = await getDb(c.env)
+    .select({ id: entities.id, isBrand: entities.isBrand })
     .from(entities)
     .where(eq(entities.workspaceId, ws));
   if (data.isBrand && existing.some((e) => e.isBrand)) {
     return c.json({ error: 'this workspace already has a brand entity' }, 409);
   }
-  const maxOrder = existing.reduce((max, e) => Math.max(max, e.sortOrder), -1);
-  const inserted = await db
-    .insert(entities)
-    .values({
-      workspaceId: ws,
-      name: data.name,
-      domains: data.domains,
-      aliases: data.aliases,
-      isBrand: data.isBrand,
-      // Brand always sorts (and colors) first.
-      sortOrder: data.isBrand ? 0 : maxOrder + 1,
-    })
-    .onConflictDoNothing({ target: [entities.workspaceId, entities.name] })
-    .returning();
-  if (!inserted[0]) {
+  const created = await createEntity(c.env, ws, {
+    name: data.name,
+    domains: data.domains,
+    aliases: data.aliases,
+    isBrand: data.isBrand,
+  });
+  if (!created.ok) {
     return c.json({ error: 'entity already exists' }, 409);
   }
-  return c.json(inserted[0], 201);
+  return c.json(created.entity, 201);
 });
 
 const updateSchema = z.object({
@@ -104,35 +96,18 @@ entityRoutes.delete('/:id', async (c) => {
   if (id === null) {
     return c.json({ error: 'invalid id' }, 400);
   }
-  const db = getDb(c.env);
-  const target = (
-    await db
-      .select()
-      .from(entities)
-      .where(
-        and(
-          eq(entities.id, id),
-          eq(entities.workspaceId, c.get('workspace').id),
-        ),
-      )
-  )[0];
-  if (!target) {
+  const removed = await removeEntity(c.env, c.get('workspace').id, id);
+  if (!removed.ok) {
+    if (removed.reason === 'is-brand') {
+      return c.json({ error: 'cannot delete the brand entity' }, 409);
+    }
+    if (removed.reason === 'has-history') {
+      return c.json(
+        { error: 'entity has scored history; removal would destroy trends' },
+        409,
+      );
+    }
     return c.json({ error: 'not found' }, 404);
   }
-  if (target.isBrand) {
-    return c.json({ error: 'cannot delete the brand entity' }, 409);
-  }
-  const used = await db
-    .select({ id: entityScores.id })
-    .from(entityScores)
-    .where(eq(entityScores.entityId, id))
-    .limit(1);
-  if (used.length > 0) {
-    return c.json(
-      { error: 'entity has scored history; removal would destroy trends' },
-      409,
-    );
-  }
-  await db.delete(entities).where(eq(entities.id, id));
   return c.json({ ok: true });
 });
