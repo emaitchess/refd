@@ -4,8 +4,13 @@ import { checkDomain } from './domain-check';
 const refresh = (status: number, location: string): Response =>
   new Response(null, { status, headers: { location } });
 
+// These tests replace the real fetch outright, so the original must come back:
+// deleting the global breaks every later test that spies on fetch (the
+// BrightData trigger tests on Linux, where the property is deletable).
+const realFetch = globalThis.fetch;
+
 afterEach(() => {
-  delete (globalThis as { fetch?: unknown }).fetch;
+  globalThis.fetch = realFetch;
 });
 
 describe('checkDomain', () => {
