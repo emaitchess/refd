@@ -33,6 +33,7 @@ const MIGRATIONS = [
   '0014_calm_tomorrow_man.sql',
   '0015_true_the_phantom.sql',
   '0016_careless_queen_noir.sql',
+  '0017_chief_maelstrom.sql',
 ];
 
 const setup = async (): Promise<Db> => {

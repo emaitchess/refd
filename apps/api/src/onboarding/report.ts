@@ -1,3 +1,4 @@
+import type { PromptKind } from '@refd/core/prompt-cohorts';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import {
@@ -8,6 +9,7 @@ import {
   setupCommits,
 } from '../db/schema';
 import type { AppEnv } from '../env';
+import { promptKindOrDiscovery } from '../lib/prompt-cohorts';
 import {
   answerCount,
   avgPosition,
@@ -88,6 +90,7 @@ export interface SetupReport {
       id: number;
       text: string;
       tags: string[];
+      kind: PromptKind;
       sentiment: { positive: number; neutral: number; negative: number } | null;
       surfaces: {
         surface: string;
@@ -262,7 +265,12 @@ export const getSetupReport = async (
   const promptIds = [...new Set(resultRows.map((row) => row.promptId))];
   const promptRows = promptIds.length
     ? await db
-        .select({ id: prompts.id, text: prompts.text, tags: prompts.tags })
+        .select({
+          id: prompts.id,
+          text: prompts.text,
+          tags: prompts.tags,
+          kind: prompts.kind,
+        })
         .from(prompts)
         .where(inArray(prompts.id, promptIds))
     : [];
@@ -291,6 +299,7 @@ export const getSetupReport = async (
       id: prompt.id,
       text: prompt.text,
       tags: prompt.tags,
+      kind: promptKindOrDiscovery(prompt.kind),
       sentiment:
         promptScoreRows.length > 0
           ? sentimentDist(promptScoreRows, brand.id)

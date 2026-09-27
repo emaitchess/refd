@@ -77,6 +77,22 @@ const sections = (over: Partial<DigestSections> = {}): DigestSections => ({
       unnamed: { prompts: 23, mentionRate: 0.059 },
     },
     namedSplitNote: '',
+    cohorts: {
+      branded: { prompts: 2, answers: 266, mentionRate: 1, citationRate: 0.89 },
+      competitor: {
+        prompts: 2,
+        answers: 266,
+        mentionRate: 0.12,
+        citationRate: 0.07,
+      },
+      discovery: {
+        prompts: 21,
+        answers: 868,
+        mentionRate: 0.059,
+        citationRate: 0.087,
+      },
+    },
+    cohortNote: '',
   },
   runs: [
     {
@@ -233,6 +249,27 @@ describe('buildSuggestions', () => {
           named: { prompts: 0, mentionRate: null },
           unnamed: { prompts: 3, mentionRate: 0.4 },
         },
+        cohorts: {
+          branded: {
+            prompts: 0,
+            answers: 0,
+            mentionRate: null,
+            citationRate: null,
+          },
+          competitor: {
+            prompts: 0,
+            answers: 0,
+            mentionRate: null,
+            citationRate: null,
+          },
+          discovery: {
+            prompts: 3,
+            answers: 12,
+            mentionRate: 0.4,
+            citationRate: 0.2,
+          },
+        },
+        cohortNote: '',
         namedSplitNote: '',
       },
       runs: [],

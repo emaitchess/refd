@@ -55,6 +55,7 @@ const MIGRATIONS = [
   '0014_calm_tomorrow_man.sql',
   '0015_true_the_phantom.sql',
   '0016_careless_queen_noir.sql',
+  '0017_chief_maelstrom.sql',
 ];
 
 const makeD1 = (sqlite: Database) => ({
@@ -219,7 +220,7 @@ describe('prompt tool schemas', () => {
     ).toBeFalse();
   });
 
-  test('update demands a text or category change and a positive id', () => {
+  test('update demands a text, category, or kind change and a positive id', () => {
     expect(
       updatePromptBodySchema.safeParse({ promptId: 1 }).success,
     ).toBeFalse();
@@ -234,6 +235,37 @@ describe('prompt tool schemas', () => {
         promptId: 0,
         text: 'reworded question?',
       }).success,
+    ).toBeFalse();
+  });
+
+  test('kind is optional on add, bounded on both, and a kind-only update is legal', () => {
+    // An omitted kind must be absent from the parsed body, not present-and-
+    // undefined, so the handler can tell "classify it" from "set it".
+    const omitted = addPromptBodySchema.safeParse({
+      text: 'which tools track AI visibility?',
+    });
+    expect(omitted.success).toBeTrue();
+    expect(omitted.success && 'kind' in omitted.data).toBeFalse();
+    expect(
+      addPromptBodySchema.safeParse({
+        text: 'which tools track AI visibility?',
+        kind: 'branded',
+      }).data,
+    ).toMatchObject({ kind: 'branded' });
+    for (const kind of ['named', '', 'DISCOVERY', 1, null]) {
+      expect(
+        addPromptBodySchema.safeParse({
+          text: 'which tools track AI visibility?',
+          kind,
+        }).success,
+      ).toBeFalse();
+    }
+    expect(
+      updatePromptBodySchema.safeParse({ promptId: 1, kind: 'competitor' })
+        .success,
+    ).toBeTrue();
+    expect(
+      updatePromptBodySchema.safeParse({ promptId: 1, kind: 'nope' }).success,
     ).toBeFalse();
   });
 
@@ -301,6 +333,54 @@ describe('prompt tool operations', () => {
       duplicated: true,
       prompt: { id: first.ok ? first.prompt.id : -1, category: 'Comparison' },
     });
+  });
+
+  test('add classifies the cohort from the text and returns the resolved kind', async () => {
+    const f = await setup({ onboarded: true });
+    await f.db.insert(entities).values({
+      id: 50,
+      workspaceId: 9,
+      name: 'Brand',
+      domains: ['brand.example'],
+      aliases: [],
+      isBrand: true,
+      sortOrder: 0,
+    });
+    const brandNamed = await addPrompt(f.env, f.principal, f.workspace, {
+      text: 'is Brand good for tracking AI visibility?',
+    });
+    expect(brandNamed).toMatchObject({
+      ok: true,
+      prompt: { kind: 'branded' },
+    });
+    const open = await addPrompt(f.env, f.principal, f.workspace, {
+      text: 'which tools track AI visibility?',
+    });
+    expect(open).toMatchObject({ ok: true, prompt: { kind: 'discovery' } });
+  });
+
+  test('an explicit kind wins over the classifier and update can change it', async () => {
+    const f = await setup({ onboarded: true });
+    await f.db.insert(entities).values({
+      id: 50,
+      workspaceId: 9,
+      name: 'Brand',
+      domains: ['brand.example'],
+      aliases: [],
+      isBrand: true,
+      sortOrder: 0,
+    });
+    const created = await addPrompt(f.env, f.principal, f.workspace, {
+      text: 'is Brand good for tracking AI visibility?',
+      kind: 'discovery',
+    });
+    expect(created).toMatchObject({ ok: true, prompt: { kind: 'discovery' } });
+    const id = created.ok ? created.prompt.id : -1;
+    const updated = await updatePrompt(f.env, f.principal, f.workspace, {
+      promptId: id,
+      kind: 'branded',
+    });
+    expect(updated).toMatchObject({ ok: true, prompt: { kind: 'branded' } });
   });
 
   test('add enforces the standard 25-prompt ceiling but not the admin one', async () => {

@@ -7,7 +7,13 @@ import { horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { METRIC_INFO } from '@refd/core/metric-copy';
 import { type ReactNode, useMemo } from 'react';
 import { Link } from 'react-router';
-import { RangePicker, useRange } from '@/components/controls/RangePicker';
+import {
+  ALL_COHORTS,
+  CohortPicker,
+  RangePicker,
+  useCohort,
+  useRange,
+} from '@/components/controls/RangePicker';
 import { Area, Line } from '@/components/dither-kit/area';
 import { AreaChart, LineChart } from '@/components/dither-kit/area-chart';
 import { Bar } from '@/components/dither-kit/bar';
@@ -159,8 +165,12 @@ const rateDelta = (
 
 export const Overview = () => {
   const [range, setRange] = useRange();
+  const [cohort, setCohort] = useCohort();
+  // A cohort filter narrows the whole page, so the query and the tile deltas
+  // both move together instead of leaving one window blended.
+  const kindParam = cohort === ALL_COHORTS ? '' : `&kind=${cohort}`;
   const { data, loading, error, refetch } = useQuery<OverviewResponse>(
-    `/overview?range=${range}`,
+    `/overview?range=${range}${kindParam}`,
   );
   const displayedRange = data?.range ?? range;
   const statusText = loading
@@ -660,6 +670,7 @@ export const Overview = () => {
             >
               {statusText}
             </span>
+            <CohortPicker value={cohort} onChange={setCohort} />
             <RangePicker value={range} onChange={setRange} />
           </>
         }

@@ -1,3 +1,4 @@
+import type { PromptKind } from '@refd/core/prompt-cohorts';
 import type { SiteMetadata } from '@refd/core/site-metadata';
 
 export interface EntityAlias {
@@ -66,6 +67,8 @@ export type SentimentDist = {
 
 export interface OverviewResponse {
   range: string;
+  kind: PromptKind[] | null;
+  headlineScope: string;
   entities: EntityInfo[];
   brandId: number;
   hasCompetitors: boolean;
@@ -131,6 +134,7 @@ export interface PromptRow {
   id: number;
   text: string;
   tags: string[];
+  kind: PromptKind;
   active: boolean;
   // Brand's stance distribution across the prompt's classified mentions.
   sentiment: SentimentDist;
@@ -257,6 +261,7 @@ export interface SetupReport {
       id: number;
       text: string;
       tags: string[];
+      kind: PromptKind;
       sentiment: { positive: number; neutral: number; negative: number } | null;
       surfaces: {
         surface: string;
