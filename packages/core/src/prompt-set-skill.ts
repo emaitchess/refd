@@ -1,8 +1,8 @@
-import { PROMPT_CATEGORIES, STANDARD_LIMITS } from '@refd/core/config';
-import { SURFACE_LABELS, SURFACES } from '@refd/core/surfaces';
+import { PROMPT_CATEGORIES, STANDARD_LIMITS } from './config';
+import { SURFACE_LABELS, SURFACES } from './surfaces';
 
 // Every refd-specific number in this document is asserted against its canonical
-// source by skills.test.ts. Change one there and the skill has to change with it.
+// source by prompt-set-skill.test.ts. Change one there and the skill has to change with it.
 export const AI_PROMPT_SET_DESIGN_SKILL = `---
 name: ai-prompt-set-design
 description: >

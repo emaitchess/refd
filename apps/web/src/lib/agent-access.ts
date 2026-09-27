@@ -1,3 +1,45 @@
+import { PUBLIC_SITE_ORIGIN } from '@refd/core/public-pages';
+import { PUBLIC_SKILLS } from '@refd/core/public-skills';
+
+// Per-skill wording for every agent-facing surface. Keyed by the catalog name
+// and typed against it, so publishing a skill without saying what it is for is
+// a type error rather than a silently blank entry.
+export const PUBLIC_SKILL_COPY: Record<
+  (typeof PUBLIC_SKILLS)[number]['name'],
+  { title: string; discovery: string; llms: string }
+> = {
+  refd: {
+    title: 'Agent skill',
+    discovery: 'Installable SKILL.md',
+    llms: 'A complete SKILL.md for agents: connecting to the refd MCP server, reading data, and the bounded setup workflow.',
+  },
+  'ai-prompt-set-design': {
+    title: 'Prompt set design skill',
+    discovery: 'Installable SKILL.md, tool-neutral',
+    llms: 'A platform-neutral SKILL.md for designing and auditing AI search monitoring prompt sets: cohort separation, prompt types, persona segmentation, intent clusters, wording rules, and calibration. Works with any tool.',
+  },
+};
+
+export const AGENT_SKILL_URLS: {
+  name: string;
+  title: string;
+  path: string;
+  url: string;
+}[] = PUBLIC_SKILLS.map((skill) => ({
+  name: skill.name,
+  title: PUBLIC_SKILL_COPY[skill.name].title,
+  path: skill.path,
+  url: `${PUBLIC_SITE_ORIGIN}${skill.path}`,
+}));
+
+// The refd skill points at its siblings, so a reader who installed the
+// connector learns the craft skill exists from inside the file they installed.
+export const COMPANION_SKILL_LINES = AGENT_SKILL_URLS.filter(
+  (skill) => skill.name !== 'refd',
+)
+  .map((skill) => `${skill.title}: ${skill.url}`)
+  .join(', ');
+
 export const MCP_ENDPOINT = 'https://api.refd.ai/mcp';
 
 // Shared agent-facing facts. The agents page and its markdown twin render
@@ -234,16 +276,14 @@ export const AGENT_DISCOVERY: [label: string, value: string, note: string][] = [
   ['OpenAPI catalog', 'https://refd.ai/openapi.json', 'Public HTTP surface'],
   ['Agent manifest', 'https://refd.ai/.well-known/agent', 'Discovery pointers'],
   ['MCP Registry', 'ai.refd/refd', 'registry.modelcontextprotocol.io'],
-  [
-    'Agent skill',
-    'https://refd.ai/skills/refd/SKILL.md',
-    'Installable SKILL.md',
-  ],
-  [
-    'Prompt design skill',
-    'https://refd.ai/skills/ai-prompt-set-design/SKILL.md',
-    'Installable SKILL.md, tool-neutral',
-  ],
+  ...AGENT_SKILL_URLS.map(
+    (skill): [label: string, value: string, note: string] => [
+      skill.title,
+      skill.url,
+      PUBLIC_SKILL_COPY[skill.name as (typeof PUBLIC_SKILLS)[number]['name']]
+        .discovery,
+    ],
+  ),
   ['llms.txt', 'https://refd.ai/llms.txt', 'Plain-text summary'],
 ];
 

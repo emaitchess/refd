@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { PUBLIC_SITE_ORIGIN } from '@refd/core/public-pages';
+import { PUBLIC_SKILLS } from '@refd/core/public-skills';
 import {
   AGENT_DISCOVERY,
   AGENT_INJECTION_BOUNDARY,
@@ -8,8 +10,11 @@ import {
   AGENT_SCOPES,
   AGENT_SETUP_TOOLS,
   AGENT_SETUP_WORKFLOW,
+  AGENT_SKILL_URLS,
   AGENT_WORKSPACE_ENTITLEMENT,
+  COMPANION_SKILL_LINES,
   MCP_ENDPOINT,
+  PUBLIC_SKILL_COPY,
 } from './agent-access';
 
 // The install deeplinks encode the same server config per editor. If the
@@ -133,5 +138,39 @@ describe('shared agent-access facts', () => {
   test('discovery exposes the SKILL.md', () => {
     const skill = AGENT_DISCOVERY.find(([label]) => label === 'Agent skill');
     expect(skill?.[1]).toBe('https://refd.ai/skills/refd/SKILL.md');
+  });
+});
+
+describe('published skill discovery', () => {
+  test('every catalog skill gets a discovery row and a canonical URL', () => {
+    expect(AGENT_SKILL_URLS.map((skill) => skill.name)).toEqual(
+      PUBLIC_SKILLS.map((skill) => skill.name),
+    );
+    for (const skill of AGENT_SKILL_URLS) {
+      expect(skill.url).toBe(`${PUBLIC_SITE_ORIGIN}${skill.path}`);
+      expect(AGENT_DISCOVERY).toContainEqual([
+        skill.title,
+        skill.url,
+        expect.any(String),
+      ]);
+    }
+  });
+
+  // The refd skill is what an agent installs first, so it has to point at its
+  // siblings from inside the file. A catalog with no companion would make this
+  // empty, which is a publishing mistake rather than a valid state.
+  test('the refd skill points at every companion skill', () => {
+    const companions = PUBLIC_SKILLS.filter((skill) => skill.name !== 'refd');
+    expect(companions.length).toBeGreaterThan(0);
+    for (const skill of companions) {
+      expect(COMPANION_SKILL_LINES).toContain(skill.path);
+    }
+    expect(COMPANION_SKILL_LINES).not.toContain('/skills/refd/');
+  });
+
+  test('llms.txt files every skill into the Skills section', () => {
+    for (const skill of AGENT_SKILL_URLS) {
+      expect(PUBLIC_SKILL_COPY[skill.name].llms.length).toBeGreaterThan(0);
+    }
   });
 });
