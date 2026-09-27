@@ -172,7 +172,7 @@ const kindsById = async (db: Db) => {
 };
 
 describe('classifyWorkspacePrompts', () => {
-  test('classifies every unclassified prompt, brand-named taking precedence', async () => {
+  test('classifies every unclassified prompt, brand-defining taking precedence', async () => {
     const { db, workspaceId } = await setup();
     await seedPrompt(db, 11, 'best alternative to Alter for dictation on Mac');
     await seedPrompt(db, 12, 'mrmr vs Alter: which is better on macOS?');
@@ -181,8 +181,8 @@ describe('classifyWorkspacePrompts', () => {
     expect(await classifyWorkspacePrompts(db, workspaceId)).toBe(3);
     expect(await kindsById(db)).toEqual(
       new Map([
-        [11, 'competitor'],
-        [12, 'branded'],
+        [11, 'alternative'],
+        [12, 'brand_defining'],
         [13, 'discovery'],
       ]),
     );
@@ -194,15 +194,18 @@ describe('classifyWorkspacePrompts', () => {
     const { db, workspaceId } = await setup();
     await seedPrompt(db, 11, 'what are the best voice control apps?');
     await seedPrompt(db, 12, 'mrmr vs Alter: which is better?');
-    await db.update(prompts).set({ kind: 'branded' }).where(eq(prompts.id, 11));
+    await db
+      .update(prompts)
+      .set({ kind: 'brand_defining' })
+      .where(eq(prompts.id, 11));
 
     expect(await classifyWorkspacePrompts(db, workspaceId)).toBe(1);
     expect(await classifyWorkspacePrompts(db, workspaceId)).toBe(0);
     // 11 stays branded even though its text names no brand: the operator said so.
     expect(await kindsById(db)).toEqual(
       new Map([
-        [11, 'branded'],
-        [12, 'branded'],
+        [11, 'brand_defining'],
+        [12, 'brand_defining'],
       ]),
     );
   });
@@ -220,20 +223,20 @@ describe('workspaceCohorts', () => {
     await seedPrompt(db, 11, 'mrmr vs Alter?');
     await seedPrompt(db, 12, 'best voice apps for macOS?');
     const cohorts = await workspaceCohorts(db, workspaceId, [
-      'branded',
+      'brand_defining',
       'discovery',
     ]);
     expect(cohorts).toEqual([
-      { kind: 'branded', promptIds: [11], prompts: 1 },
+      { kind: 'brand_defining', promptIds: [11], prompts: 1 },
       { kind: 'discovery', promptIds: [12], prompts: 1 },
     ]);
   });
 });
 
 describe('getVisibilityOverview cohorts', () => {
-  // The reported bug: a brand-named prompt scores near 1.0 by construction, so
+  // The reported bug: a brand-defining prompt scores near 1.0 by construction, so
   // the blended headline overstates the unprompted-visibility number.
-  test('a discovery filter drops the brand-named prompt from the headline', async () => {
+  test('a discovery filter drops the brand-defining prompt from the headline', async () => {
     const { db, env, workspaceId } = await setup();
     const branded = await seedPrompt(db, 11, 'mrmr vs Alter: which is better?');
     const discovery = await seedPrompt(
@@ -295,9 +298,33 @@ describe('getVisibilityOverview cohorts', () => {
     ]);
     expect(result).toMatchObject({
       byCohort: {
-        branded: { prompts: 1, answers: 1, mentionRate: 1, citationRate: 1 },
-        competitor: { prompts: 1, answers: 1, mentionRate: 1, citationRate: 0 },
+        brand_defining: {
+          prompts: 1,
+          answers: 1,
+          mentionRate: 1,
+          citationRate: 1,
+        },
+        alternative: {
+          prompts: 1,
+          answers: 1,
+          mentionRate: 1,
+          citationRate: 0,
+        },
         discovery: { prompts: 1, answers: 1, mentionRate: 0, citationRate: 0 },
+        // The declared cohorts are always present and empty when unused, so a
+        // reader sees the whole taxonomy rather than a key that came and went.
+        market_perception: {
+          prompts: 0,
+          answers: 0,
+          mentionRate: null,
+          citationRate: null,
+        },
+        problem: {
+          prompts: 0,
+          answers: 0,
+          mentionRate: null,
+          citationRate: null,
+        },
       },
     });
   });
@@ -313,7 +340,7 @@ describe('getVisibilityOverview cohorts', () => {
     await seedAnswer(db, 1, discovery, 50, { mentioned: true, cited: true });
 
     const result = await getVisibilityOverview(env, workspaceId, '30d', [
-      'branded',
+      'brand_defining',
     ]);
     expect(result).toMatchObject({
       answers: 0,
@@ -351,7 +378,7 @@ describe('getPromptPerformance cohorts', () => {
     }
     expect(result.prompts.map((p) => p.id)).toEqual([discoveryA, discoveryB]);
     // Both discovery prompts have answers and a zero mention rate, so both
-    // belong in zeroVisibility; the brand-named prompt must not appear.
+    // belong in zeroVisibility; the brand-defining prompt must not appear.
     expect(result.zeroVisibility.map((p) => p.id)).toEqual([
       discoveryA,
       discoveryB,
@@ -370,7 +397,7 @@ describe('getPromptPerformance cohorts', () => {
       return;
     }
     expect(result.prompts.map((p) => [p.id, p.kind])).toEqual([
-      [11, 'branded'],
+      [11, 'brand_defining'],
       [12, 'discovery'],
     ]);
   });
@@ -482,11 +509,11 @@ describe('getCitationSources cohorts', () => {
     );
 
     const result = await getCitationSources(env, workspaceId, '30d', [
-      'branded',
+      'brand_defining',
     ]);
     expect(result).toMatchObject({
       needsSetup: false,
-      headlineScope: 'brand-named prompts only',
+      headlineScope: 'prompts that name your brand',
       domains: [],
       unattributableCitations: 0,
       brandUrls: [],

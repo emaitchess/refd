@@ -8,17 +8,29 @@
 import {
   type CohortEntity,
   classifyPromptCohort,
+  PROMPT_KINDS,
   type PromptKind,
 } from '@refd/core/prompt-cohorts';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { entities, prompts } from '../db/schema';
 
+const KNOWN_KINDS = new Set<string>(PROMPT_KINDS);
+
 // A NULL kind is an unclassified prompt, never a cohort of its own. Reads treat
 // it as discovery so an unclassified prompt is counted, not dropped.
+//
+// An unrecognised value is also folded to discovery rather than passed through.
+// The column is plain text, so a value written before a taxonomy change (or by
+// anything else) would otherwise reach the cohort filters as a key no rollup
+// matches, and the prompt would disappear from every cohort at once. Discovery
+// is the honest floor: the prompt is counted, and it is not silently excluded.
 export const promptKindOrDiscovery = (
   kind: string | null | undefined,
-): PromptKind => (kind ?? 'discovery') as PromptKind;
+): PromptKind =>
+  kind !== null && kind !== undefined && KNOWN_KINDS.has(kind)
+    ? (kind as PromptKind)
+    : 'discovery';
 
 const cohortEntities = async (
   db: Db,
@@ -103,9 +115,11 @@ export const promptIdsForCohorts = (
     : [...new Set(cohorts.flatMap((cohort) => cohort.promptIds))];
 
 const COHORT_LABEL: Record<PromptKind, string> = {
-  branded: 'brand-named prompts only',
-  competitor: 'competitor-named prompts only',
   discovery: 'prompts that name neither the brand nor a competitor',
+  alternative: 'prompts that name only a tracked competitor',
+  brand_defining: 'prompts that name your brand',
+  market_perception: 'declared prompts about how the market sees the category',
+  problem: 'declared prompts describing a buyer problem',
 };
 
 // A headline that mixes cohorts has to say so: the number is real, but it is

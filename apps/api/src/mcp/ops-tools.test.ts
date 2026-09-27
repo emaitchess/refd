@@ -249,9 +249,9 @@ describe('prompt tool schemas', () => {
     expect(
       addPromptBodySchema.safeParse({
         text: 'which tools track AI visibility?',
-        kind: 'branded',
+        kind: 'brand_defining',
       }).data,
-    ).toMatchObject({ kind: 'branded' });
+    ).toMatchObject({ kind: 'brand_defining' });
     for (const kind of ['named', '', 'DISCOVERY', 1, null]) {
       expect(
         addPromptBodySchema.safeParse({
@@ -261,7 +261,7 @@ describe('prompt tool schemas', () => {
       ).toBeFalse();
     }
     expect(
-      updatePromptBodySchema.safeParse({ promptId: 1, kind: 'competitor' })
+      updatePromptBodySchema.safeParse({ promptId: 1, kind: 'alternative' })
         .success,
     ).toBeTrue();
     expect(
@@ -351,7 +351,7 @@ describe('prompt tool operations', () => {
     });
     expect(brandNamed).toMatchObject({
       ok: true,
-      prompt: { kind: 'branded' },
+      prompt: { kind: 'brand_defining' },
     });
     const open = await addPrompt(f.env, f.principal, f.workspace, {
       text: 'which tools track AI visibility?',
@@ -378,9 +378,12 @@ describe('prompt tool operations', () => {
     const id = created.ok ? created.prompt.id : -1;
     const updated = await updatePrompt(f.env, f.principal, f.workspace, {
       promptId: id,
-      kind: 'branded',
+      kind: 'brand_defining',
     });
-    expect(updated).toMatchObject({ ok: true, prompt: { kind: 'branded' } });
+    expect(updated).toMatchObject({
+      ok: true,
+      prompt: { kind: 'brand_defining' },
+    });
   });
 
   test('add enforces the standard 25-prompt ceiling but not the admin one', async () => {

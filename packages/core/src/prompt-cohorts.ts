@@ -9,7 +9,23 @@
 import { z } from 'zod';
 import { type Alias, composeAliases, findMentionSpans } from './mentions';
 
-export const PROMPT_KINDS = ['branded', 'competitor', 'discovery'] as const;
+// Two of these are provable from the prompt text and three are declared.
+//
+// brand_defining and alternative are lexical: the same matcher that scores a
+// mention decides them, so they are derived and always right. problem,
+// market_perception and the discovery residual are not — separating a
+// problem-shaped question from a broad discovery question is a judgement about
+// buyer intent, not a substring, and the repo's own rule is that ambiguity is
+// resolved at setup time with human confirmation rather than in the read path.
+// So the residual defaults to discovery and the other two are declared (setup
+// suggestion with confirmation, or update_prompt), never guessed.
+export const PROMPT_KINDS = [
+  'discovery',
+  'alternative',
+  'brand_defining',
+  'market_perception',
+  'problem',
+] as const;
 export type PromptKind = (typeof PROMPT_KINDS)[number];
 
 // A row can carry no kind yet: pre-migration prompts are classified lazily, and
@@ -69,7 +85,7 @@ export const classifyPromptCohort = (
       entities.filter((entity) => entity.isBrand),
     )
   ) {
-    return 'branded';
+    return 'brand_defining';
   }
   if (
     mentionsAnyEntity(
@@ -77,7 +93,7 @@ export const classifyPromptCohort = (
       entities.filter((entity) => !entity.isBrand),
     )
   ) {
-    return 'competitor';
+    return 'alternative';
   }
   return 'discovery';
 };
