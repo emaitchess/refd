@@ -1,5 +1,5 @@
 import { PROMPT_KINDS, type PromptKind } from '@refd/core/prompt-cohorts';
-import { and, desc, eq, gte, isNotNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { getDb } from '../db/client';
 import {
@@ -355,6 +355,7 @@ export const getCitationSources = async (
   env: AppEnv,
   workspaceId: number,
   range: Range,
+  kind: readonly PromptKind[] | null = null,
 ) => {
   const db = getDb(env);
   const { from } = rangeWindows(range);
@@ -362,10 +363,30 @@ export const getCitationSources = async (
   if (!brand) {
     return { needsSetup: true as const, range, rangeLabel: rangeLabel(range) };
   }
+  const cohortIds =
+    kind === null ? null : await workspaceCohorts(db, workspaceId, kind);
+  const promptIds = promptIdsForCohorts(cohortIds);
+  // A filter that matched no prompt is a real answer of zero, not a licence to
+  // report the unfiltered set. Handled here rather than as an empty IN () list,
+  // which is not portable across the D1 driver.
+  if (promptIds && promptIds.length === 0) {
+    return {
+      needsSetup: false as const,
+      range,
+      rangeLabel: rangeLabel(range),
+      brand: brand.name,
+      headlineScope: cohortScopeLabel(kind),
+      domains: [],
+      unattributableCitations: 0,
+      brandUrls: [],
+      sourceGap: [],
+    };
+  }
   const inRange = and(
     eq(results.ok, true),
     gte(runs.date, from),
     eq(runs.workspaceId, workspaceId),
+    ...(promptIds ? [inArray(results.promptId, promptIds)] : []),
   );
   const [domains, unattributable, ourUrls, gap] = await Promise.all([
     db
@@ -433,6 +454,7 @@ export const getCitationSources = async (
     range,
     rangeLabel: rangeLabel(range),
     brand: brand.name,
+    headlineScope: cohortScopeLabel(kind),
     domains: domains.map((domain) => ({
       domain: domain.domain ?? '',
       isOurs: domain.isOurs === 1,
@@ -644,16 +666,17 @@ export const getDigest = async (
   env: AppEnv,
   workspaceId: number,
   range: Range,
-  kind: readonly PromptKind[] | null = null,
 ) => {
-  // The digest carries all three cohorts side by side, so a caller reads the
-  // number it wants from one call rather than refiltering by prompt id. A
-  // filter is echoed back so the response still says what produced it.
+  // Deliberately takes no cohort filter. The digest is a whole-workspace
+  // rollup: buildDigest has no kind seam, so accepting one here would relabel
+  // a blended number as cohort-specific while leaving it blended. A caller that
+  // wants one cohort reads sections.prompts.cohorts instead, which this returns
+  // unfiltered either way.
   const digest = await buildDigest(getDb(env), workspaceId, range);
   if (digest === null) {
     return { needsSetup: true as const, range, rangeLabel: rangeLabel(range) };
   }
-  return { ...digest, kind, headlineScope: cohortScopeLabel(kind) };
+  return { ...digest, headlineScope: cohortScopeLabel(null) };
 };
 
 export const getRunHistory = async (

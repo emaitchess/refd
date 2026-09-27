@@ -521,19 +521,17 @@ it is split honestly into the two halves.
 
 ### Reading a cohort safely through the API
 
-One operational warning, because the wrong call here produces a plausible and
-wrong number.
+\`get_visibility_overview\`, \`get_competitor_landscape\`, \`get_citation_sources\`,
+and \`get_prompt_performance\` all accept a cohort filter and apply it to
+everything they return.
 
-\`get_prompt_performance\` applies a cohort filter to everything it returns. The
-other aggregates accept the same argument but return the blended pool
-regardless, and the digest will relabel its scope without renumbering it. So:
+The digest does not, on purpose. It is a whole-workspace rollup that already
+carries all three cohorts side by side, so it has no cohort argument to get
+wrong. To read one cohort from the digest, read \`sections.prompts.cohorts\`.
 
-- To read one cohort, take it from \`byCohort\` on \`get_visibility_overview\`, from
-  \`sections.prompts.cohorts\` on the digest, or by filtering
-  \`get_prompt_performance\`. All three are correct today.
-- Do not pass a cohort filter to the digest and then report its headline rate as
-  that cohort. The scope label would say otherwise while the number stayed
-  blended.
+Whichever route you take, read the cohort out of the response rather than
+assuming the label: \`headlineScope\` on an aggregate, and the per-cohort rates
+inside \`byCohort\` or \`sections.prompts.cohorts\`.
 
 ### You still do by hand
 

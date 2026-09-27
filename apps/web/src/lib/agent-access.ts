@@ -172,7 +172,7 @@ export const AGENT_INSTALLS: AgentInstall[] = [
 // Body only: each surface supplies its own lead-in (a section label, a heading,
 // a bolded bullet), so the same sentence never reads as a stray paragraph.
 export const AGENT_PROMPT_COHORTS =
-  'A prompt that names the brand is scored near 1.0 by construction, so a headline that pools every prompt flatters the brand. Every aggregate above takes a kind filter: branded (the prompt names your brand), competitor (it names only a tracked competitor), or discovery (it names neither, so the rate is unprompted visibility), comma-separated for more than one. Omit it for the blended figure, which every response labels in headlineScope. get_visibility_overview returns byCohort with all three at once, and get_digest carries the split in sections.prompts.cohorts. list_prompts reports each prompt cohort and the counts.';
+  'A prompt that names the brand is scored near 1.0 by construction, so a headline that pools every prompt flatters the brand. get_visibility_overview, get_competitor_landscape, get_citation_sources, and get_prompt_performance take a kind filter: branded (the prompt names your brand), competitor (it names only a tracked competitor), or discovery (it names neither, so the rate is unprompted visibility), comma-separated for more than one. Omit it for the blended figure, which every response labels in headlineScope. get_visibility_overview returns byCohort with all three at once. get_digest is the exception and takes no filter: it always pools every cohort, so read sections.prompts.cohorts for one cohort on its own. list_prompts reports each prompt cohort and the counts.';
 
 export const AGENT_TOOLS: [name: string, description: string][] = [
   [
