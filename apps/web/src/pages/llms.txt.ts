@@ -1,5 +1,10 @@
+import type { PUBLIC_SKILLS } from '@refd/core/public-skills';
 import type { APIRoute } from 'astro';
-import { MCP_ENDPOINT } from '../lib/agent-access';
+import {
+  AGENT_SKILL_URLS,
+  MCP_ENDPOINT,
+  PUBLIC_SKILL_COPY,
+} from '../lib/agent-access';
 import {
   getPublicContent,
   type PublicContentEntry,
@@ -52,21 +57,19 @@ ${section('Product', [
   ),
 ])}
 
-${section('Skills', [
-  item(
-    'Agent skill',
-    `${ORIGIN}/skills/refd/SKILL.md`,
-    'A complete SKILL.md for agents: connecting to the refd MCP server, reading data, and the bounded setup workflow.',
+${section(
+  'Skills',
+  AGENT_SKILL_URLS.map((skill) =>
+    item(
+      skill.title,
+      skill.url,
+      PUBLIC_SKILL_COPY[skill.name as (typeof PUBLIC_SKILLS)[number]['name']]
+        .llms,
+    ),
   ),
-  item(
-    'Prompt set design skill',
-    `${ORIGIN}/skills/ai-prompt-set-design/SKILL.md`,
-    'A platform-neutral SKILL.md for designing and auditing AI search monitoring prompt sets: cohort separation, prompt types, persona segmentation, intent clusters, wording rules, and calibration. Works with any tool.',
-  ),
-])}
+)}
 
 ${section('Guides', inSection('Guides'))}
-
 ${section('Documentation', [
   item(
     'Documentation',

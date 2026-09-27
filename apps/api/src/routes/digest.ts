@@ -338,7 +338,7 @@ export const buildDigest = async (
     };
   };
 
-  // The three-way split behind the headline. namedSplit above answers "does
+  // The cohort split behind the headline. namedSplit above answers "does
   // this prompt spell out the brand"; this also separates prompts that name
   // only a competitor, and reports each cohort's own rate, so a reader never
   // has to group prompt ids by hand to get unprompted visibility.

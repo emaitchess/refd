@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test';
+import { PUBLIC_SKILL_PATHS } from '@refd/core/public-skills';
 import {
   digestArgsSchema,
   emptyArgsSchema,
   MCP_INSTRUCTIONS,
+  MCP_RESOURCE_URIS,
   MCP_TOOL_ANNOTATIONS,
   MCP_TOOL_NAMES,
   promptCitationsArgsSchema,
@@ -186,6 +188,27 @@ describe('MCP cohort filter contract', () => {
   test('every tool that advertises the filter is a real read tool', () => {
     for (const name of KIND_FILTERED_TOOLS) {
       expect(MCP_TOOL_NAMES).toContain(name);
+    }
+  });
+});
+
+describe('MCP skill discovery', () => {
+  // A connected agent cannot browse refd.ai, so the instructions are the only
+  // place it learns a resource exists. The instructions and the registrations
+  // read MCP_RESOURCE_URIS, so asserting the instructions carry each URI also
+  // asserts the URI is one the server serves.
+  test('the instructions name every resource the server serves', () => {
+    for (const uri of Object.values(MCP_RESOURCE_URIS)) {
+      expect(MCP_INSTRUCTIONS).toContain(uri);
+    }
+    expect(MCP_RESOURCE_URIS.promptSetDesign).toBe(
+      'refd://skills/ai-prompt-set-design',
+    );
+  });
+
+  test('the instructions point at every published skill file', () => {
+    for (const path of PUBLIC_SKILL_PATHS) {
+      expect(MCP_INSTRUCTIONS).toContain(`https://refd.ai${path}`);
     }
   });
 });

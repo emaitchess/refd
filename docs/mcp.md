@@ -224,7 +224,7 @@ caller gets a validation error instead of a silently empty cohort.
 
 | Tool | Takes `kind`? |
 | --- | --- |
-| `get_visibility_overview` | yes, and returns all three cohorts at once in `byCohort` |
+| `get_visibility_overview` | yes, and returns every cohort at once in `byCohort` |
 | `get_competitor_landscape` | yes |
 | `get_citation_sources` | yes |
 | `get_prompt_performance` | yes, applied to the prompt list, the per-surface splits, and `zeroVisibility` alike |
