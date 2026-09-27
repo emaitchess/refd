@@ -74,13 +74,22 @@ Just never let them into the discovery aggregate.
 is uninterpretable and no amount of prompt editing will fix it. Fix the
 reporting before you touch the set.
 
-refd implements this as three prompt cohorts. Every prompt is classified as
-`branded` (its text names your brand), `competitor` (it names only a tracked
-competitor), or `discovery` (it names neither, so the rate is unprompted
-visibility). Classification runs the same alias matcher the scorer runs, so "this
-prompt names the brand" means exactly what "this answer mentions the brand"
-means. A prompt naming both you and a rival, the classic "mrmr versus Alter"
-case, is classified `branded`, because that is the biased case worth isolating.
+refd implements this as five prompt cohorts: `discovery` (names neither the
+brand nor a competitor, so the rate is unprompted visibility), `alternative`
+(names only a tracked competitor), `brand_defining` (names your brand),
+`market_perception` (about how the market sees the category), and `problem` (a
+buyer's problem). The first three are derived, and classification runs the same
+alias matcher the scorer runs, so "this prompt names the brand" means exactly
+what "this answer mentions the brand" means. A prompt naming both you and a
+rival, the classic "mrmr versus Alter" case, is classified `brand_defining`,
+because that is the biased case worth isolating.
+
+The last two are declared rather than derived, and that is a deliberate
+refusal. Telling a problem-shaped question from a broad discovery one is a
+judgement about buyer intent that no substring settles, so refd asks you at
+setup rather than guessing at read time. It follows the rule the rest of setup
+follows: ambiguity is resolved once, when the questions are written, and never
+again in a read.
 
 Two details make the model trustworthy rather than decorative. A cohort rate is
 computed over that cohort's own answer cells, so it is a rate for the cohort
@@ -88,12 +97,17 @@ rather than a re-weighted share of the blended figure. And a filter that matches
 no prompt returns null rates instead of quietly falling back to the blend, so a
 typo cannot manufacture a healthy-looking headline.
 
-Every aggregate also states its own scope, either "blended across all prompt
-cohorts" or which cohort it covers, so a pooled number is never passed off as
-unprompted visibility. In the dashboard, a cohort picker on the Overview page
-narrows the whole page, and the Prompts table shows each prompt's cohort inline,
-which is where you will see a row reading near 100% while the workspace average
-does not.
+Every aggregate then names the population it was measured over. The measures sit
+inside a `headline` object that carries the cohort in `population` and the
+prose in `scope`, rather than sitting at the top level where a pooled number
+would read as organic visibility. And because a blended figure is not the number
+a reader assumes it is, asking for no filter at all gives you the discovery
+cohort rather than the blend. The blend is still available, labelled and marked
+deprecated, for when you genuinely want it.
+
+In the dashboard, a cohort picker on the Overview page narrows the whole page,
+and the Prompts table shows each prompt's cohort inline, which is where you will
+see a row reading near 100% while the workspace average does not.
 
 ## One prompt is not a measurement
 

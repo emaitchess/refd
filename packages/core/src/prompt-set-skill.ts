@@ -465,13 +465,21 @@ it is split honestly into the two halves.
   answer cells, not re-weighted from the blended figure, so it is a rate for that
   cohort rather than a share of the whole. A filter that matches no prompt yields
   null rates instead of quietly falling back to the blend.
-- **Labelled headlines.** Every aggregate states its own scope: either "blended
-  across all prompt cohorts" or which cohort it covers, so a pooled number is
-  never passed off as unprompted visibility.
-- **All three cohorts at once.** \`get_visibility_overview\` returns the three
-  cohorts side by side beside the blended number, always over the full prompt
-  pool, and the digest carries the same three-way split. One call answers "how
-  visible am I when nobody asked by name" without grouping prompt ids by hand.
+- **A headline that names its population.** Every aggregate returns a
+  \`headline\` object stating the cohort it was measured over, in
+  \`headline.population\` and \`headline.scope\`, and the measures sit inside it
+  rather than at the top level. A number can never be read as organic visibility
+  when it was measured over brand-named questions.
+- **Asking nothing gets you discovery.** A prompt naming the brand scores near
+  1.0 by construction, so the default population is the discovery cohort, not
+  the blend. The blend is still there, labelled and marked deprecated, for when
+  you genuinely want it. A workspace with no discovery prompts falls back to all
+  cohorts and says so in \`headline.population\` rather than reporting an empty
+  population quietly.
+- **Every cohort at once.** \`get_visibility_overview\` returns all five cohorts
+  side by side in \`byCohort\`, always over the full prompt pool, and the digest
+  carries the same split. One call answers "how visible am I when nobody asked
+  by name" without grouping prompt ids by hand.
 - **A filtered prompt read.** \`get_prompt_performance\` takes a cohort filter and
   applies it to the prompt list, the per-surface breakdowns, and the
   zero-visibility list alike, so a prompt the filter excluded cannot leak back in
@@ -530,12 +538,12 @@ and \`get_prompt_performance\` all accept a cohort filter and apply it to
 everything they return.
 
 The digest does not, on purpose. It is a whole-workspace rollup that already
-carries all three cohorts side by side, so it has no cohort argument to get
+carries every cohort side by side, so it has no cohort argument to get
 wrong. To read one cohort from the digest, read \`sections.prompts.cohorts\`.
 
-Whichever route you take, read the cohort out of the response rather than
-assuming the label: \`headlineScope\` on an aggregate, and the per-cohort rates
-inside \`byCohort\` or \`sections.prompts.cohorts\`.
+Whichever route you take, read the population out of the response rather than
+assuming it: \`headline.population\` and \`headline.scope\` on an aggregate, and
+the per-cohort rates inside \`byCohort\` or \`sections.prompts.cohorts\`.
 
 ### You still do by hand
 
@@ -557,7 +565,7 @@ inside \`byCohort\` or \`sections.prompts.cohorts\`.
   dashboard can filter the prompt table by them, but no aggregate is computed per
   category anywhere. Rolling rates up by category is a join you have to make.
 - **The three-cohort breakdown on a screen.** The dashboard filters to one cohort
-  and shows each prompt's cohort, but it does not display the three cohorts side by
+  and shows each prompt's cohort, but it does not display every cohort side by
   side, and it does not show the scope label the API attaches to a headline. For
   both, read \`byCohort\` or the digest.
 
