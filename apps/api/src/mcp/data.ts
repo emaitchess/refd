@@ -13,6 +13,7 @@ import {
 } from '../db/schema';
 import type { AppEnv } from '../env';
 import { answerTextFromRaw } from '../ingest/rescore';
+import { promptSetHash } from '../ingest/runs';
 import { gunzipJson } from '../ingest/storage';
 import {
   cohortScopeLabel,
@@ -23,7 +24,7 @@ import {
 import { type Range, rangeLabel, rangeWindows } from '../lib/range';
 import { configForUser } from '../lib/user-config';
 import { enabledSurfaces } from '../providers/types';
-import { buildChangeReport } from '../routes/changes';
+import { buildChangeReport, populationNote } from '../routes/changes';
 import { buildDigest } from '../routes/digest';
 import {
   answerCount,
@@ -659,7 +660,16 @@ export const readAnswer = async (
 
 export const getRecentChanges = async (env: AppEnv, workspaceId: number) => {
   const report = await buildChangeReport(getDb(env), workspaceId);
-  return report ?? { needsSetup: true };
+  if (report === null) {
+    return { needsSetup: true as const };
+  }
+  // promptCount is the population the events were measured on; activePromptCount
+  // is what is tracked now. Reporting only the first is what made a stale
+  // population look authoritative.
+  return {
+    ...report,
+    populationNote: populationNote(report),
+  };
 };
 
 export const getDigest = async (
@@ -698,6 +708,7 @@ export const getRunHistory = async (
       promptCount: sql<
         number | null
       >`json_array_length(${runs.dispatchPlan}, '$.prompts')`,
+      dispatchPlan: runs.dispatchPlan,
       createdAt: runs.createdAt,
       completedAt: runs.completedAt,
     })
@@ -706,10 +717,16 @@ export const getRunHistory = async (
     .orderBy(desc(runs.id))
     .limit(Math.max(1, Math.min(limit, 50)));
   return {
-    runs: rows.map((row) => ({
-      ...row,
-      promptCount: row.promptCount === null ? null : Number(row.promptCount),
-    })),
+    runs: rows.map((row) => {
+      const { dispatchPlan, ...rest } = row;
+      return {
+        ...rest,
+        promptCount: row.promptCount === null ? null : Number(row.promptCount),
+        // The population identity for this run, so a reader can group runs by
+        // the question set they measured instead of inferring it from dates.
+        promptSetHash: promptSetHash(dispatchPlan),
+      };
+    }),
   };
 };
 

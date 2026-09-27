@@ -26,11 +26,12 @@
 // drift needs a consistent direction, so a bounce never reads as a trend.
 
 import { SURFACE_ORDER, surfaceLabel } from '@refd/core/surfaces';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { WorkspaceBindings } from '../auth/middleware';
 import { type Db, getDb } from '../db/client';
-import { runs } from '../db/schema';
+import { prompts, runs } from '../db/schema';
+import { promptSetHash } from '../ingest/runs';
 import {
   answerCount,
   avgPosition,
@@ -126,6 +127,9 @@ export interface WindowRef {
   // already reads as "changed", so a mid-window edit suppresses SOV and
   // position exactly as a between-run edit does.
   entitySetHash: string | null;
+  // Same shape and same null semantics as entitySetHash, for the prompt
+  // population the window's runs were frozen against.
+  promptSetHash: string | null;
 }
 
 export interface WindowSlice {
@@ -148,9 +152,23 @@ export interface ChangeReport {
   // qualify there.
   cells: number;
   trendCells: number;
+  // Prompts that contributed a shared cell to the two compared windows. This is
+  // the compared population, NOT the workspace's current active count: those
+  // two differ legitimately, which is why both are reported.
   promptCount: number;
+  // The workspace's active prompt set right now, so a reader can see the
+  // distance between what was measured and what is tracked.
+  activePromptCount: number;
+  // True only when the compared windows provably shared one prompt population
+  // AND that population is the one live now.
+  populationMatches: boolean;
   surfaceCount: number;
   entitySetChanged: boolean;
+  promptSetChanged: boolean;
+  // False when a window's population is unprovable (a legacy run with no
+  // dispatch plan), which is reported apart from a proven change so "we cannot
+  // prove this" is never read as "this moved".
+  promptSetKnown: boolean;
   events: ChangeEvent[];
 }
 
@@ -263,6 +281,35 @@ const setChangedAcross = (slices: WindowSlice[]): boolean => {
   return hash === null || rest.some((s) => s.window.entitySetHash !== hash);
 };
 
+const promptHashesAcross = (slices: WindowSlice[]): (string | null)[] =>
+  slices.map((s) => s.window.promptSetHash);
+
+// A prompt-population break makes the same class of event mechanical as an
+// entity break: a rate or share moving because the questions changed is not a
+// visibility event. Unprovable (null) is treated as changed, which is the
+// honest default, but reported separately from a proven change.
+const promptSetChangedAcross = (slices: WindowSlice[]): boolean => {
+  const [first, ...rest] = promptHashesAcross(slices);
+  return first === null || rest.some((h) => h !== first);
+};
+
+const promptSetKnownAcross = (slices: WindowSlice[]): boolean =>
+  promptHashesAcross(slices).every((h) => h !== null);
+
+// The workspace's live prompt population, which the compared windows are
+// measured against. A retired prompt is not counted: it stops being measured
+// even though its history stays queryable.
+const activePromptTotal = async (
+  db: Db,
+  workspaceId: number,
+): Promise<number> => {
+  const [row] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(prompts)
+    .where(and(eq(prompts.workspaceId, workspaceId), eq(prompts.active, true)));
+  return row?.n ?? 0;
+};
+
 const negativeShare = (rows: ScoreRow[], entityId: number): number | null => {
   const dist = sentimentDist(rows, entityId);
   if (!dist) {
@@ -289,6 +336,9 @@ export const detectChanges = (
   previous: WindowSlice,
   allEntities: EntityInfo[],
   brand: EntityInfo,
+  // The workspace's live active-prompt count, read by the caller so this stays
+  // a pure function of the two windows it is handed.
+  activePromptCount = 0,
 ): ChangeReport => {
   const shared = sharedCells([latest, previous]);
   const cur = latest.rows.filter((r) => shared.has(cellKey(r)));
@@ -306,6 +356,8 @@ export const detectChanges = (
     (a, b) => SURFACE_ORDER.indexOf(a) - SURFACE_ORDER.indexOf(b),
   );
   const entitySetChanged = setChangedAcross([latest, previous]);
+  const promptSetChanged = promptSetChangedAcross([latest, previous]);
+  const promptSetKnown = promptSetKnownAcross([latest, previous]);
 
   const base = {
     windowDays: WINDOW_DAYS,
@@ -315,8 +367,15 @@ export const detectChanges = (
     cells: shared.size,
     trendCells: 0,
     promptCount: promptIds.size,
+    activePromptCount,
+    populationMatches:
+      !promptSetChanged &&
+      promptSetKnown &&
+      promptIds.size === activePromptCount,
     surfaceCount: surfaces.length,
     entitySetChanged,
+    promptSetChanged,
+    promptSetKnown,
   };
   if (shared.size < MIN_CELLS) {
     return { ...base, status: 'thin-overlap', events: [] };
@@ -425,7 +484,7 @@ export const detectChanges = (
     }
   }
 
-  if (!entitySetChanged) {
+  if (!entitySetChanged && !promptSetChanged) {
     const cSov = shareOf(pooledSov(cur, 'mentioned'), brand.id);
     const pSov = shareOf(pooledSov(prev, 'mentioned'), brand.id);
     if (cSov !== null && pSov !== null && Math.abs(cSov - pSov) >= SOV_PP) {
@@ -610,10 +669,11 @@ export const detectDrift = (
     w.rows.filter((r) => shared.has(cellKey(r))),
   );
   const entitySetChanged = setChangedAcross(windows);
+  const promptSetChanged = promptSetChangedAcross(windows);
   const events: ChangeEvent[] = [];
 
   for (const metric of trendMetrics(allEntities, brand)) {
-    if (metric.relative && entitySetChanged) {
+    if (metric.relative && (entitySetChanged || promptSetChanged)) {
       continue;
     }
     const series = scoped.map(metric.value);
@@ -648,7 +708,7 @@ export const detectDrift = (
     );
   }
 
-  if (!entitySetChanged) {
+  if (!entitySetChanged && !promptSetChanged) {
     const positions = scoped.map((rows) =>
       positionedCount(rows, brand.id) >= MIN_CONDITIONAL_N
         ? avgPosition(rows, brand.id)
@@ -716,8 +776,22 @@ export const loadWindows = async (
   const from = shiftDate(newest.date, -(span - 1));
   const rows = await loadScoreRows(db, workspaceId, from);
 
+  // The frozen prompt population per run, from the dispatch plan each run
+  // already persisted. Fetched per distinct run rather than per score row: the
+  // plan is a JSON blob and the runs in a window are few.
+  const runIds = [...new Set(rows.map((r) => r.runId))];
+  const plans = runIds.length
+    ? await db
+        .select({ id: runs.id, dispatchPlan: runs.dispatchPlan })
+        .from(runs)
+        .where(inArray(runs.id, runIds))
+    : [];
+  const hashByRun = new Map(
+    plans.map((run) => [run.id, promptSetHash(run.dispatchPlan)] as const),
+  );
+
   const slices: WindowSlice[] = [];
-  for (let i = count - 1; i >= 0; i--) {
+  for (let i = count - 1; i >= 0; i -= 1) {
     const end = shiftDate(newest.date, -(WINDOW_DAYS * i));
     const start = shiftDate(end, -(WINDOW_DAYS - 1));
     const inWindow = rows.filter((r) => r.date >= start && r.date <= end);
@@ -726,6 +800,9 @@ export const loadWindows = async (
     }
     const dates = [...new Set(inWindow.map((r) => r.date))].sort();
     const hashes = new Set(inWindow.map((r) => r.entitySetHash));
+    const promptHashes = new Set(
+      inWindow.map((r) => hashByRun.get(r.runId) ?? null),
+    );
     slices.push({
       window: {
         from: dates[0] ?? start,
@@ -733,6 +810,10 @@ export const loadWindows = async (
         runs: new Set(inWindow.map((r) => r.runId)).size,
         answers: answerCount(inWindow),
         entitySetHash: hashes.size === 1 ? ([...hashes][0] ?? null) : null,
+        // Same collapse rule as the entity hash: a window whose runs disagree
+        // on their prompt set reports null, which the guard reads as unprovable.
+        promptSetHash:
+          promptHashes.size === 1 ? ([...promptHashes][0] ?? null) : null,
       },
       rows: inWindow,
     });
@@ -741,6 +822,23 @@ export const loadWindows = async (
 };
 
 // Null only when the workspace has no brand yet (needsSetup).
+// The one sentence a reader gets about which questions these events were
+// measured on. Ordered so an unprovable population is never described as a
+// change: the guard treats null as unsafe either way, but a reader must be able
+// to tell "we cannot prove this" from "this moved".
+export const populationNote = (report: ChangeReport): string => {
+  if (report.promptSetKnown === false) {
+    return 'the compared population could not be proven, because a run in these windows predates the frozen prompt set; share-of-voice and position events are withheld rather than reported across an unknown population';
+  }
+  if (report.populationMatches) {
+    return 'the compared windows shared one prompt population, and it is the set tracked now';
+  }
+  if (report.promptSetChanged) {
+    return 'the prompt set changed between the compared windows, so share-of-voice and position events are suppressed: a move there is a change of questions, not of visibility';
+  }
+  return 'the compared windows shared one prompt population, but it is no longer the tracked set';
+};
+
 export const buildChangeReport = async (
   db: Db,
   workspaceId: number,
@@ -765,12 +863,22 @@ export const buildChangeReport = async (
       cells: 0,
       trendCells: 0,
       promptCount: 0,
+      activePromptCount: await activePromptTotal(db, workspaceId),
+      populationMatches: false,
       surfaceCount: 0,
       entitySetChanged: false,
+      promptSetChanged: false,
+      promptSetKnown: true,
       events: [],
     };
   }
-  const report = detectChanges(latest, previous, allEntities, brand);
+  const report = detectChanges(
+    latest,
+    previous,
+    allEntities,
+    brand,
+    await activePromptTotal(db, workspaceId),
+  );
   const drift = detectDrift(windows, allEntities, brand);
   return {
     ...report,

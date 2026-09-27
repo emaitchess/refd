@@ -191,11 +191,11 @@ exported, or narrowed to fewer prompts than the workspace tracks.
 | `get_competitor_landscape` | Brand and competitor visibility comparison |
 | `get_prompt_performance` | Buyer-question performance and zero-visibility prompts |
 | `get_citation_sources` | Influential domains, cited brand URLs, unattributed sources, and source gaps |
-| `get_recent_changes` | Material changes between the two latest comparable runs |
+| `get_recent_changes` | Material changes between the two latest comparable runs, plus the prompt population each event was measured on |
 | `find_prompt_results` | Fuzzy prompt lookup with result IDs |
 | `read_answer` | Clipped, ownership-checked AI answer evidence |
 | `get_digest` | Complete grounded workspace snapshot |
-| `get_run_history` | Recent run cycles, newest first: date, trigger, status, collected/total answers, dispatch state, entity-set hash, and the frozen prompt count |
+| `get_run_history` | Recent run cycles, newest first: date, trigger, status, collected/total answers, dispatch state, entity-set hash, the frozen prompt count, and `promptSetHash` |
 | `get_prompt_changes` | Per-prompt diff of the two most recent completed runs: mention/citation rate deltas, zero-visibility transitions, and prompts that entered or exited the set |
 | `get_prompt_citations` | The URLs cited for one prompt over a range, grouped by URL with counts and an isOurs flag |
 
@@ -236,6 +236,17 @@ blended number as cohort-specific while leaving it blended. Read
 Cohorts are classified from the prompt text by the same matcher that scores a
 mention, so a prompt naming both the brand and a competitor is `branded`;
 `list_prompts` reports each prompt's cohort and the per-cohort counts.
+
+**Reading a trend honestly.** `get_recent_changes` reports the population its
+events were measured on next to the population tracked now: `promptCount` is the
+former, `activePromptCount` the latter, and `populationMatches` is true only when
+they are the same set. When the prompt set changed between the compared windows,
+share-of-voice and position events are withheld, because a share moving with a
+change of questions is not a visibility event. `populationNote` states which of
+those cases applies in one sentence, and `get_run_history` carries
+`promptSetHash` per run so a trend can be split where the population changed
+instead of being read as one line. Contract: `docs/METRICS.md` "Prompt population
+and trend honesty".
 
 Every tool, read or setup, accepts an optional `workspace` argument (the
 workspace id from `get_workspace_info`); an argument outside the connection's
