@@ -36,6 +36,7 @@ import {
 import {
   type BrandInput,
   duplicateDraftIds,
+  duplicatePromptIndex,
   type OnboardingFailure,
   type OnboardingState,
   REGEN_LIMIT,
@@ -107,8 +108,26 @@ const regenSpent: OnboardingFailure = {
 
 type DraftCompetitor = NonNullable<WorkspaceProfile['competitors']>[number];
 
-const draftIdFor = (draftId: string | undefined, index: number): string =>
-  draftId ?? `legacy:${index}`;
+// A draft's identity is its content, never its position in the submitted array.
+//
+// The previous scheme was `legacy:${index}`, which made an id mean "slot 22 of
+// whatever was submitted last". Reordering a list rewrote every id after it, the
+// same id came to mean different questions across submissions, and because
+// draftId feeds canonicalConfigurationHash, a reorder changed the hash
+// confirm_setup verifies. Text is already unique per workspace, so hashing it
+// gives an id that survives reordering and identifies the same question every
+// time.
+const textDraftId = (text: string): string => {
+  const normalized = text.trim().replace(/\s+/gu, ' ').toLowerCase();
+  let hash = 5381;
+  for (let i = 0; i < normalized.length; i += 1) {
+    hash = ((hash * 33) ^ normalized.charCodeAt(i)) >>> 0;
+  }
+  return `q:${hash.toString(16)}`;
+};
+
+const draftIdFor = (draftId: string | undefined, fallback: string): string =>
+  draftId ?? fallback;
 
 const withDraftIds = <T extends { draftId?: string }>(
   drafts: T[],
@@ -120,22 +139,19 @@ const withDraftIds = <T extends { draftId?: string }>(
 
 // The canonical competitor draft shape; upgrades legacy single-`domain` drafts
 // so an in-flight wizard survives the shape change.
-const normalizeCompetitor = (
-  comp: {
-    draftId?: string;
-    name: string;
-    domain?: string;
-    domains?: string[];
-    aliases?: { value: string; caseSensitive?: boolean }[];
-  },
-  index = 0,
-): {
+const normalizeCompetitor = (comp: {
+  draftId?: string;
+  name: string;
+  domain?: string;
+  domains?: string[];
+  aliases?: { value: string; caseSensitive?: boolean }[];
+}): {
   draftId: string;
   name: string;
   domains: string[];
   aliases: { value: string; caseSensitive?: boolean }[];
 } => ({
-  draftId: draftIdFor(comp.draftId, index),
+  draftId: draftIdFor(comp.draftId, textDraftId(comp.name)),
   name: comp.name,
   domains: comp.domains ?? (comp.domain ? [comp.domain] : []),
   aliases: comp.aliases ?? [],
@@ -144,8 +160,8 @@ const normalizeCompetitor = (
 const normalizePrompts = (
   prompts: { draftId?: string; text: string; category: string }[],
 ): { draftId: string; text: string; category: string }[] =>
-  prompts.map((prompt, index) => ({
-    draftId: draftIdFor(prompt.draftId, index),
+  prompts.map((prompt) => ({
+    draftId: draftIdFor(prompt.draftId, textDraftId(prompt.text)),
     text: prompt.text,
     category: prompt.category,
   }));
@@ -339,12 +355,21 @@ const mutateDraft = async (
       .where(eq(workspaces.id, workspaceId));
     return loadOnboardingState(ctx);
   }
+  if (patch.prompts) {
+    const duplicateAt = duplicatePromptIndex(patch.prompts);
+    if (duplicateAt !== null) {
+      return {
+        error: `prompts[${duplicateAt}] repeats an earlier prompt: prompt text is unique per workspace`,
+        status: 409,
+      };
+    }
+  }
   const merged: WorkspaceProfile = {
     ...loaded.profile,
     ...patch,
     competitors: withDraftIds(
-      (patch.competitors ?? loaded.profile.competitors ?? []).map((c, i) =>
-        normalizeCompetitor(c, i),
+      (patch.competitors ?? loaded.profile.competitors ?? []).map((c) =>
+        normalizeCompetitor(c),
       ),
     ),
     prompts: withDraftIds(
@@ -515,8 +540,8 @@ const casWrite = async (
     ...profile,
     ...patch,
     competitors: withDraftIds(
-      (patch.competitors ?? profile.competitors ?? []).map((c, i) =>
-        normalizeCompetitor(c, i),
+      (patch.competitors ?? profile.competitors ?? []).map((c) =>
+        normalizeCompetitor(c),
       ),
     ),
     prompts: withDraftIds(
@@ -873,12 +898,18 @@ export const updateDraft = async (
   ) {
     return { error: promptLimitMessage(promptLimit), status: 409 };
   }
-  const { expectedVersion, surfaces: requestedSurfaces, ...patch } = data;
+  const {
+    expectedVersion,
+    surfaces: requestedSurfaces,
+    removeSemantics,
+    ...patch
+  } = data;
+  // Prompts are checked by resolved identity rather than by explicit id: two
+  // entries with the same text are the same prompt, whether or not either
+  // carried an id. duplicateDraftIds only sees ids the caller supplied, which
+  // is why an auto-assigned collision reached the preview silently.
   const conflictingIds = [
-    ...new Set([
-      ...(data.prompts ? duplicateDraftIds(data.prompts) : []),
-      ...(data.competitors ? duplicateDraftIds(data.competitors) : []),
-    ]),
+    ...new Set(data.competitors ? duplicateDraftIds(data.competitors) : []),
   ];
   if (conflictingIds.length > 0) {
     return {
@@ -899,7 +930,15 @@ export const updateDraft = async (
       return { error: surfaceLimitMessage(maxSurfaces), status: 409 };
     }
   }
-  return mutateDraft(ctx, expectedVersion, () => patch, surfaces);
+  return mutateDraft(
+    ctx,
+    expectedVersion,
+    () =>
+      removeSemantics === undefined
+        ? patch
+        : { ...patch, promptsRemoveSemantics: removeSemantics },
+    surfaces,
+  );
 };
 
 const canonicalConfigurationFor = async (
@@ -956,6 +995,58 @@ const canonicalConfigurationFor = async (
 };
 
 // Returns the exact canonical configuration a confirmation will be held to.
+// What committing this draft would do to the live prompt set.
+//
+// The previous preview returned only how many prompt-surface checks to expect,
+// which is a count the caller cannot act on: submitting 32 prompts and getting
+// 35 live prompts was invisible until someone read list_prompts weeks later.
+// This compares the draft against what is actually tracked, and under `replace`
+// it lists the prompts that will be retired, which is the number that matters
+// most because those questions stop being measured.
+export const promptPlanDiff = async (
+  db: Db,
+  workspaceId: number,
+  draft: { text: string; category: string }[],
+  removeSemantics: 'merge' | 'replace',
+) => {
+  const live = await db
+    .select({
+      id: prompts.id,
+      text: prompts.text,
+      tags: prompts.tags,
+      active: prompts.active,
+    })
+    .from(prompts)
+    .where(eq(prompts.workspaceId, workspaceId));
+  const active = live.filter((row) => row.active);
+  const byText = new Map(active.map((row) => [row.text.trim(), row]));
+  const drafted = new Map(draft.map((p) => [p.text.trim(), p]));
+
+  const added: string[] = [];
+  const updated: { text: string; from: string; to: string }[] = [];
+  const untouched: string[] = [];
+  for (const [text, prompt] of drafted) {
+    const existing = byText.get(text);
+    if (!existing) {
+      added.push(text);
+      continue;
+    }
+    const from = existing.tags[0] ?? 'Uncategorized';
+    if (from !== prompt.category) {
+      updated.push({ text, from, to: prompt.category });
+    } else {
+      untouched.push(text);
+    }
+  }
+  const retired =
+    removeSemantics === 'replace'
+      ? active
+          .filter((row) => !drafted.has(row.text.trim()))
+          .map((row) => row.text.trim())
+      : [];
+  return { added, updated, retired, untouched, liveActive: active.length };
+};
+
 export const previewSetup = async (
   ctx: OnboardingContext,
 ): Promise<
@@ -966,6 +1057,14 @@ export const previewSetup = async (
       configurationSchemaVersion: number;
       expectedPromptSurfaceChecks: number;
       expectedPerSurface: { surface: Surface; checks: number }[];
+      removeSemantics: 'merge' | 'replace';
+      promptDiff: {
+        added: string[];
+        updated: { text: string; from: string; to: string }[];
+        retired: string[];
+        untouched: string[];
+        liveActive: number;
+      };
       warnings: string[];
     }
   | OnboardingFailure
@@ -976,7 +1075,32 @@ export const previewSetup = async (
   }
   const limits = config(ctx).limits;
   const warnings: string[] = [];
-  const promptCount = normalizePrompts(built.profile.prompts ?? []).length;
+  const draftPrompts = normalizePrompts(built.profile.prompts ?? []);
+  const promptCount = draftPrompts.length;
+  const removeSemantics = built.profile.promptsRemoveSemantics ?? 'merge';
+  const promptDiff = await promptPlanDiff(
+    ctx.db,
+    ctx.workspaceId,
+    draftPrompts,
+    removeSemantics,
+  );
+  // The count the old preview returned is still here, but a count that disagrees
+  // with the live set is exactly what went unnoticed, so it is stated as a
+  // warning rather than left to be compared by eye.
+  if (removeSemantics === 'replace' && promptDiff.retired.length > 0) {
+    warnings.push(
+      `${promptDiff.retired.length} active prompt${promptDiff.retired.length === 1 ? '' : 's'} will stop being measured: ${promptDiff.retired.slice(0, 3).join('; ')}${promptDiff.retired.length > 3 ? '; and more' : ''}`,
+    );
+  }
+  if (
+    removeSemantics === 'merge' &&
+    promptCount !== promptDiff.liveActive &&
+    promptDiff.added.length === 0
+  ) {
+    warnings.push(
+      'the draft does not remove anything: prompts you leave out stay active and keep being scored. Pass removeSemantics: "replace" for the submitted list to be the set.',
+    );
+  }
   if (
     limits.maxActivePromptsPerWorkspace !== null &&
     built.profile.prompts &&
@@ -996,6 +1120,8 @@ export const previewSetup = async (
       surface,
       checks: promptCount,
     })),
+    removeSemantics,
+    promptDiff,
     warnings,
   };
 };
@@ -1014,7 +1140,7 @@ const materializeDraft = async (
   const promptLimit = config(ctx).limits.maxActivePromptsPerWorkspace;
 
   const competitorDrafts = (profile.competitors ?? [])
-    .map((c, i) => normalizeCompetitor(c, i))
+    .map((c) => normalizeCompetitor(c))
     .filter((comp) => comp.name.trim() && comp.domains.length > 0);
 
   const existingPrompts = await db
@@ -1079,6 +1205,33 @@ const materializeDraft = async (
       throw new Error(promptLimitMessage(promptLimit));
     }
     existingPromptTexts.add(p.text);
+  }
+
+  // Under `replace` the submitted list IS the set, so anything the draft left
+  // out stops being measured. This is the behaviour the brief's P0-2 is about:
+  // the old loop only ever inserted, so a 32-prompt submission against a
+  // 35-prompt set left 35 live and kept scoring all of them, discovered only by
+  // reading list_prompts weeks later.
+  //
+  // Retire rather than delete: results, scores and citations key off the prompt
+  // id, so the history has to stay queryable. The reason is stamped so a prompt
+  // stopped by a setup sync is distinguishable from one a person retired.
+  if ((profile.promptsRemoveSemantics ?? 'merge') === 'replace') {
+    const live = await db
+      .select({ id: prompts.id, text: prompts.text })
+      .from(prompts)
+      .where(
+        and(eq(prompts.workspaceId, workspaceId), eq(prompts.active, true)),
+      );
+    for (const row of live) {
+      if (existingPromptTexts.has(row.text)) {
+        continue;
+      }
+      await db
+        .update(prompts)
+        .set({ active: false, retiredBy: 'setup-sync' })
+        .where(eq(prompts.id, row.id));
+    }
   }
 
   const promptRows = await db

@@ -295,8 +295,8 @@ one:
 | `draft_description` | Fetches the brand website and drafts description, summary, and target market |
 | `suggest_competitors` | Generates editable competitor candidates from indexed company search; failures carry the cause and, when indexed pages exist, the raw candidate domains |
 | `suggest_prompts` | Generates categorized, editable buyer-question candidates, steerable with `steering.total` and `steering.focus` |
-| `update_setup` | Applies explicit edits to any draft field, including enabled surfaces |
-| `preview_setup` | Returns the exact canonical configuration, its hash, and a per-surface expected-check breakdown |
+| `update_setup` | Applies explicit edits to any draft field, including enabled surfaces. `removeSemantics` is `merge` (default: the draft is additions and edits, nothing tracked is touched) or `replace` (the submitted prompt list becomes the whole set, and anything it omits is retired with a `retiredBy: "setup-sync"` marker). A repeated prompt text in one submission is refused with a 409 naming the index, since prompt text is unique per workspace |
+| `preview_setup` | Returns the exact canonical configuration, its hash, a per-surface expected-check breakdown, and `promptDiff`: the prompts that will be **added**, **updated** (with the category changing), **retired**, and left **untouched**, against the live set. Under `replace` this is where you see which questions stop being measured, before committing |
 | `confirm_setup` | Commits the approved configuration and starts the one provider-backed onboarding report |
 | `get_setup_report` | Live progress and the pinned setup report for the run group |
 | `complete_setup` | Flips `onboardingCompleted` after the commit, the same gate the dashboard's "enter dashboard" click passes |

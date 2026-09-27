@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   duplicateDraftIds,
+  duplicatePromptIndex,
   patchRequestSchema,
   promptDraft,
   stepAfterBrandSave,
@@ -91,5 +92,47 @@ describe('duplicateDraftIds', () => {
 
   test('absent ids are generated server-side, never conflicts', () => {
     expect(duplicateDraftIds([{}, {}, { draftId: 'x' }])).toEqual([]);
+  });
+});
+
+describe('duplicatePromptIndex', () => {
+  // The reported collision was silent because duplicateDraftIds skips entries
+  // with no explicit id, and auto-assigned ids were positional. These pin the
+  // check that sees through the id to the text that is the real identity.
+  test('reports the index of a repeated prompt text', () => {
+    expect(
+      duplicatePromptIndex([
+        { text: 'which tools track AI visibility?' },
+        { text: 'what is the best voice app?' },
+        { text: 'which tools track AI visibility?' },
+      ]),
+    ).toBe(2);
+  });
+
+  test('treats whitespace and case as the same prompt', () => {
+    expect(
+      duplicatePromptIndex([
+        { text: 'which tools track AI visibility?' },
+        { text: '  Which   Tools track AI visibility? ' },
+      ]),
+    ).toBe(1);
+  });
+
+  test('reports a repeated explicit draftId', () => {
+    expect(
+      duplicatePromptIndex([
+        { draftId: 'a', text: 'one question here?' },
+        { draftId: 'a', text: 'a different question?' },
+      ]),
+    ).toBe(1);
+  });
+
+  test('distinct prompts are not duplicates', () => {
+    expect(
+      duplicatePromptIndex([
+        { text: 'which tools track AI visibility?' },
+        { text: 'what is the best voice app?' },
+      ]),
+    ).toBeNull();
   });
 });

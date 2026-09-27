@@ -58,6 +58,9 @@ export interface WorkspaceProfile {
     aliases?: Alias[];
   }[];
   prompts?: { text: string; category: string }[];
+  // Carried on the draft so the choice survives a reload and reaches commit,
+  // which is where the retirement actually happens.
+  promptsRemoveSemantics?: 'merge' | 'replace';
   // Manual regenerate count per AI step. Lives here (not in client state) so a
   // reload can't hand out a fresh allowance — every regenerate is a model call.
   regen?: { describe?: number; competitors?: number; prompts?: number };
@@ -228,6 +231,11 @@ export const prompts = sqliteTable(
     // inserted by a path that cannot see the entity set (onboarding, a chat
     // proposal), is classified lazily. A NULL is never read as an answer.
     kind: text('kind', { enum: PROMPT_KINDS }).$type<PromptKind>(),
+    // Why a prompt stopped being active, when the reason is not the user
+    // pressing retire. Null means retired by hand (or by the row-scoped
+    // remove_prompt tool), so a setup sync is distinguishable from a person
+    // deciding to stop tracking a question.
+    retiredBy: text('retired_by'),
     createdAt: createdAt(),
   },
   (t) => [

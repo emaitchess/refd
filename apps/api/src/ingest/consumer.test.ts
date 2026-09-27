@@ -43,6 +43,7 @@ const MIGRATIONS = [
   '0015_true_the_phantom.sql',
   '0016_careless_queen_noir.sql',
   '0017_chief_maelstrom.sql',
+  '0019_flat_energizer.sql',
 ];
 
 // bun:sqlite facade speaking the D1 API for the consumer handlers, which build
