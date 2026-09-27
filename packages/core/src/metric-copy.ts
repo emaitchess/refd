@@ -25,7 +25,7 @@ export const METRIC_INFO = {
     definition:
       'The percentage of scored AI answers that name the tracked brand or competitor.',
     details:
-      'Only successful results with an answer are eligible. Rates are calculated within each prompt and AI surface cell before they are combined, so every tracked cell carries equal weight.',
+      'Only successful results with an answer are eligible. Rates are calculated within each prompt and AI surface cell before they are combined, so every tracked cell carries equal weight. The headline pools every prompt cohort, so a workspace that tracks brand-named questions reads higher than its unprompted visibility; filter to the discovery cohort for that number.',
   },
   citationRate: {
     id: 'citation-rate',
@@ -34,7 +34,7 @@ export const METRIC_INFO = {
     definition:
       'The percentage of scored AI answers that cite a page from this brand or competitor.',
     details:
-      'The calculation uses the same eligible answers and cell weighting as mention rate. An answer with no sources counts as zero citation visibility.',
+      'The calculation uses the same eligible answers and cell weighting as mention rate. An answer with no sources counts as zero citation visibility. A brand-named prompt usually cites the brand it named, so the blended figure is carried disproportionately by brand-named and competitor-named questions; filter to the discovery cohort to see citation visibility nobody asked for by name.',
   },
   shareOfVoice: {
     id: 'share-of-voice',

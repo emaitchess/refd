@@ -60,6 +60,15 @@ export const GLOSSARY_TERMS: GlossaryDefinition<TermCategory>[] = [
       'Active prompts join future scheduled and manual runs. Disabling a prompt stops new collection for it without removing its historical results.',
   },
   {
+    id: 'prompt-cohort',
+    title: 'Prompt cohort',
+    category: 'Tracking setup',
+    definition:
+      'The group a prompt belongs to, based on which tracked names its text contains: branded, competitor, or discovery.',
+    details:
+      'A branded prompt names your brand, a competitor prompt names only a tracked competitor, and a discovery prompt names neither. Cohorts are classified from the prompt text against the same matcher that scores a mention, and a prompt naming both your brand and a competitor counts as branded. Every prompt is classified on the first read that needs it, so an unclassified prompt never reports as a cohort of its own. Cohort is independent of prompt category: the Discovery category is a buyer-journey stage, while the discovery cohort is the absence of any tracked name in the text.',
+  },
+  {
     id: 'domain',
     title: 'Domain',
     category: 'Tracking setup',

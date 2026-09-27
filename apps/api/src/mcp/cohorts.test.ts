@@ -1,0 +1,372 @@
+import { Database } from 'bun:sqlite';
+import { describe, expect, test } from 'bun:test';
+import { eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/bun-sqlite';
+import type { Db } from '../db/client';
+import * as schema from '../db/schema';
+import {
+  entities,
+  entityScores,
+  prompts,
+  results,
+  runs,
+  users,
+  workspaces,
+} from '../db/schema';
+import type { AppEnv } from '../env';
+import {
+  classifyWorkspacePrompts,
+  promptKindOrDiscovery,
+  workspaceCohorts,
+} from '../lib/prompt-cohorts';
+import { getPromptPerformance, getVisibilityOverview } from './data';
+
+const MIGRATIONS = [
+  '0000_init.sql',
+  '0001_outgoing_sally_floyd.sql',
+  '0002_luxuriant_lilandra.sql',
+  '0003_tiny_otto_octavius.sql',
+  '0004_tearful_killmonger.sql',
+  '0005_worried_sinister_six.sql',
+  '0006_ancient_wildside.sql',
+  '0007_dazzling_prima.sql',
+  '0008_tricky_war_machine.sql',
+  '0009_amazing_hydra.sql',
+  '0010_nostalgic_swarm.sql',
+  '0011_spotty_hairball.sql',
+  '0012_youthful_yellow_claw.sql',
+  '0013_skinny_mindworm.sql',
+  '0014_calm_tomorrow_man.sql',
+  '0015_true_the_phantom.sql',
+  '0016_careless_queen_noir.sql',
+  '0017_chief_maelstrom.sql',
+];
+
+const makeD1 = (sqlite: Database) =>
+  ({
+    prepare: (query: string) => {
+      const stmt = sqlite.prepare(query);
+      const all = stmt.all.bind(stmt) as (
+        ...params: unknown[]
+      ) => Record<string, unknown>[];
+      const runStmt = stmt.run.bind(stmt) as (...params: unknown[]) => void;
+      return {
+        bind: (...params: unknown[]) => ({
+          all: async () => ({ results: all(...params) }),
+          first: async () => all(...params)[0] ?? null,
+          // run must execute: without it, the backfill's updates through the D1
+          // driver silently no-op and these tests would be asserting nothing.
+          run: async () => {
+            runStmt(...params);
+            return { success: true, meta: {} };
+          },
+          raw: async () => all(...params).map((row) => Object.values(row)),
+        }),
+      };
+    },
+  }) as unknown as AppEnv['DB'];
+
+const setup = async () => {
+  const sqlite = new Database(':memory:');
+  for (const file of MIGRATIONS) {
+    const sql = await Bun.file(
+      new URL(`../../../../drizzle/${file}`, import.meta.url),
+    ).text();
+    for (const statement of sql.split('--> statement-breakpoint')) {
+      const trimmed = statement.trim();
+      if (trimmed.length > 0) {
+        sqlite.exec(trimmed);
+      }
+    }
+  }
+  sqlite.exec('PRAGMA foreign_keys = ON');
+  const db = drizzle(sqlite, { schema }) as unknown as Db;
+  const env = { DB: makeD1(sqlite) } as unknown as AppEnv;
+  await db.insert(users).values({
+    id: 1,
+    email: 'owner@example.com',
+    passwordHash: 'x',
+    salt: 'x',
+  });
+  await db.insert(workspaces).values({ id: 9, name: 'ws', ownerUserId: 1 });
+  await db.insert(entities).values({
+    id: 50,
+    workspaceId: 9,
+    name: 'mrmr',
+    domains: ['getmrmr.com'],
+    aliases: [],
+    isBrand: true,
+    sortOrder: 0,
+  });
+  await db.insert(entities).values({
+    id: 51,
+    workspaceId: 9,
+    name: 'Alter',
+    domains: ['alterhq.com'],
+    aliases: [{ value: 'alter' }],
+    isBrand: false,
+    sortOrder: 1,
+  });
+  return { db, env, workspaceId: 9, brandId: 50 };
+};
+
+const seedRun = async (db: Db, runId: number, date: string) => {
+  await db.insert(runs).values({
+    id: runId,
+    workspaceId: 9,
+    key: `cron:9:${date}`,
+    date,
+    trigger: 'cron',
+    status: 'complete',
+    entitySetHash: 'h1',
+  } as typeof runs.$inferInsert);
+};
+
+const seedAnswer = async (
+  db: Db,
+  runId: number,
+  promptId: number,
+  entityId: number,
+  options: { mentioned?: boolean; cited?: boolean; surface?: string } = {},
+) => {
+  const result = (
+    await db
+      .insert(results)
+      .values({
+        runId,
+        promptId,
+        surface: options.surface ?? 'chatgpt',
+        sample: 1,
+        provider: 'brightdata',
+        ok: true,
+        answerPresent: true,
+      })
+      .returning({ id: results.id })
+  )[0];
+  if (!result) {
+    throw new Error('result seed failed');
+  }
+  await db.insert(entityScores).values({
+    resultId: result.id,
+    entityId,
+    mentioned: options.mentioned ?? false,
+    cited: options.cited ?? false,
+  });
+};
+
+const seedPrompt = async (db: Db, id: number, text: string) => {
+  await db.insert(prompts).values({ id, workspaceId: 9, text, tags: [] });
+  return id;
+};
+
+const kindsById = async (db: Db) => {
+  const rows = await db.select().from(prompts).orderBy(prompts.id);
+  return new Map(
+    rows.map((row) => [row.id, promptKindOrDiscovery(row.kind)] as const),
+  );
+};
+
+describe('classifyWorkspacePrompts', () => {
+  test('classifies every unclassified prompt, brand-named taking precedence', async () => {
+    const { db, workspaceId } = await setup();
+    await seedPrompt(db, 11, 'best alternative to Alter for dictation on Mac');
+    await seedPrompt(db, 12, 'mrmr vs Alter: which is better on macOS?');
+    await seedPrompt(db, 13, 'what are the best voice control apps for macOS?');
+
+    expect(await classifyWorkspacePrompts(db, workspaceId)).toBe(3);
+    expect(await kindsById(db)).toEqual(
+      new Map([
+        [11, 'competitor'],
+        [12, 'branded'],
+        [13, 'discovery'],
+      ]),
+    );
+  });
+
+  // The backfill runs on the read that needs it, so it will be reached again
+  // and again; a second pass must be a no-op rather than a rewrite.
+  test('is idempotent and never overwrites an explicit kind', async () => {
+    const { db, workspaceId } = await setup();
+    await seedPrompt(db, 11, 'what are the best voice control apps?');
+    await seedPrompt(db, 12, 'mrmr vs Alter: which is better?');
+    await db.update(prompts).set({ kind: 'branded' }).where(eq(prompts.id, 11));
+
+    expect(await classifyWorkspacePrompts(db, workspaceId)).toBe(1);
+    expect(await classifyWorkspacePrompts(db, workspaceId)).toBe(0);
+    // 11 stays branded even though its text names no brand: the operator said so.
+    expect(await kindsById(db)).toEqual(
+      new Map([
+        [11, 'branded'],
+        [12, 'branded'],
+      ]),
+    );
+  });
+});
+
+describe('workspaceCohorts', () => {
+  test('a null filter returns no cohorts (blended)', async () => {
+    const { db, workspaceId } = await setup();
+    await seedPrompt(db, 11, 'mrmr vs Alter?');
+    expect(await workspaceCohorts(db, workspaceId, null)).toBeNull();
+  });
+
+  test('buckets prompt ids per cohort', async () => {
+    const { db, workspaceId } = await setup();
+    await seedPrompt(db, 11, 'mrmr vs Alter?');
+    await seedPrompt(db, 12, 'best voice apps for macOS?');
+    const cohorts = await workspaceCohorts(db, workspaceId, [
+      'branded',
+      'discovery',
+    ]);
+    expect(cohorts).toEqual([
+      { kind: 'branded', promptIds: [11], prompts: 1 },
+      { kind: 'discovery', promptIds: [12], prompts: 1 },
+    ]);
+  });
+});
+
+describe('getVisibilityOverview cohorts', () => {
+  // The reported bug: a brand-named prompt scores near 1.0 by construction, so
+  // the blended headline overstates the unprompted-visibility number.
+  test('a discovery filter drops the brand-named prompt from the headline', async () => {
+    const { db, env, workspaceId } = await setup();
+    const branded = await seedPrompt(db, 11, 'mrmr vs Alter: which is better?');
+    const discovery = await seedPrompt(
+      db,
+      12,
+      'what are the best voice control apps for macOS?',
+    );
+    await seedRun(db, 1, '2026-09-25');
+    // Branded prompt: mentioned and cited on both surfaces. Discovery: neither.
+    for (const surface of ['chatgpt', 'perplexity']) {
+      await seedAnswer(db, 1, branded, 50, {
+        mentioned: true,
+        cited: true,
+        surface,
+      });
+      await seedAnswer(db, 1, discovery, 50, {
+        mentioned: false,
+        cited: false,
+        surface,
+      });
+    }
+
+    const blended = await getVisibilityOverview(env, workspaceId, '30d');
+    expect(blended).toMatchObject({
+      needsSetup: false,
+      mentionRate: 0.5,
+      citationRate: 0.5,
+      kind: null,
+      headlineScope: 'blended across all prompt cohorts',
+    });
+
+    const unprompted = await getVisibilityOverview(env, workspaceId, '30d', [
+      'discovery',
+    ]);
+    expect(unprompted).toMatchObject({
+      mentionRate: 0,
+      citationRate: 0,
+      kind: ['discovery'],
+      headlineScope: 'prompts that name neither the brand nor a competitor',
+    });
+  });
+
+  test('byCohort reports every cohort beside whichever one was asked for', async () => {
+    const { db, env, workspaceId } = await setup();
+    const branded = await seedPrompt(db, 11, 'mrmr vs Alter: which is better?');
+    const competitor = await seedPrompt(db, 12, 'best alternative to Alter?');
+    const discovery = await seedPrompt(
+      db,
+      13,
+      'what are the best voice control apps for macOS?',
+    );
+    await seedRun(db, 1, '2026-09-25');
+    await seedAnswer(db, 1, branded, 50, { mentioned: true, cited: true });
+    await seedAnswer(db, 1, competitor, 50, { mentioned: true, cited: false });
+    await seedAnswer(db, 1, discovery, 50, { mentioned: false, cited: false });
+
+    const result = await getVisibilityOverview(env, workspaceId, '30d', [
+      'discovery',
+    ]);
+    expect(result).toMatchObject({
+      byCohort: {
+        branded: { prompts: 1, answers: 1, mentionRate: 1, citationRate: 1 },
+        competitor: { prompts: 1, answers: 1, mentionRate: 1, citationRate: 0 },
+        discovery: { prompts: 1, answers: 1, mentionRate: 0, citationRate: 0 },
+      },
+    });
+  });
+
+  test('a cohort filter matching no prompt yields null rates, not the blended ones', async () => {
+    const { db, env, workspaceId } = await setup();
+    const discovery = await seedPrompt(
+      db,
+      11,
+      'what are the best voice control apps for macOS?',
+    );
+    await seedRun(db, 1, '2026-09-25');
+    await seedAnswer(db, 1, discovery, 50, { mentioned: true, cited: true });
+
+    const result = await getVisibilityOverview(env, workspaceId, '30d', [
+      'branded',
+    ]);
+    expect(result).toMatchObject({
+      answers: 0,
+      mentionRate: null,
+      citationRate: null,
+    });
+  });
+});
+
+describe('getPromptPerformance cohorts', () => {
+  test('the filter applies to the prompt list and to zeroVisibility', async () => {
+    const { db, env, workspaceId } = await setup();
+    const branded = await seedPrompt(db, 11, 'mrmr vs Alter: which is better?');
+    const discoveryA = await seedPrompt(
+      db,
+      12,
+      'what are the best voice control apps for macOS?',
+    );
+    const discoveryB = await seedPrompt(
+      db,
+      13,
+      'how do voice apps handle files on a Mac?',
+    );
+    await seedRun(db, 1, '2026-09-25');
+    await seedAnswer(db, 1, branded, 50, { mentioned: true, cited: true });
+    await seedAnswer(db, 1, discoveryA, 50, { mentioned: false, cited: false });
+    await seedAnswer(db, 1, discoveryB, 50, { mentioned: false, cited: false });
+
+    const result = await getPromptPerformance(env, workspaceId, '30d', true, [
+      'discovery',
+    ]);
+    expect(result).toMatchObject({ kind: ['discovery'] });
+    if (result.needsSetup) {
+      return;
+    }
+    expect(result.prompts.map((p) => p.id)).toEqual([discoveryA, discoveryB]);
+    // Both discovery prompts have answers and a zero mention rate, so both
+    // belong in zeroVisibility; the brand-named prompt must not appear.
+    expect(result.zeroVisibility.map((p) => p.id)).toEqual([
+      discoveryA,
+      discoveryB,
+    ]);
+    expect(result.prompts.every((p) => p.kind === 'discovery')).toBe(true);
+  });
+
+  test('an unfiltered call reports each prompt cohort', async () => {
+    const { db, env, workspaceId } = await setup();
+    await seedPrompt(db, 11, 'mrmr vs Alter: which is better?');
+    await seedPrompt(db, 12, 'what are the best voice control apps for macOS?');
+    await seedRun(db, 1, '2026-09-25');
+
+    const result = await getPromptPerformance(env, workspaceId, '30d', true);
+    if (result.needsSetup) {
+      return;
+    }
+    expect(result.prompts.map((p) => [p.id, p.kind])).toEqual([
+      [11, 'branded'],
+      [12, 'discovery'],
+    ]);
+  });
+});

@@ -1,7 +1,9 @@
 import { limitReached, promptLimitMessage } from '@refd/core/config';
 import { METRIC_INFO } from '@refd/core/metric-copy';
+import type { PromptKind } from '@refd/core/prompt-cohorts';
 import type { IFuseOptions } from 'fuse.js';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { COHORT_LABEL, COHORTS } from '@/components/controls/RangePicker';
 import { Select } from '@/components/controls/Select';
 import { DitherIcon } from '@/components/dither/DitherIcon';
 import { Sparkline } from '@/components/dither-kit/sparkline';
@@ -51,6 +53,7 @@ import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/providers/workspace';
 
 const ALL_CATEGORIES = 'all categories';
+const ALL_COHORTS = 'all cohorts';
 const ALL_STATUSES = 'all statuses';
 const ACTIVE_STATUS = 'active';
 const RETIRED_STATUS = 'retired';
@@ -144,6 +147,7 @@ export const Prompts = () => {
   const atPromptLimit = limitReached(activePromptCount, promptLimit);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState(ALL_CATEGORIES);
+  const [cohortFilter, setCohortFilter] = useState(ALL_COHORTS);
   const [statusFilter, setStatusFilter] = useState(ALL_STATUSES);
   const categoryOptions = useMemo(
     () => [
@@ -163,9 +167,11 @@ export const Prompts = () => {
         const matchesStatus =
           statusFilter === ALL_STATUSES ||
           (statusFilter === ACTIVE_STATUS ? row.active : !row.active);
-        return matchesCategory && matchesStatus;
+        const matchesCohort =
+          cohortFilter === ALL_COHORTS || row.kind === cohortFilter;
+        return matchesCategory && matchesStatus && matchesCohort;
       }),
-    [categoryFilter, prompts, statusFilter],
+    [categoryFilter, cohortFilter, prompts, statusFilter],
   );
   const search = useFuzzySearch(
     filteredPrompts,
@@ -300,6 +306,7 @@ export const Prompts = () => {
   const clearFilters = () => {
     setSearchQuery('');
     setCategoryFilter(ALL_CATEGORIES);
+    setCohortFilter(ALL_COHORTS);
     setStatusFilter(ALL_STATUSES);
   };
   const resetTable = () => {
@@ -327,6 +334,7 @@ export const Prompts = () => {
   const hasFilters =
     searchQuery.trim().length > 0 ||
     categoryFilter !== ALL_CATEGORIES ||
+    cohortFilter !== ALL_COHORTS ||
     statusFilter !== ALL_STATUSES;
 
   return (
@@ -493,6 +501,19 @@ export const Prompts = () => {
                 }
               />
               <Select
+                value={cohortFilter}
+                options={[ALL_COHORTS, ...COHORTS]}
+                onChange={setCohortFilter}
+                ariaLabel="Filter prompts by cohort"
+                size="sm"
+                className="sm:w-40"
+                renderOption={(option) =>
+                  option === ALL_COHORTS
+                    ? option
+                    : COHORT_LABEL[option as PromptKind]
+                }
+              />
+              <Select
                 value={statusFilter}
                 options={STATUS_OPTIONS}
                 onChange={setStatusFilter}
@@ -652,7 +673,19 @@ export const Prompts = () => {
                         </OverflowTooltip>
                       </td>
                       <td className="h-9 px-3">
-                        <PromptCategoryTag category={promptRowCategory(row)} />
+                        <span className="flex items-center gap-1.5">
+                          <PromptCategoryTag
+                            category={promptRowCategory(row)}
+                          />
+                          {/* The cohort is the reason a row can read near 100%
+                              while the workspace average does not, so it is
+                              shown on the row rather than hidden in a filter. */}
+                          {row.kind !== 'discovery' && (
+                            <span className="font-mono text-[10px] text-muted uppercase tracking-[0.08em]">
+                              {row.kind}
+                            </span>
+                          )}
+                        </span>
                       </td>
                       {SURFACE_ORDER.map((surface) => (
                         <td key={surface} className="h-9 px-2">

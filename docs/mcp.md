@@ -187,7 +187,7 @@ exported, or narrowed to fewer prompts than the workspace tracks.
 | Tool | Purpose |
 | --- | --- |
 | `get_workspace_info` | Connected workspaces, brand, competitors, and enabled AI surfaces |
-| `get_visibility_overview` | Mention, citation, share-of-voice, position, sentiment, coverage, and surface metrics |
+| `get_visibility_overview` | Mention, citation, share-of-voice, position, sentiment, coverage, and surface metrics, plus a `byCohort` breakdown |
 | `get_competitor_landscape` | Brand and competitor visibility comparison |
 | `get_prompt_performance` | Buyer-question performance and zero-visibility prompts |
 | `get_citation_sources` | Influential domains, cited brand URLs, unattributed sources, and source gaps |
@@ -200,6 +200,28 @@ exported, or narrowed to fewer prompts than the workspace tracks.
 | `get_prompt_citations` | The URLs cited for one prompt over a range, grouped by URL with counts and an isOurs flag |
 
 Ranges accept `1d`, `3d`, `7d`, `30d`, `90d`, or `all` and default to `30d`.
+
+**Prompt cohorts.** A prompt that names the brand is scored near 1.0 by
+construction, so an aggregate that pools every prompt flatters the brand. Every
+aggregate above therefore takes a `kind` filter, comma-separated:
+
+| Value | Prompts it keeps |
+| --- | --- |
+| `branded` | The prompt text names your brand |
+| `competitor` | It names only a tracked competitor |
+| `discovery` | It names neither, so the rate is unprompted visibility |
+
+Omit `kind` for the blended figure. Every one of these responses states which it
+is in `headlineScope`, and `get_visibility_overview` returns all three cohorts at
+once in `byCohort` (prompt count, answers, mention rate, citation rate, and both
+share-of-voice figures per cohort), so one call answers "how visible am I when
+nobody asked by name". `get_digest` carries the same three-way split in
+`sections.prompts.cohorts`, and `get_prompt_performance` applies the filter to
+the prompt list, the per-surface splits, and `zeroVisibility` alike. Cohorts are
+classified from the prompt text by the same matcher that scores a mention, so a
+prompt naming both the brand and a competitor is `branded`; `list_prompts`
+reports each prompt's cohort and the per-cohort counts.
+
 Every tool, read or setup, accepts an optional `workspace` argument (the
 workspace id from `get_workspace_info`); an argument outside the connection's
 granted set is rejected. The server also publishes
@@ -254,9 +276,9 @@ or after onboarding.
 
 | Tool | Purpose |
 | --- | --- |
-| `list_prompts` | Every tracked prompt with id, text, category, tags, active status, and answer counts, plus the active-prompt limit and the valid categories |
-| `add_prompt` | Adds one prompt (8-500 chars, optional category from Discovery, Evaluation, Comparison, Decision, Authority that becomes its single tag) and returns the assigned id; a repeated text converges to the existing prompt instead of erroring |
-| `update_prompt` | Rewords the text and/or changes the category (tags become just that category); text is unique per workspace, and a clash returns `duplicate_prompt` |
+| `list_prompts` | Every tracked prompt with id, text, category, tags, cohort kind, active status, and answer counts, plus the active-prompt limit, the valid categories, and the per-cohort counts |
+| `add_prompt` | Adds one prompt (8-500 chars, optional category from Discovery, Evaluation, Comparison, Decision, Authority that becomes its single tag) and returns the assigned id and the resolved cohort kind; a repeated text converges to the existing prompt instead of erroring. The optional `kind` (`branded`, `competitor`, `discovery`) overrides the classifier, which otherwise reads the prompt text against the tracked brand and competitors |
+| `update_prompt` | Rewords the text, changes the category (tags become just that category), and/or sets the cohort kind; text is unique per workspace, and a clash returns `duplicate_prompt` |
 | `toggle_prompt` | Enables or disables a prompt while keeping its history; re-activating is refused when the workspace is at its active-prompt ceiling |
 | `remove_prompt` | Retires a prompt that has results (history preserved, re-activatable) and deletes one that has none; the only destructive prompt tool |
 | `run_now` | Triggers an immediate collection run over the current active prompt set on every enabled surface. Spends paid provider quota and is limited to administrator accounts (`ADMIN_EMAILS`); at most 5 manual runs per hour per workspace, the same guard the operator HTTP route enforces. Optional `promptIds` select a subset of the active prompts; optional `samples` (1-10) overrides the default |

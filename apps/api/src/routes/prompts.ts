@@ -1,4 +1,5 @@
 import { promptLimitMessage } from '@refd/core/config';
+import { promptKindSchema } from '@refd/core/prompt-cohorts';
 import { and, desc, eq } from 'drizzle-orm';
 import { type Context, Hono } from 'hono';
 import { z } from 'zod';
@@ -7,7 +8,12 @@ import { getDb } from '../db/client';
 import { prompts, results, runs } from '../db/schema';
 import { parseBody, parseId } from '../lib/http';
 import {
+  classifyWorkspacePrompts,
+  promptKindOrDiscovery,
+} from '../lib/prompt-cohorts';
+import {
   createPrompt,
+  type PromptPatch,
   removePrompt,
   setPromptActive,
   updatePromptFields,
@@ -35,6 +41,9 @@ promptRoutes.get('/', async (c) => {
     return c.json({ needsSetup: true });
   }
 
+  // Resolve cohorts before the read so the list never shows an unclassified
+  // prompt as discovery.
+  await classifyWorkspacePrompts(db, ws);
   const allPrompts = await db
     .select()
     .from(prompts)
@@ -56,6 +65,7 @@ promptRoutes.get('/', async (c) => {
         id: p.id,
         text: p.text,
         tags: p.tags,
+        kind: promptKindOrDiscovery(p.kind),
         active: p.active,
         sentiment: sentimentDist(mine, brand.id),
         surfaces: [...new Set(mine.map((r) => r.surface))].sort().map((s) => {
@@ -87,6 +97,7 @@ promptRoutes.get('/', async (c) => {
 const createSchema = z.object({
   text: multiLineText(8, 500),
   tags: z.array(singleLineText(1, 40)).max(10).default([]),
+  kind: promptKindSchema.optional(),
 });
 
 promptRoutes.post('/', async (c) => {
@@ -100,6 +111,7 @@ promptRoutes.post('/', async (c) => {
     data.text,
     data.tags,
     limit,
+    data.kind,
   );
   if (!created.ok) {
     return c.json({ error: promptLimitMessage(created.limit) }, 409);
@@ -113,6 +125,7 @@ promptRoutes.post('/', async (c) => {
 const updateSchema = z.object({
   text: multiLineText(8, 500).optional(),
   tags: z.array(singleLineText(1, 40)).max(10).optional(),
+  kind: promptKindSchema.optional(),
   active: z.boolean().optional(),
 });
 
@@ -145,7 +158,13 @@ promptRoutes.patch('/:id', async (c) => {
   const workspaceId = c.get('workspace').id;
   const limit = configForUser(c.get('user').email, c.env.ADMIN_EMAILS).limits
     .maxActivePromptsPerWorkspace;
-  const patch = { text: data.text, tags: data.tags };
+  // Built by spread, not by listing fields: an absent key must stay absent so a
+  // PATCH that only toggles active does not blank a stored cohort.
+  const patch: PromptPatch = {
+    ...(data.text !== undefined ? { text: data.text } : {}),
+    ...(data.tags !== undefined ? { tags: data.tags } : {}),
+    ...(data.kind !== undefined ? { kind: data.kind } : {}),
+  };
   const result =
     data.active === undefined
       ? await updatePromptFields(c.env, id, workspaceId, patch)

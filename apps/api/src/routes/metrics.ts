@@ -65,8 +65,15 @@ export const loadScoreRows = async (
   workspaceId: number,
   from: string,
   to = '9999-99-99',
-): Promise<ScoreRow[]> =>
-  db
+  // undefined = every prompt (blended). An explicit empty list is a real
+  // filter that matched nothing, so it must yield no rows rather than all of
+  // them.
+  promptIds?: readonly number[],
+): Promise<ScoreRow[]> => {
+  if (promptIds !== undefined && promptIds.length === 0) {
+    return [];
+  }
+  return db
     .select({
       runId: results.runId,
       date: runs.date,
@@ -91,8 +98,12 @@ export const loadScoreRows = async (
         gte(runs.date, from),
         lt(runs.date, to),
         eq(runs.workspaceId, workspaceId),
+        ...(promptIds === undefined
+          ? []
+          : [inArray(results.promptId, [...promptIds])]),
       ),
     );
+};
 
 // Coverage pools include answerless results (they're the point): every ok
 // result in range, scoreable or not.

@@ -32,6 +32,43 @@ core, aggregation endpoints, alias capture, and historical rescoring.
 - **Frozen entity snapshot per run.** Entity list and aliases are snapshotted at
   run creation, mirroring the frozen prompt set, so mid-run entity edits cannot
   skew results within a run or silently change share-of-voice denominators.
+- **A headline states which prompts it pools.** Every rate is a statement about a
+  set of prompts, and the set has to be named, because a prompt that spells out
+  the brand is scored near 1.0 by construction. See Prompt cohorts.
+
+## Prompt cohorts
+
+A prompt that names the brand asks for the brand, so its mention rate is close to
+1 whatever the market does. Pooling it with prompts that name nobody measures
+the wrong thing: on the reference workspace the two brand-named prompts are 8% of
+answers and about half of all citations, which lifts the blended citation rate
+roughly 5 points above the discovery-only figure.
+
+- **Membership is derived, not declared.** `prompts.kind` is `branded`,
+  `competitor`, or `discovery`, classified by running the mention matcher over
+  the prompt text against the tracked entity set. That is the same matcher, and
+  the same alias composition, the scorer runs, so "this prompt names the brand"
+  means exactly what "this answer mentions the brand" means. A prompt naming both
+  the brand and a competitor is `branded`, because the brand-named case is the
+  bias being corrected.
+- **A NULL kind means unclassified, never a cohort.** Classification needs the
+  alias matcher, so it cannot run in a SQL migration; it runs on the first read
+  that needs it and resolves only NULL rows. A kind set explicitly through
+  `update_prompt` is never overwritten, so the backfill is idempotent and an
+  operator override survives. A prompt with no entity set to classify against
+  stays unclassified rather than being asserted into a cohort.
+- **A filtered rate is a rate for that cohort, not a share of the blended one.**
+  The filter is pushed into the score-row query, so cells outside the cohort
+  never enter the pool. Because a cell is one (run, prompt, surface) and each
+  cell carries equal weight, the cohort rate is computed over cohort cells only.
+- **The blended figure stays the default and says so.** Every aggregate response
+  carries `headlineScope`, and `get_visibility_overview` returns `byCohort` with
+  all three cohorts beside the blended number, so no consumer has to group prompt
+  ids by hand.
+- **Cohort is not category.** `category` is the buyer journey
+  (Discovery, Evaluation, Comparison, Decision, Authority) and its `Discovery`
+  member is a stage, not the absence of a tracked name. The two are independent
+  and frequently disagree, which is why `tags` could not carry the cohort.
 
 ## Mention detection
 

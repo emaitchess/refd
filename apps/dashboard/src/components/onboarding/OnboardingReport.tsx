@@ -326,7 +326,12 @@ export const OnboardingReport = ({
           mention: weighted('mentionRate'),
           cite: weighted('citationRate'),
           sentiment: p.sentiment,
-          source: { ...p, active: true, trend: [] } satisfies PromptRow,
+          source: {
+            ...p,
+            kind: p.kind,
+            active: true,
+            trend: [],
+          } satisfies PromptRow,
         };
       }),
     [report],

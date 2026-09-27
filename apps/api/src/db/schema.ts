@@ -7,6 +7,7 @@ import type {
 export type { ChatEvidenceRecord, ChatScope } from '@refd/core/chat';
 
 import type { Alias } from '@refd/core/mentions';
+import { PROMPT_KINDS, type PromptKind } from '@refd/core/prompt-cohorts';
 import type { RunSchedule } from '@refd/core/schedule';
 import type { SiteMetadata } from '@refd/core/site-metadata';
 import type { Surface } from '@refd/core/surfaces';
@@ -223,11 +224,16 @@ export const prompts = sqliteTable(
       .notNull()
       .default(sql`'[]'`),
     active: integer('active', { mode: 'boolean' }).notNull().default(true),
+    // Nullable on purpose: a prompt written before this column existed, or one
+    // inserted by a path that cannot see the entity set (onboarding, a chat
+    // proposal), is classified lazily. A NULL is never read as an answer.
+    kind: text('kind', { enum: PROMPT_KINDS }).$type<PromptKind>(),
     createdAt: createdAt(),
   },
   (t) => [
     uniqueIndex('prompts_ws_text_unique').on(t.workspaceId, t.text),
     index('prompts_ws_idx').on(t.workspaceId),
+    index('prompts_ws_kind_idx').on(t.workspaceId, t.kind),
   ],
 );
 

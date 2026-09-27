@@ -120,6 +120,13 @@
       "when": 1789518822257,
       "tag": "0016_careless_queen_noir",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1790540641570,
+      "tag": "0017_chief_maelstrom",
+      "breakpoints": true
     }
   ]
 }
