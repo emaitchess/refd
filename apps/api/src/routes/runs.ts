@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { WorkspaceBindings } from '../auth/middleware';
@@ -60,6 +60,17 @@ export const runOptionsBodySchema = z.object({
   samples: z.number().int().min(1).max(10).optional(),
 });
 const runOptionsSchema = runOptionsBodySchema.nullable();
+
+runRoutes.get('/', async (c) => {
+  const db = getDb(c.env);
+  const rows = await db
+    .select(runResponseColumns)
+    .from(runs)
+    .where(eq(runs.workspaceId, c.get('workspace').id))
+    .orderBy(desc(runs.id))
+    .limit(100);
+  return c.json({ runs: rows });
+});
 
 runRoutes.post('/', requireOperator, async (c) => {
   const opts = (await parseBody(c, runOptionsSchema)) ?? {};
