@@ -6,6 +6,7 @@ import {
   MIN_CELLS,
   mergeEvents,
   POSITION_RANKS,
+  populationNote,
   RATE_PP,
   SENTIMENT_PP,
   SOV_PP,
@@ -61,6 +62,7 @@ const slice = (
   runId: number,
   rows: ScoreRow[],
   hash: string | null = 'h',
+  promptHash: string | null = 'p',
 ): WindowSlice => ({
   window: {
     from: runId === 2 ? '2026-07-20' : '2026-07-14',
@@ -68,6 +70,7 @@ const slice = (
     runs: 7,
     answers: rows.length,
     entitySetHash: hash,
+    promptSetHash: promptHash,
   },
   rows,
 });
@@ -165,6 +168,148 @@ describe('detectChanges', () => {
     const report = detectChanges(latest, previous, entities, brand);
     expect(report.entitySetChanged).toBe(true);
     expect(report.events.map((e) => e.type)).toEqual(['mention_rate']);
+  });
+
+  // A prompt-population break is the same class of event as an entity break: a
+  // share moving because the questions changed is not a visibility movement.
+  test('a prompt-set change suppresses relative events but keeps rate events', () => {
+    const previous = slice(
+      1,
+      prompts.flatMap((p) => [
+        row(1, p, { mentioned: true, position: 1 }),
+        row(1, p, { entityId: COMP }),
+      ]),
+      'h',
+      'p1',
+    );
+    const latest = slice(
+      2,
+      prompts.flatMap((p) => [
+        row(2, p, { mentioned: p === 1, position: p === 1 ? 3 : null }),
+        row(2, p, { entityId: COMP, mentioned: true, position: 1 }),
+      ]),
+      'h',
+      'p2',
+    );
+    const report = detectChanges(latest, previous, entities, brand);
+    expect(report.promptSetChanged).toBe(true);
+    expect(report.promptSetKnown).toBe(true);
+    expect(report.events.map((e) => e.type)).toEqual(['mention_rate']);
+  });
+
+  test('an unprovable population is reported apart from a proven change', () => {
+    const previous = slice(
+      1,
+      prompts.flatMap((p) => [row(1, p, {})]),
+      'h',
+      null,
+    );
+    const latest = slice(
+      2,
+      prompts.flatMap((p) => [row(2, p, {})]),
+      'h',
+      null,
+    );
+    const report = detectChanges(latest, previous, entities, brand);
+    // Null means "cannot prove", so the guard still holds, but promptSetKnown
+    // says so rather than claiming the questions moved.
+    expect(report.promptSetChanged).toBe(true);
+    expect(report.promptSetKnown).toBe(false);
+  });
+
+  // The sentence a reader sees must not call an unprovable population a change.
+  test('an unprovable population is never described as a change', () => {
+    const previous = slice(
+      1,
+      prompts.flatMap((p) => [row(1, p, {})]),
+      'h',
+      null,
+    );
+    const latest = slice(
+      2,
+      prompts.flatMap((p) => [row(2, p, {})]),
+      'h',
+      null,
+    );
+    const report = detectChanges(
+      latest,
+      previous,
+      entities,
+      brand,
+      prompts.length,
+    );
+    expect(report.promptSetKnown).toBe(false);
+    expect(populationNote(report)).toContain('could not be proven');
+    expect(populationNote(report)).not.toContain('changed between');
+  });
+
+  test('a proven break reads as a change, not as unprovable', () => {
+    const previous = slice(
+      1,
+      prompts.flatMap((p) => [row(1, p, {})]),
+      'h',
+      'p1',
+    );
+    const latest = slice(
+      2,
+      prompts.flatMap((p) => [row(2, p, {})]),
+      'h',
+      'p2',
+    );
+    const report = detectChanges(
+      latest,
+      previous,
+      entities,
+      brand,
+      prompts.length,
+    );
+    expect(populationNote(report)).toContain('changed between');
+  });
+
+  test('promptCount is the compared population and never the live set', () => {
+    const previous = slice(
+      1,
+      prompts.flatMap((p) => [row(1, p, {})]),
+      'h',
+      'p',
+    );
+    const latest = slice(
+      2,
+      prompts.flatMap((p) => [row(2, p, {})]),
+      'h',
+      'p',
+    );
+    // The live set has grown past what the windows measured: the two counts
+    // differ and populationMatches says so, instead of the trend looking
+    // authoritative against a set it never saw.
+    const report = detectChanges(latest, previous, entities, brand, 32);
+    expect(report.promptCount).toBe(prompts.length);
+    expect(report.activePromptCount).toBe(32);
+    expect(report.populationMatches).toBe(false);
+  });
+
+  test('populationMatches holds when the windows measured the live set', () => {
+    const previous = slice(
+      1,
+      prompts.flatMap((p) => [row(1, p, {})]),
+      'h',
+      'p',
+    );
+    const latest = slice(
+      2,
+      prompts.flatMap((p) => [row(2, p, {})]),
+      'h',
+      'p',
+    );
+    const report = detectChanges(
+      latest,
+      previous,
+      entities,
+      brand,
+      prompts.length,
+    );
+    expect(report.promptSetChanged).toBe(false);
+    expect(report.populationMatches).toBe(true);
   });
 
   test('reports a competitor appearing across shared cells', () => {

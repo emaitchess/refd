@@ -66,26 +66,54 @@ export const entitiesForRun = async (
   return row?.entitySnapshot ?? loadEntities(env, workspaceId);
 };
 
-// Identity hash of the frozen set — trend charts draw break markers where
-// consecutive runs differ (SOV/position moves from set edits are mechanical,
-// not visibility events).
-const entitySetHash = (snapshot: SnapshotEntity[]): string => {
-  const identity = JSON.stringify(
-    [...snapshot]
-      .sort((a, b) => a.id - b.id)
-      .map((e) => [
-        e.id,
-        e.name,
-        e.isBrand,
-        [...e.domains].sort(),
-        e.aliases.map((a) => [a.value, a.caseSensitive === true]).sort(),
-      ]),
-  );
+// djb2 over a canonical identity string, shared by both set hashes so a
+// prompt-population break and an entity-population break are computed the
+// same way and read the same way.
+const djb2 = (identity: string): string => {
   let hash = 5381;
   for (let i = 0; i < identity.length; i += 1) {
     hash = ((hash * 33) ^ identity.charCodeAt(i)) >>> 0;
   }
   return hash.toString(16);
+};
+
+// Identity hash of the frozen set — trend charts draw break markers where
+// consecutive runs differ (SOV/position moves from set edits are mechanical,
+// not visibility events).
+const entitySetHash = (snapshot: SnapshotEntity[]): string =>
+  djb2(
+    JSON.stringify(
+      [...snapshot]
+        .sort((a, b) => a.id - b.id)
+        .map((e) => [
+          e.id,
+          e.name,
+          e.isBrand,
+          [...e.domains].sort(),
+          e.aliases.map((a) => [a.value, a.caseSensitive === true]).sort(),
+        ]),
+    ),
+  );
+
+// Identity of a frozen prompt population, the prompt-side twin of
+// entitySetHash. Derived from the run's dispatch plan on read rather than
+// stored in a column, because the plan already froze the population for every
+// run: a stored column would be null for all pre-existing runs and would make
+// every historical comparison read as a break it cannot prove. Null (a legacy
+// run with no plan) means unknown, not changed, and the two are reported
+// separately so a reader is never told a population moved when it is only
+// unprovable.
+export const promptSetHash = (plan: unknown): string | null => {
+  const prompts = (plan as { prompts?: unknown } | null | undefined)?.prompts;
+  if (!Array.isArray(prompts)) {
+    return null;
+  }
+  const identity = prompts.map((p) => {
+    const row = p as { id?: unknown; text?: unknown };
+    return [row?.id ?? null, row?.text ?? null];
+  });
+  identity.sort((a, b) => Number(a[0] ?? 0) - Number(b[0] ?? 0));
+  return djb2(JSON.stringify(identity));
 };
 
 export interface CreatedRun {

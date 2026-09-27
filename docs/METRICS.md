@@ -261,6 +261,36 @@ roughly 5 points above the discovery-only figure.
 - Thresholds are restated in the Help glossary under "Material change" and
   pinned to engine constants by `changes.test.ts`.
 
+## Prompt population and trend honesty
+
+`entitySetHash` identifies the entity set, and it was the only population
+identity a trend carried. That made a prompt-set change invisible: adding or
+retiring prompts moved the questions underneath a trend line while every
+set-relative event still read as a visibility movement.
+
+- **A run's prompt population is identified by `promptSetHash`**, hashed from the
+  frozen dispatch plan's prompt list with the same djb2 over a canonical identity
+  that `entitySetHash` uses, so a prompt break and an entity break are computed
+  and read the same way.
+- **It is derived from the dispatch plan on read, not stored in a column.** Every
+  run already froze the population it meant to score, so a stored column would be
+  null for all pre-existing runs and would make every historical comparison read
+  as a break it cannot prove.
+- **A null population is unknown, not changed.** A run predating the frozen prompt
+  set yields null, the relative-metric guard still withholds share-of-voice and
+  position, and `promptSetKnown: false` says so. A reader is never told the
+  questions moved when the endpoint merely cannot prove they did not.
+- **`promptCount` and `activePromptCount` are different quantities and both are
+  reported.** `promptCount` is the population that produced shared cells in the
+  two compared windows; `activePromptCount` is what the workspace tracks now.
+  `populationMatches` is true only when the windows provably shared one prompt
+  population *and* that population is the live set. Reporting only the first is
+  what let a stale population look authoritative.
+- **Set-relative events are withheld across a prompt break**, exactly as they are
+  across an entity break: a share moving because the questions changed is a change
+  of questions, not of visibility. Rate events survive, because a brand mention
+  rate can still fall on a shared cell.
+
 ## Alias capture
 
 - Competitor drafts are `{name, domains[], aliases[]}`; the brand uses the same

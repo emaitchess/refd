@@ -40,6 +40,7 @@ export interface OverviewPoint {
   date: string;
   // Break-marker source: charts flag runs where the tracked set changed.
   entitySetHash: string | null;
+  promptSetHash?: string | null;
   entities: Record<string, RunPointEntity>;
 }
 
@@ -125,6 +126,8 @@ export interface ChangesResponse {
   cells?: number;
   trendCells?: number;
   promptCount?: number;
+  activePromptCount?: number;
+  populationMatches?: boolean;
   surfaceCount?: number;
   entitySetChanged?: boolean;
   events?: ChangeEvent[];

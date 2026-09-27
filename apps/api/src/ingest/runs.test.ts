@@ -7,7 +7,7 @@ import {
   messagesForRun,
   runDispatchPlanSchema,
 } from './dispatch';
-import { promptBatchSize, samplesFor } from './runs';
+import { promptBatchSize, promptSetHash, samplesFor } from './runs';
 
 describe('chunk', () => {
   test('splits into fixed-size batches, last one smaller', () => {
@@ -293,5 +293,50 @@ describe('dispatchMessageBatches', () => {
       ),
     ).rejects.toThrow('run dispatch message exceeds the queue size limit');
     expect(sent).toBe(false);
+  });
+});
+
+describe('promptSetHash', () => {
+  const plan = (prompts: { id: number; text: string }[]) => ({ prompts });
+
+  test('is stable for the same population regardless of order', () => {
+    const a = promptSetHash(
+      plan([
+        { id: 1, text: 'one?' },
+        { id: 2, text: 'two?' },
+      ]),
+    );
+    const b = promptSetHash(
+      plan([
+        { id: 2, text: 'two?' },
+        { id: 1, text: 'one?' },
+      ]),
+    );
+    expect(a).toBe(b);
+  });
+
+  test('changes when a prompt is added, removed, or reworded', () => {
+    const base = promptSetHash(plan([{ id: 1, text: 'one?' }]));
+    expect(
+      promptSetHash(
+        plan([
+          { id: 1, text: 'one?' },
+          { id: 2, text: 'two?' },
+        ]),
+      ),
+    ).not.toBe(base);
+    expect(promptSetHash(plan([]))).not.toBe(base);
+    expect(promptSetHash(plan([{ id: 1, text: 'one reworded?' }]))).not.toBe(
+      base,
+    );
+  });
+
+  // A legacy run has no dispatch plan, which is unknown rather than changed:
+  // the report must be able to tell those apart.
+  test('is null when the run predates the frozen prompt set', () => {
+    expect(promptSetHash(null)).toBeNull();
+    expect(promptSetHash(undefined)).toBeNull();
+    expect(promptSetHash({})).toBeNull();
+    expect(promptSetHash({ prompts: 'not-an-array' })).toBeNull();
   });
 });
