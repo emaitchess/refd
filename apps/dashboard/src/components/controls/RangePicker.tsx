@@ -42,13 +42,21 @@ export const RangePicker = ({
   </div>
 );
 
-export const COHORTS = ['branded', 'competitor', 'discovery'] as const;
+export const COHORTS = [
+  'discovery',
+  'problem',
+  'market_perception',
+  'alternative',
+  'brand_defining',
+] as const;
 export type CohortValue = (typeof COHORTS)[number] | 'all';
 
 export const COHORT_LABEL: Record<(typeof COHORTS)[number], string> = {
-  branded: 'Brand-named',
-  competitor: 'Competitor-named',
   discovery: 'Names neither',
+  problem: 'Buyer problem',
+  market_perception: 'Market perception',
+  alternative: 'Names a competitor',
+  brand_defining: 'Names your brand',
 };
 
 export const ALL_COHORTS = 'all';

@@ -547,7 +547,7 @@ export const registerOpsTools = (
     {
       title: 'List tracked prompts',
       description:
-        'Returns every tracked prompt in an onboarded workspace with id, text, category, tags, cohort kind, active status, and answer counts, plus the active-prompt limit, the valid categories, and the per-cohort prompt counts. Cohorts: branded names your brand, competitor names only a tracked competitor, discovery names neither; filter the analytics tools with kind to read one cohort. Use it before add/update/toggle/remove to resolve prompt ids.',
+        'Returns every tracked prompt in an onboarded workspace with id, text, category, tags, cohort kind, active status, and answer counts, plus the active-prompt limit, the valid categories, and the per-cohort prompt counts. Cohorts: brand_defining names your brand, alternative names only a tracked competitor, discovery names neither, and problem and market_perception are declared rather than derived; filter the analytics tools with kind to read one cohort. Use it before add/update/toggle/remove to resolve prompt ids.',
       inputSchema: z.object({}).extend(workspaceSelectorSchema.shape),
       annotations: {
         readOnlyHint: true,
@@ -581,7 +581,7 @@ export const registerOpsTools = (
     {
       title: 'Add a tracked prompt',
       description:
-        "Adds one tracked prompt to an onboarded workspace and returns the assigned id. text is 8-500 chars; the optional category is one of Discovery, Evaluation, Comparison, Decision, Authority and becomes the prompt's single tag. The optional kind is one of branded, competitor, discovery; omitted, it is classified from the text against the tracked brand and competitors and the resolved value comes back in the response. A same-text prompt resolves to the existing row (duplicated: true) instead of erroring. Refuses with prompt_limit when the workspace's active-prompt ceiling is full.",
+        "Adds one tracked prompt to an onboarded workspace and returns the assigned id. text is 8-500 chars; the optional category is one of Discovery, Evaluation, Comparison, Decision, Authority and becomes the prompt's single tag. The optional kind is one of brand_defining, alternative, discovery, problem, market_perception; omitted, it is classified from the text against the tracked brand and competitors and the resolved value comes back in the response. A same-text prompt resolves to the existing row (duplicated: true) instead of erroring. Refuses with prompt_limit when the workspace's active-prompt ceiling is full.",
       inputSchema: addPromptBodySchema.extend(workspaceSelectorSchema.shape),
       annotations: {
         readOnlyHint: false,
@@ -615,7 +615,7 @@ export const registerOpsTools = (
     {
       title: 'Update a tracked prompt',
       description:
-        'Edits one prompt in an onboarded workspace: reword text, set category (the tags become just that category), and/or set the cohort kind (branded, competitor, discovery) that analytics filters read. Text is unique per workspace. Row-scoped on purpose: no setup draft version involved, and in-flight runs keep their frozen prompt set, so edits land on the next run.',
+        'Edits one prompt in an onboarded workspace: reword text, set category (the tags become just that category), and/or set the cohort kind (brand_defining, alternative, discovery, problem, market_perception) that analytics filters read; problem and market_perception are declared, since the text cannot settle them. Text is unique per workspace. Row-scoped on purpose: no setup draft version involved, and in-flight runs keep their frozen prompt set, so edits land on the next run.',
       inputSchema: updatePromptBodySchema.extend(workspaceSelectorSchema.shape),
       annotations: {
         readOnlyHint: false,

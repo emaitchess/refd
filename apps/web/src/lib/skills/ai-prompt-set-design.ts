@@ -448,14 +448,18 @@ it is split honestly into the two halves.
 
 ### refd handles
 
-- **Prompt cohorts.** Every prompt is classified as \`branded\` (the text names
-  your brand), \`competitor\` (it names only a tracked competitor), or \`discovery\`
-  (it names neither, so the rate is unprompted visibility). Classification runs
-  the same alias matcher the scorer runs, so "this prompt names the brand" means
-  exactly what "this answer mentions the brand" means, and a prompt naming both
-  you and a rival lands in \`branded\`, which is the biased case the cohort exists
-  to isolate. Rows written before the column existed are classified on the first
-  read that needs it, a \`kind\` you set explicitly is never overwritten, and an
+- **Prompt cohorts.** Every prompt is classified as \`brand_defining\` (the text
+  names your brand), \`alternative\` (it names only a tracked competitor), or
+  \`discovery\` (it names neither, so the rate is unprompted visibility).
+  Classification runs the same alias matcher the scorer runs, so "this prompt
+  names the brand" means exactly what "this answer mentions the brand" means, and
+  a prompt naming both you and a rival lands in \`brand_defining\`, which is the
+  biased case the cohort exists to isolate. Two further cohorts, \`problem\` and
+  \`market_perception\`, are declared rather than derived: telling a
+  problem-shaped question from a broad discovery one is a judgement about buyer
+  intent that no keyword settles, so the product does not guess and you set them.
+  Rows written before the column existed are classified on the first read that
+  needs it, a \`kind\` you set explicitly is never overwritten, and an
   unclassified prompt is counted rather than dropped.
 - **Cohort-filtered rates.** A cohort rate is computed over that cohort's own
   answer cells, not re-weighted from the blended figure, so it is a rate for that

@@ -78,8 +78,25 @@ const sections = (over: Partial<DigestSections> = {}): DigestSections => ({
     },
     namedSplitNote: '',
     cohorts: {
-      branded: { prompts: 2, answers: 266, mentionRate: 1, citationRate: 0.89 },
-      competitor: {
+      market_perception: {
+        prompts: 0,
+        answers: 0,
+        mentionRate: null,
+        citationRate: null,
+      },
+      problem: {
+        prompts: 0,
+        answers: 0,
+        mentionRate: null,
+        citationRate: null,
+      },
+      brand_defining: {
+        prompts: 2,
+        answers: 266,
+        mentionRate: 1,
+        citationRate: 0.89,
+      },
+      alternative: {
         prompts: 2,
         answers: 266,
         mentionRate: 0.12,
@@ -250,13 +267,25 @@ describe('buildSuggestions', () => {
           unnamed: { prompts: 3, mentionRate: 0.4 },
         },
         cohorts: {
-          branded: {
+          market_perception: {
             prompts: 0,
             answers: 0,
             mentionRate: null,
             citationRate: null,
           },
-          competitor: {
+          problem: {
+            prompts: 0,
+            answers: 0,
+            mentionRate: null,
+            citationRate: null,
+          },
+          brand_defining: {
+            prompts: 0,
+            answers: 0,
+            mentionRate: null,
+            citationRate: null,
+          },
+          alternative: {
             prompts: 0,
             answers: 0,
             mentionRate: null,

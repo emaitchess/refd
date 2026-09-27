@@ -40,17 +40,34 @@ core, aggregation endpoints, alias capture, and historical rescoring.
 
 A prompt that names the brand asks for the brand, so its mention rate is close to
 1 whatever the market does. Pooling it with prompts that name nobody measures
-the wrong thing: on the reference workspace the two brand-named prompts are 8% of
-answers and about half of all citations, which lifts the blended citation rate
+the wrong thing: on the reference workspace the two brand-defining prompts are 8%
+of answers and about half of all citations, which lifts the blended citation rate
 roughly 5 points above the discovery-only figure.
+
+The taxonomy is `discovery`, `problem`, `market_perception`, `alternative`, and
+`brand_defining`, and the split is **partly derived and partly declared**:
+
+- **`brand_defining` and `alternative` are derived.** The prompt names your brand,
+  or names only a tracked competitor. The same matcher that scores a mention
+  decides them, so they are provable from the text and are classified on read. A
+  prompt naming both is `brand_defining`, because the brand-named case is the bias
+  being corrected.
+- **`discovery` is the derived floor.** A prompt naming no tracked entity lands
+  here unless it is declared as something else.
+- **`problem` and `market_perception` are declared, never guessed.** Separating a
+  problem-shaped question from a broad discovery one, or a question about how the
+  market frames the category, is a judgement about buyer intent and no substring
+  settles it. The repository rule already holds for the rest of setup: ambiguity is
+  resolved at setup time with human confirmation, never inside a read. So these two
+  are chosen deliberately and can be changed at any time.
 
 - **Membership is derived, not declared.** `prompts.kind` is `branded`,
   `competitor`, or `discovery`, classified by running the mention matcher over
-  the prompt text against the tracked entity set. That is the same matcher, and
-  the same alias composition, the scorer runs, so "this prompt names the brand"
-  means exactly what "this answer mentions the brand" means. A prompt naming both
-  the brand and a competitor is `branded`, because the brand-named case is the
-  bias being corrected.
+  the prompt text against the tracked entity set, for the two cohorts that text
+  can prove. That is the same matcher, and the same alias composition, the scorer
+  runs, so "this prompt names the brand" means exactly what "this answer mentions
+  the brand" means. A prompt naming both the brand and a competitor is
+  `brand_defining`, because the brand-named case is the bias being corrected.
 - **A NULL kind means unclassified, never a cohort.** Classification needs the
   alias matcher, so it cannot run in a SQL migration; it runs on the first read
   that needs it and resolves only NULL rows. A kind set explicitly through

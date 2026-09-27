@@ -205,11 +205,22 @@ Ranges accept `1d`, `3d`, `7d`, `30d`, `90d`, or `all` and default to `30d`.
 construction, so an aggregate that pools every prompt flatters the brand. The
 aggregates that pool prompts therefore take a `kind` filter, comma-separated:
 
-| Value | Prompts it keeps |
-| --- | --- |
-| `branded` | The prompt text names your brand |
-| `competitor` | It names only a tracked competitor |
-| `discovery` | It names neither, so the rate is unprompted visibility |
+| Value | Prompts it keeps | How it is decided |
+| --- | --- | --- |
+| `brand_defining` | The prompt text names your brand | derived from the text |
+| `alternative` | It names only a tracked competitor | derived from the text |
+| `discovery` | It names neither, so the rate is unprompted visibility | derived, and the default for anything unclassified |
+| `problem` | Declared: the prompt describes a buyer problem | you choose it, at setup or via `update_prompt` |
+| `market_perception` | Declared: the prompt asks how the market frames the category | you choose it, at setup or via `update_prompt` |
+
+`brand_defining`, `alternative` and `discovery` are derived from the prompt text by
+the same matcher that scores a mention, so they are provable and always right.
+`problem` and `market_perception` are **declared, not inferred**: telling a
+problem-shaped question from a broad discovery one is a judgement about buyer
+intent, and no keyword settles it, so the product does not guess. Set them in the
+onboarding prompts step or with `update_prompt(kind)`. The two retired names
+`branded` and `competitor` are refused rather than accepted as aliases, so a stale
+caller gets a validation error instead of a silently empty cohort.
 
 | Tool | Takes `kind`? |
 | --- | --- |
