@@ -212,7 +212,7 @@ export const createRefdMcpServer = (
     {
       title: 'Get visibility overview',
       description:
-        'Returns brand mention rate, citation rate, share of voice, average position, sentiment, coverage, and per-surface visibility for a time range. Headline figures pool every prompt cohort, so a workspace tracking brand-named questions reads higher than its unprompted visibility; pass kind to read one cohort, and read byCohort for all three at once. A prompt naming the brand scores near 1.0 by construction, which is why the blended figure overstates discovery.',
+        'Returns brand mention rate, citation rate, share of voice, average position, sentiment, coverage, and per-surface visibility for a time range. The response is a headline that names its population, byCohort with every cohort beside it, and a deprecated blended block. headline is the discovery cohort (prompts that name neither the brand nor a competitor) unless you pass kind, because a prompt naming the brand is scored near 1.0 by construction and a blend overstates unprompted visibility. blended is still there, labelled, for comparing against an older reading. Pass kind=brand_defining or kind=alternative for the other cohorts.',
       inputSchema: rangeArgsSchema,
       annotations: MCP_TOOL_ANNOTATIONS,
     },
@@ -242,7 +242,7 @@ export const createRefdMcpServer = (
     {
       title: 'Get competitor landscape',
       description:
-        'Compares the brand and every tracked competitor across visibility, citations, share of voice, position, sentiment, and AI surfaces. Figures pool every prompt cohort unless kind narrows them.',
+        'Compares the brand and every tracked competitor across visibility, citations, share of voice, position, sentiment, and AI surfaces. The response names the population it was measured over: discovery by default, since a brand-named prompt is where the brand wins by construction, and kind narrows it to another cohort.',
       inputSchema: rangeArgsSchema,
       annotations: MCP_TOOL_ANNOTATIONS,
     },

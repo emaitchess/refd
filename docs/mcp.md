@@ -230,13 +230,29 @@ caller gets a validation error instead of a silently empty cohort.
 | `get_prompt_performance` | yes, applied to the prompt list, the per-surface splits, and `zeroVisibility` alike |
 | `get_digest` | **no, by design** (see below) |
 
-Omit `kind` for the blended figure. Every response that takes the filter states
-which it is in `headlineScope`, and a filter matching no prompt yields empty
-rates rather than quietly falling back to the blend.
+**Omitting `kind` does not hand you a blend.** `get_visibility_overview`,
+`get_competitor_landscape` and `get_citation_sources` head their figures with the
+**discovery** cohort, because a caller who asks nothing should not be handed a
+number that brand-named questions inflated. A filter matching no prompt yields
+empty rates rather than quietly falling back. A workspace with no discovery
+prompts falls back to every cohort and says so in `population: "all"`.
 
-`get_visibility_overview` returns all three cohorts at once in `byCohort` (prompt
-count, answers, mention rate, citation rate, and both share-of-voice figures per
-cohort), so one call answers "how visible am I when nobody asked by name".
+`get_visibility_overview` returns three things:
+
+| Field | What it is |
+| --- | --- |
+| `headline` | The figures for the named population, plus `population` and a plain-English `scope` |
+| `byCohort` | All five cohorts at once: prompt count, answers, both rates, and both share-of-voice figures per cohort |
+| `blended` | The old pooled figure, marked `deprecated: true`, kept so you can compare against an earlier reading |
+
+So one call answers "how visible am I when nobody asked by name".
+
+**This was a breaking change.** The top-level `mentionRate`, `citationRate`,
+`shareOfVoice`, `citationShareOfVoice`, `averagePosition`, `firstNamedShare`,
+`prominence`, `sentiment` and `answers` fields now live under `headline` and
+`blended`, an unfiltered call reports discovery rather than the blend, and
+`headlineScope` became `headline.population` plus `headline.scope`.
+`get_competitor_landscape` returns `population` and `populationScope`.
 
 `get_digest` deliberately takes no `kind`. It is a whole-workspace rollup that
 already carries every cohort side by side in `sections.prompts.cohorts`, and

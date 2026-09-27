@@ -78,10 +78,16 @@ The taxonomy is `discovery`, `problem`, `market_perception`, `alternative`, and
   The filter is pushed into the score-row query, so cells outside the cohort
   never enter the pool. Because a cell is one (run, prompt, surface) and each
   cell carries equal weight, the cohort rate is computed over cohort cells only.
-- **The blended figure stays the default and says so.** Every aggregate response
-  carries `headlineScope`, and `get_visibility_overview` returns `byCohort` with
-  all three cohorts beside the blended number, so no consumer has to group prompt
-  ids by hand. `get_digest` is deliberately not cohort-filterable: it is a
+- **The headline is the discovery cohort, not the blend.** A caller who asks for
+  no filter gets the unprompted-visibility figure, because the alternative is
+  handing back a number that brand-named questions inflated. A workspace with no
+  discovery prompts falls back to every cohort and says so in `population: "all"`,
+  since a silent fallback to an empty population would be worse than either.
+- **The blend is kept, labelled, and out of the way.** `get_visibility_overview`
+  returns `headline` (which names its population), `byCohort` with all five
+  cohorts, and a `blended` block marked `deprecated: true`. It is no longer at the
+  top level, so nothing reads it by accident, and it remains available so a
+  reading can be compared against one taken before this change. `get_digest` is deliberately not cohort-filterable: it is a
   whole-workspace rollup that already returns every cohort side by side in
   `sections.prompts.cohorts`, and `buildDigest` has no cohort seam, so accepting
   a filter there would relabel a blended number as cohort-specific.

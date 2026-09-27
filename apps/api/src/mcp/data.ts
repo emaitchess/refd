@@ -17,6 +17,8 @@ import { promptSetHash } from '../ingest/runs';
 import { gunzipJson } from '../ingest/storage';
 import {
   cohortScopeLabel,
+  defaultHeadlineKind,
+  populationLabel,
   promptIdsForCohorts,
   promptKindOrDiscovery,
   workspaceCohorts,
@@ -38,6 +40,7 @@ import {
   loadScoreRows,
   pooledSov,
   prominenceDist,
+  type ScoreRow,
   sentimentDist,
   shareOf,
 } from '../routes/metrics';
@@ -102,14 +105,29 @@ export const getVisibilityOverview = async (
   if (!brand) {
     return { needsSetup: true as const, range, rangeLabel: rangeLabel(range) };
   }
-  // The pool is filtered at the SQL seam, so a cohort rate is computed from
+  // Two populations, computed once: the headline's, and the blended figure kept
+  // beside it. The headline is the discovery cohort unless the caller named one
+  // or the workspace has no discovery prompts, so the number a caller gets by
+  // asking nothing is the defensible one.
+  //
+  // Both pools are filtered at the SQL seam, so a cohort rate is computed from
   // cohort cells only: cellRate weights each (run, prompt, surface) cell once,
   // which is what makes a filtered rate a rate for that cohort rather than a
-  // re-weighted share of the blended one.
-  const cohorts = await workspaceCohorts(db, workspaceId, kind);
-  const promptIds = promptIdsForCohorts(cohorts);
-  const [rows, coverageRows] = await Promise.all([
-    loadScoreRows(db, workspaceId, from, '9999-99-99', promptIds),
+  // re-weighted share of the blended one. blendedRows is only fetched when the
+  // headline is already unfiltered, so the common path does not double the read.
+  const headlineKind = await defaultHeadlineKind(db, workspaceId, kind);
+  const headlineCohorts = await workspaceCohorts(db, workspaceId, headlineKind);
+  const headlineIds = promptIdsForCohorts(headlineCohorts);
+  // The unfiltered pool is always read: the deprecated blended block is a real
+  // measurement, not a fallback, and skipping it would ship an empty one. When
+  // the headline is already unfiltered the two pools are the same read, so it
+  // is done once.
+  const unfiltered = () => loadScoreRows(db, workspaceId, from);
+  const [rows, blendedRows, coverageRows] = await Promise.all([
+    headlineIds === undefined
+      ? unfiltered()
+      : loadScoreRows(db, workspaceId, from, '9999-99-99', headlineIds),
+    unfiltered(),
     loadCoverageRows(db, workspaceId, from),
   ]);
   const hasCompetitors = trackedEntities.some((entity) => !entity.isBrand);
@@ -128,35 +146,62 @@ export const getVisibilityOverview = async (
         answers: answerCount(scope),
       };
     });
+  const measures = (
+    scope: ScoreRow[],
+    sov: Map<number, number> | null,
+    cSov: Map<number, number> | null,
+    first: Map<number, number> | null,
+  ) => ({
+    n: answerCount(scope),
+    mentionRate: r3(cellRate(scope, brand.id, 'mentioned')),
+    citationRate: r3(cellRate(scope, brand.id, 'cited')),
+    shareOfVoice: r3(shareOf(sov, brand.id)),
+    citationShareOfVoice: r3(shareOf(cSov, brand.id)),
+    averagePosition: r3(avgPosition(scope, brand.id)),
+    firstNamedShare: r3(shareOf(first, brand.id)),
+    prominence: prominenceDist(scope, brand.id),
+    sentiment: sentimentDist(scope, brand.id),
+  });
+  const sovFor = (scope: ScoreRow[]) =>
+    hasCompetitors ? pooledSov(scope, 'mentioned') : null;
+  const cSovFor = (scope: ScoreRow[]) =>
+    hasCompetitors ? pooledSov(scope, 'cited') : null;
+  const firstFor = (scope: ScoreRow[]) =>
+    hasCompetitors ? firstMentionShare(scope) : null;
+
   return {
     needsSetup: false as const,
     range,
     rangeLabel: rangeLabel(range),
     brand: brand.name,
-    kind,
-    // Stated rather than implied: without a filter these headline numbers mix
-    // prompts that name the brand with prompts that do not.
-    headlineScope: cohortScopeLabel(kind),
-    answers: answerCount(rows),
-    mentionRate: r3(cellRate(rows, brand.id, 'mentioned')),
-    citationRate: r3(cellRate(rows, brand.id, 'cited')),
-    shareOfVoice: r3(shareOf(mentionSov, brand.id)),
-    citationShareOfVoice: r3(shareOf(citationSov, brand.id)),
-    averagePosition: r3(avgPosition(rows, brand.id)),
-    firstNamedShare: r3(shareOf(firstShares, brand.id)),
-    prominence: prominenceDist(rows, brand.id),
-    sentiment: sentimentDist(rows, brand.id),
-    coverage: coverageStats(coverageRows),
-    surfaces,
-    // Awaited before assembly: a promise left in the response object would
-    // serialize as an empty object and ship a silently missing breakdown.
+    // The headline always names its population, so a number can never be read as
+    // organic visibility when it was measured over brand-named questions.
+    headline: {
+      population: populationLabel(headlineKind),
+      scope: cohortScopeLabel(headlineKind),
+      ...measures(rows, mentionSov, citationSov, firstShares),
+    },
     byCohort: await cohortBreakdown(
       db,
       workspaceId,
       brand,
       from,
-      trackedEntities.some((entity) => !entity.isBrand),
+      hasCompetitors,
     ),
+    // Kept, labelled, and out of the way. Nothing reads it by accident because
+    // it is no longer at the top level.
+    blended: {
+      deprecated: true as const,
+      note: 'pools every prompt cohort, so brand-named and competitor-named questions inflate it; read headline for unprompted visibility',
+      ...measures(
+        blendedRows,
+        sovFor(blendedRows),
+        cSovFor(blendedRows),
+        firstFor(blendedRows),
+      ),
+    },
+    coverage: coverageStats(coverageRows),
+    surfaces,
   };
 };
 
@@ -214,7 +259,11 @@ export const getCompetitorLandscape = async (
 ) => {
   const db = getDb(env);
   const { from } = rangeWindows(range);
-  const cohorts = await workspaceCohorts(db, workspaceId, kind);
+  // Same rule as the overview: the headline is discovery unless the caller
+  // named a cohort, because a brand-named prompt is where the brand wins by
+  // construction and a comparison over it flatters the brand twice over.
+  const headlineKind = await defaultHeadlineKind(db, workspaceId, kind);
+  const cohorts = await workspaceCohorts(db, workspaceId, headlineKind);
   const [trackedEntities, rows] = await Promise.all([
     listEntities(db, workspaceId),
     loadScoreRows(
@@ -232,8 +281,10 @@ export const getCompetitorLandscape = async (
   return {
     range,
     rangeLabel: rangeLabel(range),
-    kind,
-    headlineScope: cohortScopeLabel(kind),
+    // Named so a comparison cannot be read as "over everything we track" when
+    // it was measured over the questions that named nobody.
+    population: populationLabel(headlineKind),
+    populationScope: cohortScopeLabel(headlineKind),
     answers: answerCount(rows),
     entities: trackedEntities.map((entity) => ({
       name: entity.name,

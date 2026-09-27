@@ -169,6 +169,8 @@ export const Overview = () => {
   // A cohort filter narrows the whole page, so the query and the tile deltas
   // both move together instead of leaving one window blended.
   const kindParam = cohort === ALL_COHORTS ? '' : `&kind=${cohort}`;
+  // useCohort defaults to discovery, so the page is scoped to the unprompted
+  // population unless the reader explicitly asks for the blend.
   const { data, loading, error, refetch } = useQuery<OverviewResponse>(
     `/overview?range=${range}${kindParam}`,
   );
