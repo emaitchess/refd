@@ -256,6 +256,10 @@ export const AGENT_TOOLS: [name: string, description: string][] = [
     'A per-prompt diff of the two most recent completed runs, including zero-visibility transitions.',
   ],
   [
+    'get_prompt_set_timeline',
+    'Every distinct prompt population the workspace has run against, and what changed between them.',
+  ],
+  [
     'get_prompt_citations',
     'The URLs cited for one prompt, with counts and an isOurs flag, in a single call.',
   ],

@@ -130,6 +130,10 @@ export interface WindowRef {
   // Same shape and same null semantics as entitySetHash, for the prompt
   // population the window's runs were frozen against.
   promptSetHash: string | null;
+  // The version row that population maps to, so a reader can join a window to
+  // the timeline rather than comparing hashes by eye. Null when the window's
+  // runs predate versions, which promptSetKnown already reports.
+  promptSetVersionId: number | null;
 }
 
 export interface WindowSlice {
@@ -169,6 +173,9 @@ export interface ChangeReport {
   // dispatch plan), which is reported apart from a proven change so "we cannot
   // prove this" is never read as "this moved".
   promptSetKnown: boolean;
+  // Null when the compared windows do not agree on one population, which is the
+  // same condition that withholds the set-relative events.
+  promptSetVersionId: number | null;
   events: ChangeEvent[];
 }
 
@@ -376,6 +383,11 @@ export const detectChanges = (
     entitySetChanged,
     promptSetChanged,
     promptSetKnown,
+    promptSetVersionId:
+      latest.window.promptSetHash !== null &&
+      previous.window.promptSetHash === latest.window.promptSetHash
+        ? latest.window.promptSetVersionId
+        : null,
   };
   if (shared.size < MIN_CELLS) {
     return { ...base, status: 'thin-overlap', events: [] };
@@ -782,12 +794,19 @@ export const loadWindows = async (
   const runIds = [...new Set(rows.map((r) => r.runId))];
   const plans = runIds.length
     ? await db
-        .select({ id: runs.id, dispatchPlan: runs.dispatchPlan })
+        .select({
+          id: runs.id,
+          dispatchPlan: runs.dispatchPlan,
+          promptSetVersionId: runs.promptSetVersionId,
+        })
         .from(runs)
         .where(inArray(runs.id, runIds))
     : [];
   const hashByRun = new Map(
     plans.map((run) => [run.id, promptSetHash(run.dispatchPlan)] as const),
+  );
+  const versionByRun = new Map(
+    plans.map((run) => [run.id, run.promptSetVersionId] as const),
   );
 
   const slices: WindowSlice[] = [];
@@ -803,6 +822,11 @@ export const loadWindows = async (
     const promptHashes = new Set(
       inWindow.map((r) => hashByRun.get(r.runId) ?? null),
     );
+    // A window whose runs disagree on their version has no single population, so
+    // it reports null exactly as it does for the hash.
+    const versionsInWindow = new Set(
+      inWindow.map((r) => versionByRun.get(r.runId) ?? null),
+    );
     slices.push({
       window: {
         from: dates[0] ?? start,
@@ -814,6 +838,10 @@ export const loadWindows = async (
         // on their prompt set reports null, which the guard reads as unprovable.
         promptSetHash:
           promptHashes.size === 1 ? ([...promptHashes][0] ?? null) : null,
+        promptSetVersionId:
+          versionsInWindow.size === 1
+            ? ([...versionsInWindow][0] ?? null)
+            : null,
       },
       rows: inWindow,
     });
@@ -869,6 +897,7 @@ export const buildChangeReport = async (
       entitySetChanged: false,
       promptSetChanged: false,
       promptSetKnown: true,
+      promptSetVersionId: null,
       events: [],
     };
   }

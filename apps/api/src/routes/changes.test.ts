@@ -63,6 +63,7 @@ const slice = (
   rows: ScoreRow[],
   hash: string | null = 'h',
   promptHash: string | null = 'p',
+  promptVersion: number | null = 7,
 ): WindowSlice => ({
   window: {
     from: runId === 2 ? '2026-07-20' : '2026-07-14',
@@ -71,6 +72,7 @@ const slice = (
     answers: rows.length,
     entitySetHash: hash,
     promptSetHash: promptHash,
+    promptSetVersionId: promptVersion,
   },
   rows,
 });

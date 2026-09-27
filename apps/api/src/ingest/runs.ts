@@ -15,6 +15,7 @@ import { enabledSurfaces } from '../providers/types';
 import type { ScorableEntity } from '../scoring';
 import { buildRunDispatchPlan, resumeRunDispatchWith } from './dispatch';
 import type { RunPrompt } from './messages';
+import { resolvePromptSetVersion } from './prompt-set-versions';
 
 export const samplesFor = (env: AppEnv): number => {
   const parsed = Number.parseInt(env.SAMPLES, 10);
@@ -223,6 +224,18 @@ export const createRunWith = async (
   // scores against the same entities regardless of mid-run edits.
   const entitySnapshot = await loadEntitiesWith(db, workspaceId);
 
+  // Resolve the prompt population's identity before the insert, so the run
+  // points at the version that describes what it will measure. The hash is the
+  // one the trend guard recomputes from the frozen plan, which is what keeps the
+  // version and the detected break from ever disagreeing.
+  const version = await resolvePromptSetVersion(
+    db,
+    workspaceId,
+    dispatchPlan,
+    promptSetHash(dispatchPlan),
+    surfaces,
+  );
+
   const inserted = await db
     .insert(runs)
     .values({
@@ -233,6 +246,7 @@ export const createRunWith = async (
       totalCount,
       entitySnapshot,
       entitySetHash: entitySetHash(entitySnapshot),
+      promptSetVersionId: version.id,
       dispatchPlan,
       dispatchState: 'pending',
     })

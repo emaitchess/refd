@@ -39,6 +39,7 @@ const MIGRATIONS = [
   '0014_calm_tomorrow_man.sql',
   '0017_chief_maelstrom.sql',
   '0019_flat_energizer.sql',
+  '0020_yummy_reaper.sql',
 ];
 
 interface Fixture {

@@ -313,6 +313,22 @@ set-relative event still read as a visibility movement.
   across an entity break: a share moving because the questions changed is a change
   of questions, not of visibility. Rate events survive, because a brand mention
   rate can still fall on a shared cell.
+- **A population is versioned, and the version is the identity.** The first time a
+  prompt set is measured, `prompt_set_versions` records it and every run against
+  that set carries its id, so two runs sharing a version id provably measured the
+  same questions. That is what makes a period-over-period comparison either
+  legitimate or visibly illegitimate, rather than a comparison a reader has to
+  reason about. A version's key is the same `promptSetHash` the guard above
+  recomputes, deliberately: a second notion of population identity would let the
+  version a run points at disagree with the break the engine detects.
+- **A surface change does not mint a version.** The version describes the question
+  set; `surfaceIds` records the surfaces of the run that created it. This matches
+  the guard treating a surface change and a prompt change as different kinds of
+  break.
+- **A membership change with no run yet has no version.** A version is a record of
+  what was measured, so one is minted on measurement rather than on edit. The
+  timeline therefore answers "what did each run measure, in order", which is the
+  question a trend needs; the un-run draft lives in setup.
 
 ## Alias capture
 

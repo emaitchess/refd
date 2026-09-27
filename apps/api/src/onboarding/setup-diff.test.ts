@@ -28,6 +28,7 @@ const MIGRATIONS = [
   '0017_chief_maelstrom.sql',
   '0018_prompt_cohort_taxonomy.sql',
   '0019_flat_energizer.sql',
+  '0020_yummy_reaper.sql',
 ];
 
 const setup = async () => {

@@ -46,6 +46,7 @@ const MIGRATIONS = [
   '0016_careless_queen_noir.sql',
   '0017_chief_maelstrom.sql',
   '0019_flat_energizer.sql',
+  '0020_yummy_reaper.sql',
 ];
 
 const makeD1 = (sqlite: Database) =>
