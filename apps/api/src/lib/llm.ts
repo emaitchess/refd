@@ -1,3 +1,4 @@
+import { PROMPT_CATEGORIES } from '@refd/core/config';
 import { z } from 'zod';
 import type { AppEnv } from '../env';
 import { validate } from './validate';
@@ -586,14 +587,9 @@ export const classifySentiments = async (
   return verdicts;
 };
 
-// Buyer-journey categories, 5 prompts each. Keep in sync with the client.
-export const PROMPT_CATEGORIES = [
-  'Discovery',
-  'Evaluation',
-  'Comparison',
-  'Decision',
-  'Authority',
-] as const;
+// Buyer-journey categories, 5 prompts each. Canonical list lives in core so the
+// dashboard and the public prompt-set skill cannot drift from the generator.
+export { PROMPT_CATEGORIES };
 
 const CATEGORY_HINTS: Record<(typeof PROMPT_CATEGORIES)[number], string> = {
   Discovery: 'broad "what/which tools for <problem>" questions, no brand named',

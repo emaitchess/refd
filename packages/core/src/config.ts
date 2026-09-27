@@ -7,6 +7,17 @@ export const STANDARD_LIMITS = {
   maxEnabledSurfacesPerWorkspace: 3,
 } as const;
 
+// The buyer-journey taxonomy a generated prompt set is spread across. It lives
+// here because the API generates against it, the dashboard renders it, and the
+// public prompt-set skill states it: three consumers, one list.
+export const PROMPT_CATEGORIES = [
+  'Discovery',
+  'Evaluation',
+  'Comparison',
+  'Decision',
+  'Authority',
+] as const;
+
 const nullableLimit = z.number().int().positive().nullable();
 
 export const applicationConfigSchema = z.object({

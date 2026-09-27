@@ -50,10 +50,18 @@ ${section('Product', [
     `${ORIGIN}/agents.md`,
     `Remote MCP at ${MCP_ENDPOINT}: OAuth for browser clients, personal access tokens for headless agents, twelve read tools plus twenty-four bounded write tools (setup lifecycle, row-scoped prompt/competitor/surface management for onboarded workspaces, and self-revocation), multi-workspace connections, and one-click install links.`,
   ),
+])}
+
+${section('Skills', [
   item(
     'Agent skill',
     `${ORIGIN}/skills/refd/SKILL.md`,
-    'A complete SKILL.md for agents: connecting, reading data, and the bounded setup workflow.',
+    'A complete SKILL.md for agents: connecting to the refd MCP server, reading data, and the bounded setup workflow.',
+  ),
+  item(
+    'Prompt set design skill',
+    `${ORIGIN}/skills/ai-prompt-set-design/SKILL.md`,
+    'A platform-neutral SKILL.md for designing and auditing AI search monitoring prompt sets: cohort separation, prompt types, persona segmentation, intent clusters, wording rules, and calibration. Works with any tool.',
   ),
 ])}
 

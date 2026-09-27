@@ -33,6 +33,7 @@ export const PUBLIC_PAGE_PATHS = [
   '/terms',
   '/trackers',
   '/skills/refd/SKILL.md',
+  '/skills/ai-prompt-set-design/SKILL.md',
   '/chatgpt-visibility-tracker',
   '/perplexity-visibility-tracker',
   '/gemini-visibility-tracker',

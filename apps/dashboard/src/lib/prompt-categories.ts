@@ -1,16 +1,11 @@
+import { PROMPT_CATEGORIES } from '@refd/core/config';
 import type { GlossaryDefinition } from '@refd/core/glossary';
 import type { PixelColor } from '@/components/dither-kit/pixel';
 import { fnv1a } from '@/components/dither-kit/pixel';
 
 export const UNCATEGORIZED_CATEGORY = 'Uncategorized';
 
-export const PROMPT_CATEGORIES = [
-  'Discovery',
-  'Evaluation',
-  'Comparison',
-  'Decision',
-  'Authority',
-] as const;
+export { PROMPT_CATEGORIES };
 
 export type PromptCategory = (typeof PROMPT_CATEGORIES)[number];
 
