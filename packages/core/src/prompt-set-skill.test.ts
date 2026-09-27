@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { PROMPT_CATEGORIES, STANDARD_LIMITS } from '@refd/core/config';
-import { METRIC_INFO } from '@refd/core/metric-copy';
-import { PROMPT_KINDS } from '@refd/core/prompt-cohorts';
-import { SURFACE_LABELS, SURFACES } from '@refd/core/surfaces';
-import { AI_PROMPT_SET_DESIGN_SKILL } from './ai-prompt-set-design';
+import { PROMPT_CATEGORIES, STANDARD_LIMITS } from './config';
+import { METRIC_INFO } from './metric-copy';
+import { PROMPT_KINDS } from './prompt-cohorts';
+import { AI_PROMPT_SET_DESIGN_SKILL } from './prompt-set-skill';
+import { SURFACE_LABELS, SURFACES } from './surfaces';
 
 // The prompt set design skill states product behaviour to agents that have never
 // seen the product. Limits, surfaces, and prompt categories are interpolated from

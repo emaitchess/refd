@@ -1,4 +1,5 @@
 import { GLOSSARY_ENTRY_PATHS } from './glossary-index';
+import { PUBLIC_SKILL_PATHS } from './public-skills';
 
 export const PUBLIC_SITE_ORIGIN = 'https://refd.ai';
 
@@ -32,8 +33,7 @@ export const PUBLIC_PAGE_PATHS = [
   '/support',
   '/terms',
   '/trackers',
-  '/skills/refd/SKILL.md',
-  '/skills/ai-prompt-set-design/SKILL.md',
+  ...PUBLIC_SKILL_PATHS,
   '/chatgpt-visibility-tracker',
   '/perplexity-visibility-tracker',
   '/gemini-visibility-tracker',

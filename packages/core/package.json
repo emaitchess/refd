@@ -19,7 +19,9 @@
     "./glossary": "./src/glossary.ts",
     "./concepts": "./src/concepts.ts",
     "./glossary-index": "./src/glossary-index.ts",
-    "./public-pages": "./src/public-pages.ts"
+    "./public-pages": "./src/public-pages.ts",
+    "./public-skills": "./src/public-skills.ts",
+    "./prompt-set-skill": "./src/prompt-set-skill.ts"
   },
   "scripts": {
     "check": "tsc --noEmit",

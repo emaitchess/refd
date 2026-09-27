@@ -6,6 +6,7 @@ import {
   AGENT_SETUP_TOOLS,
   AGENT_SETUP_WORKFLOW,
   AGENT_TOOLS,
+  COMPANION_SKILL_LINES,
 } from '../../../lib/agent-access';
 import { markdownResponse } from '../../../lib/markdown';
 
@@ -122,6 +123,7 @@ ${AGENT_PROMPT_TOOLS.map(([name, description]) => `- \`${name}\`: ${description}
 
 ## Learn more
 
+- Companion skill, the craft this server measures: ${COMPANION_SKILL_LINES}
 - Agent guide: https://refd.ai/agents.md
 - Curated index: https://refd.ai/llms.txt
 - Self-hosting and protocol details: docs/mcp.md in the repository

@@ -20,6 +20,17 @@
     "authorization_server_metadata": "https://api.refd.ai/.well-known/oauth-authorization-server",
     "registry": "ai.refd/refd"
   },
-  "skills": "https://refd.ai/skills/refd/SKILL.md",
+  "skills": [
+    {
+      "name": "refd",
+      "url": "https://refd.ai/skills/refd/SKILL.md",
+      "description": "Work with the refd MCP server: connect, read visibility data, and onboard a workspace."
+    },
+    {
+      "name": "ai-prompt-set-design",
+      "url": "https://refd.ai/skills/ai-prompt-set-design/SKILL.md",
+      "description": "Design and audit AI search monitoring prompt sets. Platform neutral, works with any tool."
+    }
+  ],
   "llms_txt": "https://refd.ai/llms.txt"
 }

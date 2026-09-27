@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro';
+import { AGENT_SKILL_URLS } from '../lib/agent-access';
 import {
   getPublicContent,
   type PublicContentEntry,
@@ -106,8 +107,7 @@ ${ordered.map(document).join('\n\n---\n\n')}
 - Glossary: ${ORIGIN}/glossary
 - Research and guides: ${ORIGIN}/blog
 - Agent access: ${ORIGIN}/agents
-- Agent skill (refd MCP): ${ORIGIN}/skills/refd/SKILL.md
-- Prompt set design skill (platform neutral): ${ORIGIN}/skills/ai-prompt-set-design/SKILL.md
+${AGENT_SKILL_URLS.map((skill) => `- ${skill.title}: ${skill.url}`).join('\n')}
 - Curated index for LLMs: ${ORIGIN}/llms.txt
 - RSS: ${ORIGIN}/rss.xml
 - Source code: https://github.com/emaitchess/refd
