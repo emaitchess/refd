@@ -301,6 +301,12 @@ export const runs = sqliteTable(
     // consecutive runs differ (SOV/position shifts from set changes are
     // mechanical, not visibility events).
     entitySetHash: text('entity_set_hash'),
+    // The prompt population this run measured, resolved at run creation. Null
+    // for runs created before versions existed, and for a legacy run with no
+    // dispatch plan to derive one from.
+    promptSetVersionId: integer('prompt_set_version_id').references(
+      () => promptSetVersions.id,
+    ),
     dispatchPlan: text('dispatch_plan', {
       mode: 'json',
     }).$type<RunDispatchPlan>(),
@@ -663,6 +669,45 @@ export const setupUsage = sqliteTable(
 
 // Immutable record of an approved setup: the exact canonical configuration
 // (hash + schema version) and the pinned run group behind the first report.
+// One row per distinct prompt population a workspace has measured.
+//
+// Identity is the same promptSetHash the trend guard reads, deliberately: a
+// second notion of "which questions was this" would let the version a run points
+// at disagree with the break the change engine detects. surfaceIds records the
+// surfaces of the run that created the version, so a surface-only change does
+// not mint a new prompt version, which matches the guard treating surfaces and
+// prompts as different kinds of change.
+export const promptSetVersions = sqliteTable(
+  'prompt_set_versions',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    workspaceId: integer('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    promptSetHash: text('prompt_set_hash').notNull(),
+    promptIds: text('prompt_ids', { mode: 'json' }).$type<number[]>().notNull(),
+    surfaceIds: text('surface_ids', { mode: 'json' })
+      .$type<string[]>()
+      .notNull(),
+    // How this population came to differ from the one before it, so a
+    // discontinuity can be read rather than inferred.
+    changeReason: text('change_reason'),
+    // Operator-set name, for "the set we called Q3 launch".
+    label: text('label'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    // One row per population per workspace: a re-run of the same questions is
+    // the same version, which is what makes a month-over-month comparison
+    // possible at all.
+    uniqueIndex('prompt_set_versions_ws_hash_unique').on(
+      t.workspaceId,
+      t.promptSetHash,
+    ),
+    index('prompt_set_versions_ws_idx').on(t.workspaceId),
+  ],
+);
+
 export const setupCommits = sqliteTable(
   'setup_commits',
   {

@@ -195,7 +195,8 @@ exported, or narrowed to fewer prompts than the workspace tracks.
 | `find_prompt_results` | Fuzzy prompt lookup with result IDs |
 | `read_answer` | Clipped, ownership-checked AI answer evidence |
 | `get_digest` | Complete grounded workspace snapshot |
-| `get_run_history` | Recent run cycles, newest first: date, trigger, status, collected/total answers, dispatch state, entity-set hash, the frozen prompt count, and `promptSetHash` |
+| `get_run_history` | Recent run cycles, newest first: date, trigger, status, collected/total answers, dispatch state, entity-set hash, the frozen prompt count, `promptSetVersionId`, and `promptSetHash` |
+| `get_prompt_set_timeline` | Every distinct prompt population the workspace has run against, oldest first: version id, prompt ids and count, surfaces, what changed to get there, and how many runs were collected on it |
 | `get_prompt_changes` | Per-prompt diff of the two most recent completed runs: mention/citation rate deltas, zero-visibility transitions, and prompts that entered or exited the set |
 | `get_prompt_citations` | The URLs cited for one prompt over a range, grouped by URL with counts and an isOurs flag |
 
@@ -263,6 +264,16 @@ blended number as cohort-specific while leaving it blended. Read
 Cohorts are classified from the prompt text by the same matcher that scores a
 mention, so a prompt naming both the brand and a competitor is `branded`;
 `list_prompts` reports each prompt's cohort and the per-cohort counts.
+
+**Reading a trend honestly.** `get_run_history` reports `promptSetVersionId` per
+run, and two runs sharing one version id were measured against the same
+questions, which is the precondition for reading their numbers as a trend rather
+than as two separate facts. `get_prompt_set_timeline` lists every population the
+workspace has run against with what changed between them, so "which prompts were
+live in week 32" is answerable and a direct comparison across a version boundary
+can be recognised before it is made. A version is minted the first time a
+population is measured, so a change with no subsequent run has no version yet:
+it exists as a draft, not as a measurement.
 
 **Reading a trend honestly.** `get_recent_changes` reports the population its
 events were measured on next to the population tracked now: `promptCount` is the

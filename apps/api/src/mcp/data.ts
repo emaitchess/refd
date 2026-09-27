@@ -12,6 +12,7 @@ import {
   workspaces,
 } from '../db/schema';
 import type { AppEnv } from '../env';
+import { promptSetTimeline } from '../ingest/prompt-set-versions';
 import { answerTextFromRaw } from '../ingest/rescore';
 import { promptSetHash } from '../ingest/runs';
 import { gunzipJson } from '../ingest/storage';
@@ -740,6 +741,19 @@ export const getDigest = async (
   return { ...digest, headlineScope: cohortScopeLabel(null) };
 };
 
+// The workspace's measurement history: every distinct prompt population it has
+// run against, what changed to get there, and how much was collected on each.
+export const getPromptSetTimeline = async (
+  env: AppEnv,
+  workspaceId: number,
+) => {
+  const versions = await promptSetTimeline(getDb(env), workspaceId);
+  return {
+    versions,
+    note: 'A direct comparison between two dates is only meaningful when both fall in the same version. Across versions the questions changed, so compare by kind filter or read each version on its own.',
+  };
+};
+
 export const getRunHistory = async (
   env: AppEnv,
   workspaceId: number,
@@ -760,6 +774,10 @@ export const getRunHistory = async (
         number | null
       >`json_array_length(${runs.dispatchPlan}, '$.prompts')`,
       dispatchPlan: runs.dispatchPlan,
+      // The population this run measured. Two runs with the same version id were
+      // measured against the same questions, which is the precondition for
+      // reading their numbers as a trend rather than two separate facts.
+      promptSetVersionId: runs.promptSetVersionId,
       createdAt: runs.createdAt,
       completedAt: runs.completedAt,
     })
