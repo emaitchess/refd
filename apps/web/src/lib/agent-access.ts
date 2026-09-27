@@ -239,6 +239,11 @@ export const AGENT_DISCOVERY: [label: string, value: string, note: string][] = [
     'https://refd.ai/skills/refd/SKILL.md',
     'Installable SKILL.md',
   ],
+  [
+    'Prompt design skill',
+    'https://refd.ai/skills/ai-prompt-set-design/SKILL.md',
+    'Installable SKILL.md, tool-neutral',
+  ],
   ['llms.txt', 'https://refd.ai/llms.txt', 'Plain-text summary'],
 ];
 

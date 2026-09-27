@@ -93,4 +93,14 @@ describe('public page catalog', () => {
       expect(INDEXABLE_PUBLIC_PATHS).toContain(path);
     }
   });
+
+  test('includes the installable agent skills in discovery', () => {
+    for (const path of [
+      '/skills/refd/SKILL.md',
+      '/skills/ai-prompt-set-design/SKILL.md',
+    ]) {
+      expect(PUBLIC_PAGE_PATHS).toContain(path);
+      expect(INDEXABLE_PUBLIC_PATHS).toContain(path);
+    }
+  });
 });
