@@ -103,8 +103,46 @@ export const promptDraft = z.object({
 // no product-level prompt limit.
 export const MAX_PROMPTS_PER_REQUEST = 1000;
 
+// What happens to live prompts that the submitted list leaves out.
+//
+// merge is the historical behavior and stays the default: the draft is a set of
+// additions and edits, and nothing already tracked is touched. That default is
+// what made a 32-prompt submission leave 35 live, so it is now an explicit
+// choice rather than the only one.
+export const PROMPT_REMOVE_SEMANTICS = ['merge', 'replace'] as const;
+export const promptRemoveSemanticsSchema = z
+  .enum(PROMPT_REMOVE_SEMANTICS)
+  .default('merge');
+export type PromptRemoveSemantics = (typeof PROMPT_REMOVE_SEMANTICS)[number];
+
+// Two entries that resolve to the same prompt text are the same prompt, and
+// prompt text is unique per workspace, so a duplicate is a submission error
+// rather than something to resolve silently. Reported by index so the caller can
+// find it, matching the existing expectedVersion conflict shape.
+export const duplicatePromptIndex = (
+  prompts: { draftId?: string; text: string }[],
+): number | null => {
+  const seenText = new Set<string>();
+  const seenDraftId = new Set<string>();
+  for (const [index, prompt] of prompts.entries()) {
+    const key = prompt.text.trim().replace(/\s+/gu, ' ').toLowerCase();
+    if (seenText.has(key)) {
+      return index;
+    }
+    seenText.add(key);
+    if (prompt.draftId) {
+      if (seenDraftId.has(prompt.draftId)) {
+        return index;
+      }
+      seenDraftId.add(prompt.draftId);
+    }
+  }
+  return null;
+};
+
 export const patchRequestSchema = z.object({
   expectedVersion: expectedVersionField,
+  removeSemantics: promptRemoveSemanticsSchema.optional(),
   step: z.enum(STEPS).optional(),
   description: multiLineText(0, 800).optional(),
   summary: multiLineText(0, 1500).optional(),

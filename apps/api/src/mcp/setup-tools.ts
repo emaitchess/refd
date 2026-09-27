@@ -386,7 +386,7 @@ export const registerSetupTools = (
     {
       title: 'Update the setup draft',
       description:
-        'Applies explicit edits to any draft field: step, description, summary, target market, logo, competitors, prompts, and enabled surfaces. Categories are one of Discovery, Evaluation, Comparison, Decision, Authority; surfaces are one of chatgpt, perplexity, gemini, google_ai_mode, google_aio. A draftId is optional on competitor and prompt entries; absent ids are generated. draft text is 8-500 chars. Stale expectedVersion returns a structured conflict (which names the writer) with the current state. With several approved workspaces, pass workspace to target one.',
+        'Applies explicit edits to any draft field: step, description, summary, target market, logo, competitors, prompts, and enabled surfaces. Categories are one of Discovery, Evaluation, Comparison, Decision, Authority; surfaces are one of chatgpt, perplexity, gemini, google_ai_mode, google_aio. A draftId is optional on competitor and prompt entries; absent ids are generated from the text of the entry itself, so they survive reordering. draft text is 8-500 chars, and a repeated text in one submission is refused naming the index. removeSemantics decides what happens to live prompts the list leaves out: merge (default) only adds and edits, replace makes the submitted list the whole set and retires the rest with a setup-sync marker. Stale expectedVersion returns a structured conflict (which names the writer) with the current state. With several approved workspaces, pass workspace to target one.',
       inputSchema: patchRequestSchema.extend(workspaceSelectorSchema.shape),
       annotations: {
         readOnlyHint: false,
