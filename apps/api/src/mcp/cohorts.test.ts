@@ -259,23 +259,52 @@ describe('getVisibilityOverview cohorts', () => {
       });
     }
 
-    const blended = await getVisibilityOverview(env, workspaceId, '30d');
-    expect(blended).toMatchObject({
+    // Asking for nothing now yields the discovery cohort, not the blend.
+    const unprompted = await getVisibilityOverview(env, workspaceId, '30d');
+    expect(unprompted).toMatchObject({
       needsSetup: false,
-      mentionRate: 0.5,
-      citationRate: 0.5,
-      kind: null,
-      headlineScope: 'blended across all prompt cohorts',
+      headline: {
+        population: 'discovery',
+        scope: 'prompts that name neither the brand nor a competitor',
+        mentionRate: 0,
+        citationRate: 0,
+        n: 2,
+      },
+      blended: { deprecated: true, mentionRate: 0.5, citationRate: 0.5 },
     });
 
-    const unprompted = await getVisibilityOverview(env, workspaceId, '30d', [
-      'discovery',
-    ]);
-    expect(unprompted).toMatchObject({
-      mentionRate: 0,
-      citationRate: 0,
-      kind: ['discovery'],
-      headlineScope: 'prompts that name neither the brand nor a competitor',
+    // The blend is still available, still labelled, and never at the top level.
+    const onlyBrandNamed = await getVisibilityOverview(
+      env,
+      workspaceId,
+      '30d',
+      ['brand_defining'],
+    );
+    expect(onlyBrandNamed).toMatchObject({
+      headline: {
+        population: 'brand_defining',
+        mentionRate: 1,
+        citationRate: 1,
+      },
+      blended: { mentionRate: 0.5, citationRate: 0.5 },
+    });
+  });
+
+  test('a workspace with no discovery prompts falls back and says so', async () => {
+    const { db, env, workspaceId } = await setup();
+    const branded = await seedPrompt(db, 11, 'mrmr vs Alter: which is better?');
+    // Classified up front: an unclassified prompt reads as discovery, which is
+    // the point of the other test but not of this one.
+    await db
+      .update(prompts)
+      .set({ kind: 'brand_defining' })
+      .where(eq(prompts.id, branded));
+    await seedRun(db, 1, '2026-09-25');
+    await seedAnswer(db, 1, branded, 50, { mentioned: true, cited: true });
+    // The fallback must be visible in the population name, not implicit.
+    const result = await getVisibilityOverview(env, workspaceId, '30d');
+    expect(result).toMatchObject({
+      headline: { population: 'all', mentionRate: 1, citationRate: 1 },
     });
   });
 
@@ -342,10 +371,17 @@ describe('getVisibilityOverview cohorts', () => {
     const result = await getVisibilityOverview(env, workspaceId, '30d', [
       'brand_defining',
     ]);
+    // The headline is the requested cohort, so an empty cohort is null rather
+    // than a fallback to something else. The blend beside it is unaffected: a
+    // filter that matches nothing must not blank the deprecated block either.
     expect(result).toMatchObject({
-      answers: 0,
-      mentionRate: null,
-      citationRate: null,
+      headline: {
+        population: 'brand_defining',
+        n: 0,
+        mentionRate: null,
+        citationRate: null,
+      },
+      blended: { deprecated: true, n: 1, mentionRate: 1, citationRate: 1 },
     });
   });
 });

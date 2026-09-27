@@ -11,7 +11,7 @@ import {
   PROMPT_KINDS,
   type PromptKind,
 } from '@refd/core/prompt-cohorts';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { entities, prompts } from '../db/schema';
 
@@ -128,3 +128,45 @@ export const cohortScopeLabel = (filter: readonly PromptKind[] | null) =>
   filter === null
     ? 'blended across all prompt cohorts'
     : filter.map((kind) => COHORT_LABEL[kind]).join(' and ');
+
+// The population a headline reports when the caller named none.
+//
+// Discovery is the default, not blended: a prompt that names the brand is scored
+// near 1.0 by construction, so a blended figure is not the visibility number a
+// reader assumes it is. Blended stays available, labelled and deprecated, rather
+// than being the thing you get by asking nothing.
+//
+// A workspace with no discovery prompts would otherwise headline on an empty
+// population, so it falls back to every cohort and says so. The fallback is
+// stated in `population` rather than being invisible.
+export const defaultHeadlineKind = async (
+  db: Db,
+  workspaceId: number,
+  filter: readonly PromptKind[] | null,
+): Promise<readonly PromptKind[] | null> => {
+  if (filter !== null) {
+    return filter;
+  }
+  const [row] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(prompts)
+    .where(
+      and(
+        eq(prompts.workspaceId, workspaceId),
+        eq(prompts.active, true),
+        sql`(select coalesce(${prompts.kind}, 'discovery')) = 'discovery'`,
+      ),
+    );
+  return (row?.n ?? 0) > 0 ? ['discovery'] : null;
+};
+
+// How a population should be named in a response: a single cohort by id, a
+// list when the caller passed several, and 'all' for the blended fallback.
+export const populationLabel = (
+  filter: readonly PromptKind[] | null,
+): PromptKind | 'all' =>
+  filter === null || filter.length === 0
+    ? 'all'
+    : filter.length === 1
+      ? (filter[0] as PromptKind)
+      : (filter.join(',') as PromptKind);

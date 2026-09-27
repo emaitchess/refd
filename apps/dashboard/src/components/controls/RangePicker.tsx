@@ -61,7 +61,13 @@ export const COHORT_LABEL: Record<(typeof COHORTS)[number], string> = {
 
 export const ALL_COHORTS = 'all';
 
-// The `?kind=` query param, validated against COHORTS, defaulting to blended.
+// Discovery is the default, not the blend: a prompt that names the brand is
+// scored near 1.0 by construction, so the blended figure is not the visibility
+// a reader assumes it is. The blend stays one click away and the control is
+// always visible, so the population is never implicit.
+export const DEFAULT_COHORT: CohortValue = 'discovery';
+
+// The `?kind=` query param, validated against COHORTS, defaulting to discovery.
 // Written with the functional setter so it composes with `?range=` instead of
 // replacing it.
 export const useCohort = (): [CohortValue, (c: CohortValue) => void] => {
@@ -69,7 +75,7 @@ export const useCohort = (): [CohortValue, (c: CohortValue) => void] => {
   const raw = params.get('kind');
   const cohort = (COHORTS as readonly string[]).includes(raw ?? '')
     ? (raw as CohortValue)
-    : ALL_COHORTS;
+    : DEFAULT_COHORT;
   return [
     cohort,
     (c) =>
