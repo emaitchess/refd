@@ -202,8 +202,8 @@ exported, or narrowed to fewer prompts than the workspace tracks.
 Ranges accept `1d`, `3d`, `7d`, `30d`, `90d`, or `all` and default to `30d`.
 
 **Prompt cohorts.** A prompt that names the brand is scored near 1.0 by
-construction, so an aggregate that pools every prompt flatters the brand. Every
-aggregate above therefore takes a `kind` filter, comma-separated:
+construction, so an aggregate that pools every prompt flatters the brand. The
+aggregates that pool prompts therefore take a `kind` filter, comma-separated:
 
 | Value | Prompts it keeps |
 | --- | --- |
@@ -211,16 +211,31 @@ aggregate above therefore takes a `kind` filter, comma-separated:
 | `competitor` | It names only a tracked competitor |
 | `discovery` | It names neither, so the rate is unprompted visibility |
 
-Omit `kind` for the blended figure. Every one of these responses states which it
-is in `headlineScope`, and `get_visibility_overview` returns all three cohorts at
-once in `byCohort` (prompt count, answers, mention rate, citation rate, and both
-share-of-voice figures per cohort), so one call answers "how visible am I when
-nobody asked by name". `get_digest` carries the same three-way split in
-`sections.prompts.cohorts`, and `get_prompt_performance` applies the filter to
-the prompt list, the per-surface splits, and `zeroVisibility` alike. Cohorts are
-classified from the prompt text by the same matcher that scores a mention, so a
-prompt naming both the brand and a competitor is `branded`; `list_prompts`
-reports each prompt's cohort and the per-cohort counts.
+| Tool | Takes `kind`? |
+| --- | --- |
+| `get_visibility_overview` | yes, and returns all three cohorts at once in `byCohort` |
+| `get_competitor_landscape` | yes |
+| `get_citation_sources` | yes |
+| `get_prompt_performance` | yes, applied to the prompt list, the per-surface splits, and `zeroVisibility` alike |
+| `get_digest` | **no, by design** (see below) |
+
+Omit `kind` for the blended figure. Every response that takes the filter states
+which it is in `headlineScope`, and a filter matching no prompt yields empty
+rates rather than quietly falling back to the blend.
+
+`get_visibility_overview` returns all three cohorts at once in `byCohort` (prompt
+count, answers, mention rate, citation rate, and both share-of-voice figures per
+cohort), so one call answers "how visible am I when nobody asked by name".
+
+`get_digest` deliberately takes no `kind`. It is a whole-workspace rollup that
+already carries every cohort side by side in `sections.prompts.cohorts`, and
+`buildDigest` has no cohort seam, so accepting a filter there would relabel a
+blended number as cohort-specific while leaving it blended. Read
+`sections.prompts.cohorts` instead.
+
+Cohorts are classified from the prompt text by the same matcher that scores a
+mention, so a prompt naming both the brand and a competitor is `branded`;
+`list_prompts` reports each prompt's cohort and the per-cohort counts.
 
 Every tool, read or setup, accepts an optional `workspace` argument (the
 workspace id from `get_workspace_info`); an argument outside the connection's

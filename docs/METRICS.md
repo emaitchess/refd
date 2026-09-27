@@ -64,7 +64,10 @@ roughly 5 points above the discovery-only figure.
 - **The blended figure stays the default and says so.** Every aggregate response
   carries `headlineScope`, and `get_visibility_overview` returns `byCohort` with
   all three cohorts beside the blended number, so no consumer has to group prompt
-  ids by hand.
+  ids by hand. `get_digest` is deliberately not cohort-filterable: it is a
+  whole-workspace rollup that already returns every cohort side by side in
+  `sections.prompts.cohorts`, and `buildDigest` has no cohort seam, so accepting
+  a filter there would relabel a blended number as cohort-specific.
 - **Cohort is not category.** `category` is the buyer journey
   (Discovery, Evaluation, Comparison, Decision, Authority) and its `Discovery`
   member is a stage, not the absence of a tracked name. The two are independent

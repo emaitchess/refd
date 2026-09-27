@@ -5,6 +5,7 @@ import { drizzle } from 'drizzle-orm/bun-sqlite';
 import type { Db } from '../db/client';
 import * as schema from '../db/schema';
 import {
+  citations,
   entities,
   entityScores,
   prompts,
@@ -19,7 +20,11 @@ import {
   promptKindOrDiscovery,
   workspaceCohorts,
 } from '../lib/prompt-cohorts';
-import { getPromptPerformance, getVisibilityOverview } from './data';
+import {
+  getCitationSources,
+  getPromptPerformance,
+  getVisibilityOverview,
+} from './data';
 
 const MIGRATIONS = [
   '0000_init.sql',
@@ -368,5 +373,124 @@ describe('getPromptPerformance cohorts', () => {
       [11, 'branded'],
       [12, 'discovery'],
     ]);
+  });
+});
+
+describe('getCitationSources cohorts', () => {
+  const seedCitation = async (
+    db: Db,
+    resultId: number,
+    domain: string,
+    entityId: number | null,
+  ) => {
+    await db.insert(citations).values({
+      resultId,
+      url: `https://${domain}/page`,
+      host: domain,
+      registrableDomain: domain,
+      entityId,
+    });
+  };
+
+  const resultIdFor = async (
+    db: Db,
+    runId: number,
+    promptId: number,
+  ): Promise<number> => {
+    const row = (
+      await db
+        .insert(results)
+        .values({
+          runId,
+          promptId,
+          surface: 'chatgpt',
+          sample: 1,
+          provider: 'brightdata',
+          ok: true,
+          answerPresent: true,
+        })
+        .returning({ id: results.id })
+    )[0];
+    if (!row) {
+      throw new Error('result seed failed');
+    }
+    return row.id;
+  };
+
+  test('the filter narrows the cited domains to that cohort', async () => {
+    const { db, env, workspaceId } = await setup();
+    const branded = await seedPrompt(db, 11, 'mrmr vs Alter: which is better?');
+    const discovery = await seedPrompt(
+      db,
+      12,
+      'what are the best voice control apps for macOS?',
+    );
+    await seedRun(db, 1, '2026-09-25');
+    await seedCitation(
+      db,
+      await resultIdFor(db, 1, branded),
+      'alterhq.com',
+      51,
+    );
+    await seedCitation(
+      db,
+      await resultIdFor(db, 1, discovery),
+      'example.com',
+      null,
+    );
+
+    const blended = await getCitationSources(env, workspaceId, '30d');
+    expect(blended).toMatchObject({
+      headlineScope: 'blended across all prompt cohorts',
+    });
+    if (blended.needsSetup) {
+      return;
+    }
+    expect(blended.domains.map((d) => d.domain).sort()).toEqual([
+      'alterhq.com',
+      'example.com',
+    ]);
+
+    const unprompted = await getCitationSources(env, workspaceId, '30d', [
+      'discovery',
+    ]);
+    expect(unprompted).toMatchObject({
+      headlineScope: 'prompts that name neither the brand nor a competitor',
+    });
+    if (unprompted.needsSetup) {
+      return;
+    }
+    expect(unprompted.domains.map((d) => d.domain)).toEqual(['example.com']);
+  });
+
+  // An empty IN () list is not portable across the D1 driver, so the empty
+  // cohort is answered before any query runs. A filter that matches nothing
+  // must read as nothing, never as the unfiltered set.
+  test('a cohort filter matching no prompt returns empty, not the blended set', async () => {
+    const { db, env, workspaceId } = await setup();
+    const discovery = await seedPrompt(
+      db,
+      12,
+      'what are the best voice control apps for macOS?',
+    );
+    await seedRun(db, 1, '2026-09-25');
+    await seedCitation(
+      db,
+      await resultIdFor(db, 1, discovery),
+      'example.com',
+      null,
+    );
+
+    const result = await getCitationSources(env, workspaceId, '30d', [
+      'branded',
+    ]);
+    expect(result).toMatchObject({
+      needsSetup: false,
+      headlineScope: 'brand-named prompts only',
+      domains: [],
+      unattributableCitations: 0,
+      brandUrls: [],
+      sourceGap: [],
+    });
   });
 });

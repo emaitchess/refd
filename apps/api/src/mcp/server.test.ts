@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  digestArgsSchema,
   emptyArgsSchema,
   MCP_INSTRUCTIONS,
   MCP_TOOL_ANNOTATIONS,
@@ -134,5 +135,57 @@ describe('MCP tool arguments', () => {
     expect(
       readAnswerArgsSchema.safeParse({ resultId: '1' }).success,
     ).toBeFalse();
+  });
+});
+
+// A tool that advertises `kind` and then ignores it is the worst failure mode
+// here: the caller gets a plausible number labelled as a cohort rate when it is
+// the blend. The list below is the contract, and each of those handlers must
+// forward the parsed filter to a data function that applies it.
+const KIND_FILTERED_TOOLS = [
+  'get_visibility_overview',
+  'get_competitor_landscape',
+  'get_citation_sources',
+  'get_prompt_performance',
+] as const;
+
+describe('MCP cohort filter contract', () => {
+  test('only the aggregates that apply the filter advertise it', () => {
+    expect('kind' in (rangeArgsSchema.shape ?? {})).toBeTrue();
+    expect('kind' in (promptPerformanceArgsSchema.shape ?? {})).toBeTrue();
+
+    // The digest returns every cohort side by side already, so it must not
+    // accept a filter it cannot apply.
+    expect('kind' in (digestArgsSchema.shape ?? {})).toBeFalse();
+    expect(
+      digestArgsSchema.safeParse({ range: '30d', kind: 'discovery' }).data,
+    ).not.toHaveProperty('kind');
+  });
+
+  test('a filter that names an unknown cohort is rejected outright', () => {
+    for (const schema of [rangeArgsSchema, promptPerformanceArgsSchema]) {
+      expect(
+        schema.safeParse({ range: '30d', kind: 'discovery' }).data,
+      ).toMatchObject({ kind: ['discovery'] });
+      expect(
+        schema.safeParse({ range: '30d', kind: 'brand' }).success,
+      ).toBeFalse();
+      expect(schema.safeParse({ range: '30d', kind: '' }).data).toMatchObject({
+        kind: null,
+      });
+    }
+  });
+
+  test('the instructions name the exception rather than claiming every tool filters', () => {
+    expect(MCP_INSTRUCTIONS).toContain('get_digest is the exception');
+    expect(MCP_INSTRUCTIONS).not.toContain(
+      'Every aggregate that pools prompts',
+    );
+  });
+
+  test('every tool that advertises the filter is a real read tool', () => {
+    for (const name of KIND_FILTERED_TOOLS) {
+      expect(MCP_TOOL_NAMES).toContain(name);
+    }
   });
 });
