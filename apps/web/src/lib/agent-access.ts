@@ -125,7 +125,7 @@ export const AGENT_TRACKING_TOOLS: [name: string, description: string][] = [
 ];
 
 export const AGENT_PROMPT_WORKFLOW =
-  'list_prompts to resolve ids, add_prompt / update_prompt / toggle_prompt / remove_prompt for row-scoped changes (no setup draft, no list rewrite; in-flight runs keep their frozen prompt set), then run_now when the next scheduled run is too far away and get_prompt_performance with range 1d to check the results.';
+  'list_prompts to resolve ids, add_prompt / update_prompt / toggle_prompt / remove_prompt for row-scoped changes (no setup draft, no list rewrite; in-flight runs keep their frozen prompt set), then run_now when the next scheduled run is too far away and get_prompt_performance with range 1d to check the results. A new prompt is classified into a cohort from its text; add_prompt and update_prompt take an optional kind to override that, and the resolved cohort comes back in the response.';
 
 // The editor-native server entry: the shape Cursor, VS Code, and Claude Code
 // all accept for a remote Streamable HTTP server. Encoded per client below.
@@ -167,6 +167,13 @@ export const AGENT_INSTALLS: AgentInstall[] = [
   },
 ];
 
+// The one thing an agent gets wrong if it is not told: a headline that pools
+// every prompt measures partly the questions that named the brand themselves.
+// Body only: each surface supplies its own lead-in (a section label, a heading,
+// a bolded bullet), so the same sentence never reads as a stray paragraph.
+export const AGENT_PROMPT_COHORTS =
+  'A prompt that names the brand is scored near 1.0 by construction, so a headline that pools every prompt flatters the brand. Every aggregate above takes a kind filter: branded (the prompt names your brand), competitor (it names only a tracked competitor), or discovery (it names neither, so the rate is unprompted visibility), comma-separated for more than one. Omit it for the blended figure, which every response labels in headlineScope. get_visibility_overview returns byCohort with all three at once, and get_digest carries the split in sections.prompts.cohorts. list_prompts reports each prompt cohort and the counts.';
+
 export const AGENT_TOOLS: [name: string, description: string][] = [
   [
     'get_workspace_info',
@@ -174,7 +181,7 @@ export const AGENT_TOOLS: [name: string, description: string][] = [
   ],
   [
     'get_visibility_overview',
-    'Mention rate, citation rate, position, and share of voice across surfaces.',
+    'Mention rate, citation rate, position, and share of voice across surfaces, with a byCohort breakdown beside the blended figure.',
   ],
   [
     'get_competitor_landscape',
@@ -182,7 +189,7 @@ export const AGENT_TOOLS: [name: string, description: string][] = [
   ],
   [
     'get_prompt_performance',
-    'Per-prompt visibility, broken down by AI surface.',
+    'Per-prompt visibility, broken down by AI surface. Each prompt carries its cohort.',
   ],
   ['get_citation_sources', 'Which domains AI answers cite for the workspace.'],
   [
@@ -196,7 +203,7 @@ export const AGENT_TOOLS: [name: string, description: string][] = [
   ],
   [
     'get_digest',
-    'A 30-day rollup of the workspace, the same one that grounds the dashboard chat.',
+    'A 30-day rollup of the workspace, the same one that grounds the dashboard chat, carrying the three-way prompt-cohort split.',
   ],
   [
     'get_run_history',

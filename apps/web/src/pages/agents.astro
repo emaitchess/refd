@@ -15,6 +15,7 @@ import {
   AGENT_SCOPES,
   AGENT_SETUP_TOOLS,
   AGENT_SETUP_WORKFLOW,
+  AGENT_PROMPT_COHORTS,
   AGENT_TOOLS,
   AGENT_WORKSPACE_ENTITLEMENT,
   MCP_ENDPOINT,
@@ -97,7 +98,7 @@ import '../styles/global.css';
       <div class="rail">
         <div class="section-head">
           <p class="section-index">02 / the tools</p>
-          <h2>Nine read tools, discovered at runtime.</h2>
+          <h2>Twelve read tools, discovered at runtime.</h2>
           <p>Call <code>tools/list</code> after connecting. Every tool resolves the granted workspaces from the credential; an optional <code>workspace</code> argument only picks among them, and <code>get_workspace_info</code> lists the choices.</p>
         </div>
         <div class="agent-grid tools-grid">
@@ -110,6 +111,8 @@ import '../styles/global.css';
             ))
           }
         </div>
+        <p class="k" style="margin-top:44px">prompt cohorts</p>
+        <p style="margin-top:8px">{AGENT_PROMPT_COHORTS}</p>
         <p class="k" style="margin-top:44px">setup tools · data:write</p>
         <div class="section-head" style="margin-top:8px">
           <h2>Let an agent do the setup.</h2>

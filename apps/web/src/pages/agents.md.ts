@@ -5,6 +5,7 @@ import {
   AGENT_INJECTION_BOUNDARY,
   AGENT_INSTALLS,
   AGENT_PAT_EXAMPLE,
+  AGENT_PROMPT_COHORTS,
   AGENT_PROMPT_TOOLS,
   AGENT_PROMPT_WORKFLOW,
   AGENT_SCOPES,
@@ -39,6 +40,10 @@ ${AGENT_SCOPES.map(([scope, description]) => `- Scope \`${scope}\`: ${descriptio
 ${AGENT_TOOLS.map(([name, description]) => `- \`${name}\`: ${description}`).join('\n')}
 
 Call \`tools/list\` after connecting. Every tool resolves the granted workspaces from the credential; an optional \`workspace\` argument only picks among them, and \`get_workspace_info\` lists the choices.
+
+### Prompt cohorts
+
+${AGENT_PROMPT_COHORTS}
 
 ## Setup tools (data:write)
 
