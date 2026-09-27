@@ -1,4 +1,6 @@
+import { PROMPT_KINDS, type PromptKind } from '@refd/core/prompt-cohorts';
 import { and, desc, eq, gte, isNotNull, or, sql } from 'drizzle-orm';
+import type { Db } from '../db/client';
 import { getDb } from '../db/client';
 import {
   citations,
@@ -12,6 +14,12 @@ import {
 import type { AppEnv } from '../env';
 import { answerTextFromRaw } from '../ingest/rescore';
 import { gunzipJson } from '../ingest/storage';
+import {
+  cohortScopeLabel,
+  promptIdsForCohorts,
+  promptKindOrDiscovery,
+  workspaceCohorts,
+} from '../lib/prompt-cohorts';
 import { type Range, rangeLabel, rangeWindows } from '../lib/range';
 import { configForUser } from '../lib/user-config';
 import { enabledSurfaces } from '../providers/types';
@@ -82,6 +90,7 @@ export const getVisibilityOverview = async (
   env: AppEnv,
   workspaceId: number,
   range: Range,
+  kind: readonly PromptKind[] | null = null,
 ) => {
   const db = getDb(env);
   const { from } = rangeWindows(range);
@@ -90,10 +99,16 @@ export const getVisibilityOverview = async (
     workspaceId,
   );
   if (!brand) {
-    return { needsSetup: true, range, rangeLabel: rangeLabel(range) };
+    return { needsSetup: true as const, range, rangeLabel: rangeLabel(range) };
   }
+  // The pool is filtered at the SQL seam, so a cohort rate is computed from
+  // cohort cells only: cellRate weights each (run, prompt, surface) cell once,
+  // which is what makes a filtered rate a rate for that cohort rather than a
+  // re-weighted share of the blended one.
+  const cohorts = await workspaceCohorts(db, workspaceId, kind);
+  const promptIds = promptIdsForCohorts(cohorts);
   const [rows, coverageRows] = await Promise.all([
-    loadScoreRows(db, workspaceId, from),
+    loadScoreRows(db, workspaceId, from, '9999-99-99', promptIds),
     loadCoverageRows(db, workspaceId, from),
   ]);
   const hasCompetitors = trackedEntities.some((entity) => !entity.isBrand);
@@ -113,10 +128,14 @@ export const getVisibilityOverview = async (
       };
     });
   return {
-    needsSetup: false,
+    needsSetup: false as const,
     range,
     rangeLabel: rangeLabel(range),
     brand: brand.name,
+    kind,
+    // Stated rather than implied: without a filter these headline numbers mix
+    // prompts that name the brand with prompts that do not.
+    headlineScope: cohortScopeLabel(kind),
     answers: answerCount(rows),
     mentionRate: r3(cellRate(rows, brand.id, 'mentioned')),
     citationRate: r3(cellRate(rows, brand.id, 'cited')),
@@ -128,19 +147,82 @@ export const getVisibilityOverview = async (
     sentiment: sentimentDist(rows, brand.id),
     coverage: coverageStats(coverageRows),
     surfaces,
+    // Awaited before assembly: a promise left in the response object would
+    // serialize as an empty object and ship a silently missing breakdown.
+    byCohort: await cohortBreakdown(
+      db,
+      workspaceId,
+      brand,
+      from,
+      trackedEntities.some((entity) => !entity.isBrand),
+    ),
   };
+};
+
+// Per-cohort headline for the brand, always over the unfiltered pool so a
+// caller can see the whole picture beside whichever cohort they asked for.
+const cohortBreakdown = async (
+  db: Db,
+  workspaceId: number,
+  brand: { id: number },
+  from: string,
+  hasCompetitors: boolean,
+) => {
+  const cohorts = (await workspaceCohorts(db, workspaceId, PROMPT_KINDS)) ?? [];
+  const all = await loadScoreRows(db, workspaceId, from);
+  const cohortOf = new Map<number, PromptKind>();
+  for (const cohort of cohorts) {
+    for (const id of cohort.promptIds) {
+      cohortOf.set(id, cohort.kind);
+    }
+  }
+  const breakdown: Record<
+    PromptKind,
+    {
+      prompts: number;
+      answers: number | null;
+      mentionRate: number | null;
+      citationRate: number | null;
+      shareOfVoice: number | null;
+      citationShareOfVoice: number | null;
+    }
+  > = {} as never;
+  for (const cohort of cohorts) {
+    const rows = all.filter(
+      (row) => cohortOf.get(row.promptId) === cohort.kind,
+    );
+    const mentionSov = hasCompetitors ? pooledSov(rows, 'mentioned') : null;
+    const citationSov = hasCompetitors ? pooledSov(rows, 'cited') : null;
+    breakdown[cohort.kind] = {
+      prompts: cohort.prompts,
+      answers: answerCount(rows),
+      mentionRate: r3(cellRate(rows, brand.id, 'mentioned')),
+      citationRate: r3(cellRate(rows, brand.id, 'cited')),
+      shareOfVoice: r3(shareOf(mentionSov, brand.id)),
+      citationShareOfVoice: r3(shareOf(citationSov, brand.id)),
+    };
+  }
+  return breakdown;
 };
 
 export const getCompetitorLandscape = async (
   env: AppEnv,
   workspaceId: number,
   range: Range,
+  kind: readonly PromptKind[] | null = null,
 ) => {
   const db = getDb(env);
   const { from } = rangeWindows(range);
+  const cohorts = await workspaceCohorts(db, workspaceId, kind);
   const [trackedEntities, rows] = await Promise.all([
     listEntities(db, workspaceId),
-    loadScoreRows(db, workspaceId, from),
+    loadScoreRows(
+      db,
+      workspaceId,
+      from,
+      '9999-99-99',
+      promptIdsForCohorts(cohorts),
+    ),
   ]);
   const mentionSov = pooledSov(rows, 'mentioned');
   const citationSov = pooledSov(rows, 'cited');
@@ -149,6 +231,8 @@ export const getCompetitorLandscape = async (
   return {
     range,
     rangeLabel: rangeLabel(range),
+    kind,
+    headlineScope: cohortScopeLabel(kind),
     answers: answerCount(rows),
     entities: trackedEntities.map((entity) => ({
       name: entity.name,
@@ -177,26 +261,44 @@ export const getPromptPerformance = async (
   workspaceId: number,
   range: Range,
   summary = false,
+  kind: readonly PromptKind[] | null = null,
 ) => {
   const db = getDb(env);
   const { from } = rangeWindows(range);
   const { brand } = await loadEntitiesWithBrand(db, workspaceId);
   if (!brand) {
-    return { needsSetup: true, range, rangeLabel: rangeLabel(range) };
+    return { needsSetup: true as const, range, rangeLabel: rangeLabel(range) };
   }
-  const [trackedPrompts, scoreRows] = await Promise.all([
+  const cohorts = await workspaceCohorts(db, workspaceId, kind);
+  const cohortIds =
+    cohorts === null ? null : new Set(promptIdsForCohorts(cohorts) ?? []);
+  const [allPrompts, scoreRows] = await Promise.all([
     db
       .select({
         id: prompts.id,
         text: prompts.text,
         tags: prompts.tags,
+        kind: prompts.kind,
         active: prompts.active,
       })
       .from(prompts)
       .where(eq(prompts.workspaceId, workspaceId))
       .orderBy(prompts.id),
-    loadScoreRows(db, workspaceId, from),
+    loadScoreRows(
+      db,
+      workspaceId,
+      from,
+      '9999-99-99',
+      promptIdsForCohorts(cohorts),
+    ),
   ]);
+  // The prompt list is small enough to filter in JS, and doing it through the
+  // cohort ids keeps one resolution path: a prompt the filter excluded cannot
+  // reach the list, the per-surface split, or zeroVisibility.
+  const trackedPrompts =
+    cohortIds === null
+      ? allPrompts
+      : allPrompts.filter((prompt) => cohortIds.has(prompt.id));
   const brandRows = scoreRows.filter((row) => row.entityId === brand.id);
   const performance = trackedPrompts.map((prompt) => {
     const rows = brandRows.filter((row) => row.promptId === prompt.id);
@@ -205,6 +307,7 @@ export const getPromptPerformance = async (
       id: prompt.id,
       text: prompt.text,
       tags: prompt.tags,
+      kind: promptKindOrDiscovery(prompt.kind),
       active: prompt.active,
       answers: answerCount(rows),
       mentionRate,
@@ -231,14 +334,20 @@ export const getPromptPerformance = async (
     };
   });
   return {
-    needsSetup: false,
+    needsSetup: false as const,
     range,
     rangeLabel: rangeLabel(range),
     brand: brand.name,
+    kind,
+    headlineScope: cohortScopeLabel(kind),
     prompts: performance,
     zeroVisibility: performance
       .filter((prompt) => prompt.answers > 0 && prompt.mentionRate === 0)
-      .map((prompt) => ({ id: prompt.id, text: prompt.text })),
+      .map((prompt) => ({
+        id: prompt.id,
+        text: prompt.text,
+        kind: prompt.kind,
+      })),
   };
 };
 
@@ -251,7 +360,7 @@ export const getCitationSources = async (
   const { from } = rangeWindows(range);
   const { brand } = await loadEntitiesWithBrand(db, workspaceId);
   if (!brand) {
-    return { needsSetup: true, range, rangeLabel: rangeLabel(range) };
+    return { needsSetup: true as const, range, rangeLabel: rangeLabel(range) };
   }
   const inRange = and(
     eq(results.ok, true),
@@ -535,9 +644,16 @@ export const getDigest = async (
   env: AppEnv,
   workspaceId: number,
   range: Range,
+  kind: readonly PromptKind[] | null = null,
 ) => {
+  // The digest carries all three cohorts side by side, so a caller reads the
+  // number it wants from one call rather than refiltering by prompt id. A
+  // filter is echoed back so the response still says what produced it.
   const digest = await buildDigest(getDb(env), workspaceId, range);
-  return digest ?? { needsSetup: true, range, rangeLabel: rangeLabel(range) };
+  if (digest === null) {
+    return { needsSetup: true as const, range, rangeLabel: rangeLabel(range) };
+  }
+  return { ...digest, kind, headlineScope: cohortScopeLabel(kind) };
 };
 
 export const getRunHistory = async (
@@ -781,7 +897,7 @@ export const getPromptCitations = async (
   const db = getDb(env);
   const { brand } = await loadEntitiesWithBrand(db, workspaceId);
   if (!brand) {
-    return { needsSetup: true, range, rangeLabel: rangeLabel(range) };
+    return { needsSetup: true as const, range, rangeLabel: rangeLabel(range) };
   }
   const prompt = (
     await db

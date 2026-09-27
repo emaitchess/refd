@@ -37,6 +37,7 @@ const MIGRATIONS = [
   '0012_youthful_yellow_claw.sql',
   '0013_skinny_mindworm.sql',
   '0014_calm_tomorrow_man.sql',
+  '0017_chief_maelstrom.sql',
 ];
 
 interface Fixture {

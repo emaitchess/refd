@@ -6,9 +6,11 @@
 
 import type { ChatScope } from '@refd/core/chat';
 import { composeAliases, findMentionSpans } from '@refd/core/mentions';
+import { PROMPT_KINDS, type PromptKind } from '@refd/core/prompt-cohorts';
 import { and, eq, gte, isNotNull, lte, or, sql } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { citations, entityScores, prompts, results, runs } from '../db/schema';
+import { promptKindOrDiscovery, workspaceCohorts } from '../lib/prompt-cohorts';
 import { addUtcDays, legacyRangeScope, type Range } from '../lib/range';
 import {
   answerCount,
@@ -110,6 +112,16 @@ export interface DigestSections {
     contestedCount: number;
     namedSplit: { named: NamedSide; unnamed: NamedSide };
     namedSplitNote: string;
+    cohorts: Record<
+      PromptKind,
+      {
+        prompts: number;
+        answers: number;
+        mentionRate: number | null;
+        citationRate: number | null;
+      }
+    >;
+    cohortNote: string;
   };
   runs: {
     date: string;
@@ -163,6 +175,10 @@ export const buildDigest = async (
     eq(runs.workspaceId, workspaceId),
   );
 
+  // Classified here so the cohort split below can never be computed from an
+  // unclassified row; workspaceCohorts resolves only NULL kinds, so it is a
+  // no-op once every prompt carries one.
+  await workspaceCohorts(db, workspaceId, PROMPT_KINDS);
   const [domains, gap, promptRows, runRows] = await Promise.all([
     db
       .select({
@@ -208,7 +224,12 @@ export const buildDigest = async (
       .orderBy(sql`count(distinct ${citations.resultId}) desc`)
       .limit(8),
     db
-      .select({ id: prompts.id, text: prompts.text, active: prompts.active })
+      .select({
+        id: prompts.id,
+        text: prompts.text,
+        kind: prompts.kind,
+        active: prompts.active,
+      })
       .from(prompts)
       .where(eq(prompts.workspaceId, workspaceId)),
     db
@@ -317,6 +338,42 @@ export const buildDigest = async (
     };
   };
 
+  // The three-way split behind the headline. namedSplit above answers "does
+  // this prompt spell out the brand"; this also separates prompts that name
+  // only a competitor, and reports each cohort's own rate, so a reader never
+  // has to group prompt ids by hand to get unprompted visibility.
+  const cohortOf = new Map<number, PromptKind>();
+  for (const p of promptRows) {
+    cohortOf.set(p.id, promptKindOrDiscovery(p.kind));
+  }
+  const cohorts = Object.fromEntries(
+    PROMPT_KINDS.map((kind) => {
+      const side = promptStats.filter((p) => cohortOf.get(p.id) === kind);
+      const answers = side.reduce((sum, p) => sum + p.answers, 0);
+      return [
+        kind,
+        {
+          prompts: side.length,
+          answers,
+          mentionRate: r3(
+            cellRate(
+              side.flatMap((p) => byPrompt.get(p.id) ?? []),
+              brand.id,
+              'mentioned',
+            ),
+          ),
+          citationRate: r3(
+            cellRate(
+              side.flatMap((p) => byPrompt.get(p.id) ?? []),
+              brand.id,
+              'cited',
+            ),
+          ),
+        },
+      ];
+    }),
+  ) as DigestSections['prompts']['cohorts'];
+
   // Latest run vs the one before it: the brand's overall mention rate each.
   const runStats = runRows.map((run) => ({
     date: run.date,
@@ -385,6 +442,9 @@ export const buildDigest = async (
       namedSplit: { named: namedSide(true), unnamed: namedSide(false) },
       namedSplitNote:
         'prompts that spell out the brand vs prompts that do not; the second is unprompted visibility',
+      cohorts,
+      cohortNote:
+        'the headline rates above pool every cohort; discovery is the unprompted-visibility number, branded names the brand and competitor names only a tracked competitor',
     },
     runs: runStats,
   };

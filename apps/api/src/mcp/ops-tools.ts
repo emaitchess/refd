@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import { promptLimitMessage, surfaceLimitMessage } from '@refd/core/config';
+import { PROMPT_KINDS, promptKindSchema } from '@refd/core/prompt-cohorts';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { isOperatorEmail } from '../auth/operator';
@@ -13,6 +14,10 @@ import {
   removeEntity,
 } from '../lib/entity-store';
 import { PROMPT_CATEGORIES } from '../lib/llm';
+import {
+  classifyWorkspacePrompts,
+  promptKindOrDiscovery,
+} from '../lib/prompt-cohorts';
 import {
   createPrompt,
   type PromptRow,
@@ -82,6 +87,7 @@ const promptPayload = (row: PromptRow) => ({
   text: row.text,
   category: row.tags[0] ?? null,
   tags: row.tags,
+  kind: promptKindOrDiscovery(row.kind),
   active: row.active,
 });
 
@@ -130,13 +136,24 @@ export const listPrompts = async (
   workspace: McpWorkspace,
 ) => {
   await ensureOperationalWorkspace(env, workspace);
-  const rows = await getDb(env)
+  const db = getDb(env);
+  // Listing is the natural place to resolve cohorts, since it is where a caller
+  // learns which prompts exist; a filter used elsewhere must not silently miss
+  // an unclassified prompt. Classify before reading so the payload and the
+  // counts both see resolved kinds.
+  await classifyWorkspacePrompts(db, workspace.id);
+  const rows = await db
     .select()
     .from(prompts)
     .where(eq(prompts.workspaceId, workspace.id))
     .orderBy(prompts.id);
   const usage = await promptUsageCounts(env, workspace.id);
   const truncated = rows.length > MAX_LISTED_PROMPTS;
+  const kindCounts = PROMPT_KINDS.map((kind) => ({
+    kind,
+    prompts: rows.filter((row) => promptKindOrDiscovery(row.kind) === kind)
+      .length,
+  }));
   return {
     ok: true as const,
     limit: promptLimitFor(env, principal),
@@ -146,6 +163,8 @@ export const listPrompts = async (
       ? { truncated: true, listedPrompts: MAX_LISTED_PROMPTS }
       : {}),
     categories: [...PROMPT_CATEGORIES],
+    kinds: [...PROMPT_KINDS],
+    kindCounts,
     prompts: rows.slice(0, MAX_LISTED_PROMPTS).map((row) => ({
       ...promptPayload(row),
       answers: usage.get(row.id) ?? 0,
@@ -156,6 +175,7 @@ export const listPrompts = async (
 export const addPromptBodySchema = z.object({
   text: multiLineText(8, 500),
   category: categorySchema.optional(),
+  kind: promptKindSchema.optional(),
 });
 
 export const addPrompt = async (
@@ -171,6 +191,7 @@ export const addPrompt = async (
     body.text,
     body.category ? [body.category] : [],
     promptLimitFor(env, principal),
+    body.kind,
   );
   if (!created.ok) {
     return promptFailure(
@@ -196,10 +217,14 @@ export const updatePromptBodySchema = z
     promptId: z.number().int().positive(),
     text: multiLineText(8, 500).optional(),
     category: categorySchema.optional(),
+    kind: promptKindSchema.optional(),
   })
   .refine(
-    (body) => body.text !== undefined || body.category !== undefined,
-    'Provide text or category to update.',
+    (body) =>
+      body.text !== undefined ||
+      body.category !== undefined ||
+      body.kind !== undefined,
+    'Provide text, category, or kind to update.',
   );
 
 export const updatePrompt = async (
@@ -212,6 +237,7 @@ export const updatePrompt = async (
   const result = await updatePromptFields(env, body.promptId, workspace.id, {
     ...(body.text !== undefined ? { text: body.text } : {}),
     ...(body.category !== undefined ? { tags: [body.category] } : {}),
+    ...(body.kind !== undefined ? { kind: body.kind } : {}),
   });
   if (!result.ok) {
     return result.reason === 'duplicate'
@@ -521,7 +547,7 @@ export const registerOpsTools = (
     {
       title: 'List tracked prompts',
       description:
-        'Returns every tracked prompt in an onboarded workspace with id, text, category, tags, active status, and answer counts, plus the active-prompt limit and the valid categories. Use it before add/update/toggle/remove to resolve prompt ids.',
+        'Returns every tracked prompt in an onboarded workspace with id, text, category, tags, cohort kind, active status, and answer counts, plus the active-prompt limit, the valid categories, and the per-cohort prompt counts. Cohorts: branded names your brand, competitor names only a tracked competitor, discovery names neither; filter the analytics tools with kind to read one cohort. Use it before add/update/toggle/remove to resolve prompt ids.',
       inputSchema: z.object({}).extend(workspaceSelectorSchema.shape),
       annotations: {
         readOnlyHint: true,
@@ -555,7 +581,7 @@ export const registerOpsTools = (
     {
       title: 'Add a tracked prompt',
       description:
-        "Adds one tracked prompt to an onboarded workspace and returns the assigned id. text is 8-500 chars; the optional category is one of Discovery, Evaluation, Comparison, Decision, Authority and becomes the prompt's single tag. A same-text prompt resolves to the existing row (duplicated: true) instead of erroring. Refuses with prompt_limit when the workspace's active-prompt ceiling is full.",
+        "Adds one tracked prompt to an onboarded workspace and returns the assigned id. text is 8-500 chars; the optional category is one of Discovery, Evaluation, Comparison, Decision, Authority and becomes the prompt's single tag. The optional kind is one of branded, competitor, discovery; omitted, it is classified from the text against the tracked brand and competitors and the resolved value comes back in the response. A same-text prompt resolves to the existing row (duplicated: true) instead of erroring. Refuses with prompt_limit when the workspace's active-prompt ceiling is full.",
       inputSchema: addPromptBodySchema.extend(workspaceSelectorSchema.shape),
       annotations: {
         readOnlyHint: false,
@@ -589,7 +615,7 @@ export const registerOpsTools = (
     {
       title: 'Update a tracked prompt',
       description:
-        'Edits one prompt in an onboarded workspace: reword text and/or set category (the tags become just that category). Text is unique per workspace. Row-scoped on purpose: no setup draft version involved, and in-flight runs keep their frozen prompt set, so edits land on the next run.',
+        'Edits one prompt in an onboarded workspace: reword text, set category (the tags become just that category), and/or set the cohort kind (branded, competitor, discovery) that analytics filters read. Text is unique per workspace. Row-scoped on purpose: no setup draft version involved, and in-flight runs keep their frozen prompt set, so edits land on the next run.',
       inputSchema: updatePromptBodySchema.extend(workspaceSelectorSchema.shape),
       annotations: {
         readOnlyHint: false,

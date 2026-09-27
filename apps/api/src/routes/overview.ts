@@ -1,6 +1,12 @@
+import { promptKindFilterSchema } from '@refd/core/prompt-cohorts';
 import { Hono } from 'hono';
 import type { WorkspaceBindings } from '../auth/middleware';
 import { getDb } from '../db/client';
+import {
+  cohortScopeLabel,
+  promptIdsForCohorts,
+  workspaceCohorts,
+} from '../lib/prompt-cohorts';
 import { parseRange } from '../lib/range';
 import {
   answerCount,
@@ -25,6 +31,10 @@ overviewRoutes.get('/', async (c) => {
   const { range, from, prevFrom, prevTo } = parseRange(c.req.query('range'));
   const db = getDb(c.env);
   const ws = c.get('workspace').id;
+  // A cohort filter narrows both windows, so the tile delta compares like with
+  // like instead of a filtered current against a blended previous.
+  const kind =
+    promptKindFilterSchema.safeParse(c.req.query('kind')).data ?? null;
 
   const { entities: allEntities, brand } = await loadEntitiesWithBrand(db, ws);
   if (!brand) {
@@ -35,11 +45,13 @@ overviewRoutes.get('/', async (c) => {
   // workspace tracks a competitor.
   const hasCompetitors = allEntities.some((e) => !e.isBrand);
 
+  const cohorts = await workspaceCohorts(db, ws, kind);
+  const promptIds = promptIdsForCohorts(cohorts);
   const [rows, prevRows, covRows] = await Promise.all([
-    loadScoreRows(db, ws, from),
+    loadScoreRows(db, ws, from, '9999-99-99', promptIds),
     range === 'all'
       ? Promise.resolve([] as ScoreRow[])
-      : loadScoreRows(db, ws, prevFrom, prevTo),
+      : loadScoreRows(db, ws, prevFrom, prevTo, promptIds),
     loadCoverageRows(db, ws, from),
   ]);
 
@@ -76,6 +88,8 @@ overviewRoutes.get('/', async (c) => {
 
   return c.json({
     range,
+    kind,
+    headlineScope: cohortScopeLabel(kind),
     entities: allEntities,
     brandId: brand.id,
     hasCompetitors,

@@ -1,8 +1,12 @@
 import type { Limit } from '@refd/core/config';
+import {
+  classifyPromptCohort,
+  type PromptKind,
+} from '@refd/core/prompt-cohorts';
 import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { type Db, getDb } from '../db/client';
-import { prompts, results, runs } from '../db/schema';
+import { entities, prompts, results, runs } from '../db/schema';
 import type { AppEnv } from '../env';
 import { insertActivePrompt } from './prompt-limit';
 
@@ -43,6 +47,7 @@ const textClash = async (
 export interface PromptPatch {
   text?: string;
   tags?: string[];
+  kind?: PromptKind;
   // Never true here: an activation must go through setPromptActive's bound.
   active?: false;
 }
@@ -51,15 +56,39 @@ export type CreatePromptResult =
   | { ok: true; prompt: PromptRow; duplicated: boolean }
   | { ok: false; reason: 'limit'; limit: number };
 
+const classifyPromptText = async (
+  db: Db,
+  workspaceId: number,
+  text: string,
+): Promise<PromptKind | null> => {
+  const tracked = await db
+    .select({
+      id: entities.id,
+      name: entities.name,
+      domains: entities.domains,
+      aliases: entities.aliases,
+      isBrand: entities.isBrand,
+    })
+    .from(entities)
+    .where(eq(entities.workspaceId, workspaceId));
+  // A workspace with no entities yet has nothing to classify against, so the
+  // prompt stays unclassified rather than being asserted into a cohort.
+  return tracked.length === 0 ? null : classifyPromptCohort(text, tracked);
+};
+
 // Atomic create honoring the workspace's active-prompt ceiling. A same-text
 // row (active or retired) resolves to the existing prompt, which makes a
 // retried create converge instead of erroring twice.
+//
+// An omitted kind is classified here, where the entity set is reachable, so a
+// prompt is born in its cohort rather than waiting for a cohort-aware read.
 export const createPrompt = async (
   env: AppEnv,
   workspaceId: number,
   text: string,
   tags: string[],
   limit: Limit,
+  kind?: PromptKind | null,
 ): Promise<CreatePromptResult> => {
   const db = getDb(env);
   const insertedId = await insertActivePrompt(
@@ -68,6 +97,7 @@ export const createPrompt = async (
     text,
     tags,
     limit,
+    kind === undefined ? await classifyPromptText(db, workspaceId, text) : kind,
   );
   if (insertedId !== null) {
     const prompt = await loadPrompt(db, insertedId, workspaceId);
@@ -163,6 +193,10 @@ export const setPromptActive = async (
   if (patch.tags !== undefined) {
     assignments.push('tags = ?');
     values.push(JSON.stringify(patch.tags));
+  }
+  if (patch.kind !== undefined) {
+    assignments.push('kind = ?');
+    values.push(patch.kind);
   }
   assignments.push('active = 1');
   const row = await env.DB.prepare(

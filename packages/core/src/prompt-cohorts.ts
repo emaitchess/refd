@@ -1,0 +1,88 @@
+// Prompt cohorts: which questions name the brand, name only a competitor, or
+// name neither. A prompt that spells out the brand is scored near 1.0 by
+// construction, so blending it into an unprompted-visibility headline flatters
+// the number; cohort membership is what lets a reader exclude it.
+//
+// Classification runs the same matcher the scorer runs, so "this prompt names
+// the brand" means exactly what "this answer mentions the brand" means.
+
+import { z } from 'zod';
+import { type Alias, composeAliases, findMentionSpans } from './mentions';
+
+export const PROMPT_KINDS = ['branded', 'competitor', 'discovery'] as const;
+export type PromptKind = (typeof PROMPT_KINDS)[number];
+
+// A row can carry no kind yet: pre-migration prompts are classified lazily, and
+// a NULL is never silently read as a real answer.
+export const promptKindSchema = z.enum(PROMPT_KINDS);
+
+export const promptKindField = z
+  .enum(PROMPT_KINDS)
+  .nullish()
+  .transform((value) => value ?? null);
+
+// Comma-separated on the wire because that is what an agent composing a filter
+// by hand writes; an empty or absent filter means every cohort (blended), which
+// callers read as null. `.optional()` is outermost so the field stays optional
+// in the generated JSON Schema rather than looking required.
+const promptKindFilterValue = z
+  .string()
+  .trim()
+  .transform((value) =>
+    value
+      .split(',')
+      .map((part) => part.trim().toLowerCase())
+      .filter((part) => part.length > 0),
+  )
+  .pipe(z.array(promptKindSchema))
+  .transform((kinds) => (kinds.length > 0 ? kinds : null));
+
+export const promptKindFilterSchema = promptKindFilterValue.optional();
+
+export interface CohortEntity {
+  id: number;
+  name: string;
+  domains: string[];
+  aliases: Alias[];
+  isBrand: boolean;
+}
+
+const matcherFor = (entities: CohortEntity[]) =>
+  entities.map((entity) => ({
+    id: entity.id,
+    aliases: composeAliases(entity.name, entity.domains, entity.aliases),
+  }));
+
+export const mentionsAnyEntity = (text: string, entities: CohortEntity[]) =>
+  findMentionSpans(text, matcherFor(entities)).length > 0;
+
+// Brand-named beats competitor-named: a prompt naming both ("mrmr vs Alter") is
+// the biased case this cohort exists to isolate, and calling it `competitor`
+// would hide it inside the comparison set instead.
+export const classifyPromptCohort = (
+  text: string,
+  entities: CohortEntity[],
+): PromptKind => {
+  if (
+    mentionsAnyEntity(
+      text,
+      entities.filter((entity) => entity.isBrand),
+    )
+  ) {
+    return 'branded';
+  }
+  if (
+    mentionsAnyEntity(
+      text,
+      entities.filter((entity) => !entity.isBrand),
+    )
+  ) {
+    return 'competitor';
+  }
+  return 'discovery';
+};
+
+export const matchesPromptKind = (
+  kind: string | null | undefined,
+  filter: readonly PromptKind[] | null,
+) => filter === null || filter.includes((kind ?? 'discovery') as PromptKind);
