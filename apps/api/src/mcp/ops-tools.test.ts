@@ -58,6 +58,7 @@ const MIGRATIONS = [
   '0017_chief_maelstrom.sql',
   '0019_flat_energizer.sql',
   '0020_yummy_reaper.sql',
+  '0021_brainy_blue_blade.sql',
 ];
 
 const makeD1 = (sqlite: Database) => ({

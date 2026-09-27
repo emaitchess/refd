@@ -197,6 +197,7 @@ exported, or narrowed to fewer prompts than the workspace tracks.
 | `get_digest` | Complete grounded workspace snapshot |
 | `get_run_history` | Recent run cycles, newest first: date, trigger, status, collected/total answers, dispatch state, entity-set hash, the frozen prompt count, `promptSetVersionId`, and `promptSetHash` |
 | `get_prompt_set_timeline` | Every distinct prompt population the workspace has run against, oldest first: version id, prompt ids and count, surfaces, what changed to get there, and how many runs were collected on it |
+| `get_attribute_performance` | Per-attribute visibility, worst first: tracked prompts, prompts inside the reported population, active variants, answers, mention and citation rate, share of voice, and an `unmeasured` flag for an attribute measured by a single prompt |
 | `get_prompt_changes` | Per-prompt diff of the two most recent completed runs: mention/citation rate deltas, zero-visibility transitions, and prompts that entered or exited the set |
 | `get_prompt_citations` | The URLs cited for one prompt over a range, grouped by URL with counts and an isOurs flag |
 
@@ -341,8 +342,8 @@ or after onboarding.
 | Tool | Purpose |
 | --- | --- |
 | `list_prompts` | Every tracked prompt with id, text, category, tags, cohort kind, active status, and answer counts, plus the active-prompt limit, the valid categories, and the per-cohort counts |
-| `add_prompt` | Adds one prompt (8-500 chars, optional category from Discovery, Evaluation, Comparison, Decision, Authority that becomes its single tag) and returns the assigned id and the resolved cohort kind; a repeated text converges to the existing prompt instead of erroring. The optional `kind` (`branded`, `competitor`, `discovery`) overrides the classifier, which otherwise reads the prompt text against the tracked brand and competitors |
-| `update_prompt` | Rewords the text, changes the category (tags become just that category), and/or sets the cohort kind; text is unique per workspace, and a clash returns `duplicate_prompt` |
+| `add_prompt` | Adds one prompt (8-500 chars, optional category from Discovery, Evaluation, Comparison, Decision, Authority that becomes its single tag) and returns the assigned id and the resolved cohort kind; a repeated text converges to the existing prompt instead of erroring. The optional `kind` (`branded`, `competitor`, `discovery`) overrides the classifier, which otherwise reads the prompt text against the tracked brand and competitors | The optional `attribute` names the capability the prompt tests, by label, creating it on first use.
+| `update_prompt` | Rewords the text, changes the category (tags become just that category), and/or sets the cohort kind; text is unique per workspace, and a clash returns `duplicate_prompt` | `attribute` groups the prompt under a capability by label; an explicit null detaches it, and omitting the field leaves grouping alone.
 | `toggle_prompt` | Enables or disables a prompt while keeping its history; re-activating is refused when the workspace is at its active-prompt ceiling |
 | `remove_prompt` | Retires a prompt that has results (history preserved, re-activatable) and deletes one that has none; the only destructive prompt tool |
 | `run_now` | Triggers an immediate collection run over the current active prompt set on every enabled surface. Spends paid provider quota and is limited to administrator accounts (`ADMIN_EMAILS`); at most 5 manual runs per hour per workspace, the same guard the operator HTTP route enforces. Optional `promptIds` select a subset of the active prompts; optional `samples` (1-10) overrides the default |

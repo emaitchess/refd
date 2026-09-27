@@ -128,6 +128,31 @@ and reports the true `count` alongside a `truncated` flag. A caller reading only
 the count is never misled by the cap, and the cap never hides a prompt: the
 default, untruncated read returns the whole list up to a 200-entry ceiling.
 
+## Attributes
+
+A prompt set with one prompt per capability cannot be read at the capability level,
+because a single label change is enough to swing visibility by tens of points. A
+rate computed from one prompt reports the wording, not the capability it was
+written for.
+
+- **`prompts.attributeId` groups many prompts under one attribute**, addressed by
+  label rather than id everywhere a caller supplies one, since prompt text is
+  already the unique identity in a submission. An attribute is created on first
+  use, and labels fold case and whitespace so two spellings are one attribute.
+- **The report states its own denominator.** `get_attribute_performance` returns,
+  per attribute: how many tracked prompts carry it, how many fall inside the
+  reported population, how many are active, the measured answers and rates, and
+  whether anything was measured at all. Membership and measured count are
+  reported separately so a cohort filter is legible rather than looking like lost
+  prompts.
+- **One prompt is labelled unmeasured, not reported as a finding.** An attribute
+  with a single variant carries an explicit warning, because the honest reading is
+  that the capability is untested rather than that it scores whatever one phrasing
+  scored. An attribute with no answers reports `measured: false` and no rate,
+  which is a different statement again.
+- **Ungrouped prompts are reported, not hidden.** A workspace that has not grouped
+  anything still gets numbers, plus the count of prompts carrying no attribute.
+
 ## Mention detection
 
 - **Alias sets replace single names.** `entities` carries an `aliases` JSON

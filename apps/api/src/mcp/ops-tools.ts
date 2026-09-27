@@ -8,6 +8,7 @@ import { getDb } from '../db/client';
 import { prompts, workspaces } from '../db/schema';
 import type { AppEnv } from '../env';
 import { createManualRun } from '../ingest/runs';
+import { attributeLabel, resolveAttributeId } from '../lib/attributes';
 import {
   createEntity,
   type EntityRow,
@@ -82,12 +83,17 @@ export const unwrapPrompt = (value: unknown) =>
     ? errorResult(value)
     : textResult(value);
 
-const promptPayload = (row: PromptRow) => ({
+const promptPayload = (
+  row: PromptRow,
+  attributeLabel: string | null = null,
+) => ({
   id: row.id,
   text: row.text,
   category: row.tags[0] ?? null,
   tags: row.tags,
   kind: promptKindOrDiscovery(row.kind),
+  attributeId: row.attributeId,
+  attribute: attributeLabel,
   active: row.active,
 });
 
@@ -176,6 +182,10 @@ export const addPromptBodySchema = z.object({
   text: multiLineText(8, 500),
   category: categorySchema.optional(),
   kind: promptKindSchema.optional(),
+  // The capability this prompt tests, by label; it is created on first use. Omit
+  // to leave the prompt ungrouped, which is a state the rollup reports rather
+  // than hides.
+  attribute: attributeLabel.optional(),
 });
 
 export const addPrompt = async (
@@ -192,6 +202,7 @@ export const addPrompt = async (
     body.category ? [body.category] : [],
     promptLimitFor(env, principal),
     body.kind,
+    body.attribute,
   );
   if (!created.ok) {
     return promptFailure(
@@ -218,13 +229,17 @@ export const updatePromptBodySchema = z
     text: multiLineText(8, 500).optional(),
     category: categorySchema.optional(),
     kind: promptKindSchema.optional(),
+    // Explicit null detaches the prompt from its attribute; omitted leaves the
+    // grouping alone.
+    attribute: attributeLabel.nullish(),
   })
   .refine(
     (body) =>
       body.text !== undefined ||
       body.category !== undefined ||
-      body.kind !== undefined,
-    'Provide text, category, or kind to update.',
+      body.kind !== undefined ||
+      body.attribute !== undefined,
+    'Provide text, category, kind, or attribute to update.',
   );
 
 export const updatePrompt = async (
@@ -234,10 +249,17 @@ export const updatePrompt = async (
   body: z.infer<typeof updatePromptBodySchema>,
 ) => {
   await ensureOperationalWorkspace(env, workspace);
+  const db = getDb(env);
+  const attributeId = await resolveAttributeId(
+    db,
+    workspace.id,
+    body.attribute,
+  );
   const result = await updatePromptFields(env, body.promptId, workspace.id, {
     ...(body.text !== undefined ? { text: body.text } : {}),
     ...(body.category !== undefined ? { tags: [body.category] } : {}),
     ...(body.kind !== undefined ? { kind: body.kind } : {}),
+    ...(attributeId !== undefined ? { attributeId } : {}),
   });
   if (!result.ok) {
     return result.reason === 'duplicate'

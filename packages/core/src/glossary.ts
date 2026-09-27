@@ -60,6 +60,15 @@ export const GLOSSARY_TERMS: GlossaryDefinition<TermCategory>[] = [
       'Active prompts join future scheduled and manual runs. Disabling a prompt stops new collection for it without removing its historical results.',
   },
   {
+    id: 'attribute',
+    title: 'Attribute',
+    category: 'Tracking setup',
+    definition:
+      'A capability your prompts test, grouping many differently-worded prompts under one heading, such as file management or on-device privacy.',
+    details:
+      'Attributes exist because a single prompt measures its own wording rather than the capability it was written for: swapping one label can move visibility by tens of points, so one prompt per attribute answers a question about phrasing. Two or more differently-worded prompts under the same attribute turn that into a finding. Prompts with no attribute still run and are counted; the attribute report states how many are ungrouped rather than leaving them out of view.',
+  },
+  {
     id: 'prompt-cohort',
     title: 'Prompt cohort',
     category: 'Tracking setup',

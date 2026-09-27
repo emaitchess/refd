@@ -214,6 +214,31 @@ export const entities = sqliteTable(
   ],
 );
 
+// The capability a prompt is trying to detect, above the wording.
+//
+// A prompt set with one prompt per attribute cannot be read at the attribute
+// level: a single label change is enough to swing visibility by tens of points,
+// so one sample per attribute measures wording, not the capability. Grouping
+// prompts under an attribute makes "are we detected for file management" a
+// question with a denominator.
+export const attributes = sqliteTable(
+  'attributes',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    workspaceId: integer('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    label: text('label').notNull(),
+    description: text('description'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('attributes_ws_label_unique').on(t.workspaceId, t.label),
+    index('attributes_ws_idx').on(t.workspaceId),
+  ],
+);
+
 export const prompts = sqliteTable(
   'prompts',
   {
@@ -231,6 +256,12 @@ export const prompts = sqliteTable(
     // inserted by a path that cannot see the entity set (onboarding, a chat
     // proposal), is classified lazily. A NULL is never read as an answer.
     kind: text('kind', { enum: PROMPT_KINDS }).$type<PromptKind>(),
+    // Null means the prompt is not yet grouped. A retired prompt keeps its
+    // attribute, and deleting an attribute detaches its prompts rather than
+    // deleting the history that references them.
+    attributeId: integer('attribute_id').references(() => attributes.id, {
+      onDelete: 'set null',
+    }),
     // Why a prompt stopped being active, when the reason is not the user
     // pressing retire. Null means retired by hand (or by the row-scoped
     // remove_prompt tool), so a setup sync is distinguishable from a person
@@ -242,6 +273,7 @@ export const prompts = sqliteTable(
     uniqueIndex('prompts_ws_text_unique').on(t.workspaceId, t.text),
     index('prompts_ws_idx').on(t.workspaceId),
     index('prompts_ws_kind_idx').on(t.workspaceId, t.kind),
+    index('prompts_ws_attribute_idx').on(t.workspaceId, t.attributeId),
   ],
 );
 

@@ -17,6 +17,11 @@ import { answerTextFromRaw } from '../ingest/rescore';
 import { promptSetHash } from '../ingest/runs';
 import { gunzipJson } from '../ingest/storage';
 import {
+  countPromptsPerAttribute,
+  listAttributes,
+  ungroupedPromptCount,
+} from '../lib/attributes';
+import {
   cohortScopeLabel,
   defaultHeadlineKind,
   populationLabel,
@@ -774,6 +779,88 @@ export const getDigest = async (
 
 // The workspace's measurement history: every distinct prompt population it has
 // run against, what changed to get there, and how much was collected on each.
+// Per-attribute visibility: the read that justifies the dimension.
+//
+// The point is the denominator. One prompt per attribute reports the wording's
+// score, not the capability's, so an attribute with a single variant is labelled
+// unmeasured rather than reported as a finding.
+export const getAttributePerformance = async (
+  env: AppEnv,
+  workspaceId: number,
+  range: Range,
+  kind: readonly PromptKind[] | null = null,
+) => {
+  const db = getDb(env);
+  const { from } = rangeWindows(range);
+  const { brand } = await loadEntitiesWithBrand(db, workspaceId);
+  if (!brand) {
+    return { needsSetup: true as const, range, rangeLabel: rangeLabel(range) };
+  }
+  const headlineKind = await defaultHeadlineKind(db, workspaceId, kind);
+  const cohorts = await workspaceCohorts(db, workspaceId, headlineKind);
+  const promptIds = promptIdsForCohorts(cohorts);
+  const [tracked, allRows, counts, ungrouped, promptAttribute] =
+    await Promise.all([
+      listAttributes(db, workspaceId),
+      loadScoreRows(db, workspaceId, from, '9999-99-99', promptIds),
+      countPromptsPerAttribute(db, workspaceId),
+      ungroupedPromptCount(db, workspaceId),
+      db
+        .select({ id: prompts.id, attributeId: prompts.attributeId })
+        .from(prompts)
+        .where(eq(prompts.workspaceId, workspaceId)),
+    ]);
+
+  const perAttribute = tracked.map((attribute) => {
+    const memberIds = new Set(
+      promptAttribute
+        .filter((row) => row.attributeId === attribute.id)
+        .map((row) => row.id),
+    );
+    const rows = allRows.filter((row) => memberIds.has(row.promptId));
+    const variants = counts.get(attribute.id) ?? 0;
+    return {
+      id: attribute.id,
+      label: attribute.label,
+      description: attribute.description,
+      // Membership is what the attribute is, so it counts every tracked prompt
+      // carrying it. measuredPrompts is how many of those fall inside the
+      // reported population, which is what makes a cohort filter legible: the
+      // two differing is the filter doing its job, not a prompt going missing.
+      prompts: memberIds.size,
+      measuredPrompts: new Set(rows.map((r) => r.promptId)).size,
+      variants,
+      measured: rows.length > 0,
+      variantWarning:
+        variants === 1 && rows.length > 0
+          ? 'unmeasured: one prompt cannot separate this capability from its wording'
+          : null,
+      answers: answerCount(rows),
+      mentionRate: r3(cellRate(rows, brand.id, 'mentioned')),
+      citationRate: r3(cellRate(rows, brand.id, 'cited')),
+      shareOfVoice: r3(shareOf(pooledSov(rows, 'mentioned'), brand.id)),
+    };
+  });
+
+  return {
+    needsSetup: false as const,
+    range,
+    rangeLabel: rangeLabel(range),
+    population: populationLabel(headlineKind),
+    populationScope: cohortScopeLabel(headlineKind),
+    // Worst first: an attribute scoring zero is what a reader came for, not the
+    // one already scoring best.
+    attributes: perAttribute.sort(
+      (a, b) => (a.mentionRate ?? -1) - (b.mentionRate ?? -1),
+    ),
+    ungrouped: {
+      prompts: ungrouped,
+      note: 'tracked prompts carrying no attribute',
+    },
+    note: 'A single prompt per attribute measures its wording, not the capability. An attribute needs at least two differently-worded prompts before its rate is a finding.',
+  };
+};
+
 export const getPromptSetTimeline = async (
   env: AppEnv,
   workspaceId: number,

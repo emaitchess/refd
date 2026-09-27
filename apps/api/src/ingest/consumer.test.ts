@@ -45,6 +45,7 @@ const MIGRATIONS = [
   '0017_chief_maelstrom.sql',
   '0019_flat_energizer.sql',
   '0020_yummy_reaper.sql',
+  '0021_brainy_blue_blade.sql',
 ];
 
 // bun:sqlite facade speaking the D1 API for the consumer handlers, which build

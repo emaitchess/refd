@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { type Db, getDb } from '../db/client';
 import { entities, prompts, results, runs } from '../db/schema';
 import type { AppEnv } from '../env';
+import { resolveAttributeId } from './attributes';
 import { insertActivePrompt } from './prompt-limit';
 
 export type PromptRow = typeof prompts.$inferSelect;
@@ -48,6 +49,7 @@ export interface PromptPatch {
   text?: string;
   tags?: string[];
   kind?: PromptKind;
+  attributeId?: number | null;
   // Never true here: an activation must go through setPromptActive's bound.
   active?: false;
 }
@@ -89,8 +91,13 @@ export const createPrompt = async (
   tags: string[],
   limit: Limit,
   kind?: PromptKind | null,
+  attribute?: string,
 ): Promise<CreatePromptResult> => {
   const db = getDb(env);
+  // The attribute is resolved first so a bad label is refused before the row
+  // exists, and the insert itself stays the single bounded statement the ceiling
+  // check depends on.
+  const attributeId = await resolveAttributeId(db, workspaceId, attribute);
   const insertedId = await insertActivePrompt(
     env,
     workspaceId,
@@ -99,6 +106,18 @@ export const createPrompt = async (
     limit,
     kind === undefined ? await classifyPromptText(db, workspaceId, text) : kind,
   );
+  // undefined means the caller said nothing about grouping, which is not the
+  // same as asking for no attribute: only a resolved id writes the column.
+  if (
+    insertedId !== null &&
+    attributeId !== null &&
+    attributeId !== undefined
+  ) {
+    await db
+      .update(prompts)
+      .set({ attributeId })
+      .where(eq(prompts.id, insertedId));
+  }
   if (insertedId !== null) {
     const prompt = await loadPrompt(db, insertedId, workspaceId);
     if (!prompt) {
@@ -197,6 +216,10 @@ export const setPromptActive = async (
   if (patch.kind !== undefined) {
     assignments.push('kind = ?');
     values.push(patch.kind);
+  }
+  if (patch.attributeId !== undefined) {
+    assignments.push('attribute_id = ?');
+    values.push(patch.attributeId);
   }
   assignments.push('active = 1');
   const row = await env.DB.prepare(

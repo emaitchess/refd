@@ -30,6 +30,7 @@ describe('MCP tool catalog', () => {
       'get_digest',
       'get_run_history',
       'get_prompt_set_timeline',
+      'get_attribute_performance',
       'get_prompt_changes',
       'get_prompt_citations',
     ]);
