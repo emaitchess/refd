@@ -25,6 +25,10 @@ import {
   workspaceCohorts,
 } from '../lib/prompt-cohorts';
 import { type Range, rangeLabel, rangeWindows } from '../lib/range';
+import {
+  resolveSurfaceRegistry,
+  withSurfaceStatus,
+} from '../lib/surface-registry';
 import { configForUser } from '../lib/user-config';
 import { enabledSurfaces } from '../providers/types';
 import { buildChangeReport, populationNote } from '../routes/changes';
@@ -135,9 +139,11 @@ export const getVisibilityOverview = async (
   const mentionSov = hasCompetitors ? pooledSov(rows, 'mentioned') : null;
   const citationSov = hasCompetitors ? pooledSov(rows, 'cited') : null;
   const firstShares = hasCompetitors ? firstMentionShare(rows) : null;
-  const surfaces = [...new Set(rows.map((row) => row.surface))]
-    .sort()
-    .map((surface) => {
+  // One resolved answer to "which surfaces is this over, and which are running",
+  // so this response cannot disagree with get_workspace_info about coverage.
+  const registry = await resolveSurfaceRegistry(db, workspaceId, { from });
+  const surfaces = withSurfaceStatus(
+    [...new Set(rows.map((row) => row.surface))].sort().map((surface) => {
       const scope = rows.filter((row) => row.surface === surface);
       return {
         surface,
@@ -146,7 +152,9 @@ export const getVisibilityOverview = async (
         averagePosition: r3(avgPosition(scope, brand.id)),
         answers: answerCount(scope),
       };
-    });
+    }),
+    registry,
+  );
   const measures = (
     scope: ScoreRow[],
     sov: Map<number, number> | null,
@@ -203,6 +211,9 @@ export const getVisibilityOverview = async (
     },
     coverage: coverageStats(coverageRows),
     surfaces,
+    // The resolved registry, so a caller never has to reconcile this response
+    // against get_workspace_info to learn whether a surface is still running.
+    surfaceRegistry: registry,
   };
 };
 
@@ -278,13 +289,20 @@ export const getCompetitorLandscape = async (
   const mentionSov = pooledSov(rows, 'mentioned');
   const citationSov = pooledSov(rows, 'cited');
   const firstShares = firstMentionShare(rows);
-  const surfaceList = [...new Set(rows.map((row) => row.surface))].sort();
+  const registry = await resolveSurfaceRegistry(db, workspaceId, { from });
+  const surfaceList = withSurfaceStatus(
+    [...new Set(rows.map((row) => row.surface))]
+      .sort()
+      .map((surface) => ({ surface })),
+    registry,
+  );
   return {
     range,
     rangeLabel: rangeLabel(range),
     // Named so a comparison cannot be read as "over everything we track" when
     // it was measured over the questions that named nobody.
     population: populationLabel(headlineKind),
+    surfaceRegistry: registry,
     populationScope: cohortScopeLabel(headlineKind),
     answers: answerCount(rows),
     entities: trackedEntities.map((entity) => ({
@@ -297,10 +315,11 @@ export const getCompetitorLandscape = async (
       averagePosition: r3(avgPosition(rows, entity.id)),
       firstNamedShare: r3(shareOf(firstShares, entity.id)),
       sentiment: sentimentDist(rows, entity.id),
-      surfaces: surfaceList.map((surface) => {
+      surfaces: surfaceList.map(({ surface, status }) => {
         const scope = rows.filter((row) => row.surface === surface);
         return {
           surface,
+          status,
           mentionRate: r3(cellRate(scope, entity.id, 'mentioned')),
           citationRate: r3(cellRate(scope, entity.id, 'cited')),
         };
@@ -353,6 +372,10 @@ export const getPromptPerformance = async (
       ? allPrompts
       : allPrompts.filter((prompt) => cohortIds.has(prompt.id));
   const brandRows = scoreRows.filter((row) => row.entityId === brand.id);
+  // Bound the one list that summary=true did not bound. An earlier read of a
+  // 30-prompt workspace returned every zero-visibility prompt in full, which is
+  // the response a caller asked to keep small. The full population is still
+  // reachable, so the cap never hides a prompt, it names the cap.
   const performance = trackedPrompts.map((prompt) => {
     const rows = brandRows.filter((row) => row.promptId === prompt.id);
     const mentionRate = r3(cellRate(rows, brand.id, 'mentioned'));
@@ -386,6 +409,13 @@ export const getPromptPerformance = async (
           }),
     };
   });
+  // summary=true caps this at a readable page; the default returns the whole
+  // list, because a caller that asked for per-surface detail is walking the set
+  // rather than reading a summary of it.
+  const limit = summary ? 10 : 200;
+  const zeroVisibility = performance
+    .filter((prompt) => prompt.answers > 0 && prompt.mentionRate === 0)
+    .map((prompt) => ({ id: prompt.id, text: prompt.text, kind: prompt.kind }));
   return {
     needsSetup: false as const,
     range,
@@ -394,13 +424,14 @@ export const getPromptPerformance = async (
     kind,
     headlineScope: cohortScopeLabel(kind),
     prompts: performance,
-    zeroVisibility: performance
-      .filter((prompt) => prompt.answers > 0 && prompt.mentionRate === 0)
-      .map((prompt) => ({
-        id: prompt.id,
-        text: prompt.text,
-        kind: prompt.kind,
-      })),
+    // The full list, and a bounded view of it. `count` is always the true
+    // population, so a caller that reads only the count is never misled, and
+    // `truncated` is true whenever `prompts` is a subset.
+    zeroVisibility: {
+      count: zeroVisibility.length,
+      prompts: zeroVisibility.slice(0, limit),
+      truncated: zeroVisibility.length > limit,
+    },
   };
 };
 
