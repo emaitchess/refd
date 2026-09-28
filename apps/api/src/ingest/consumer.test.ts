@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import type { Db } from '../db/client';
@@ -19,6 +19,7 @@ import { MIGRATIONS as migrationFiles } from '../lib/test-migrations';
 import {
   handleIngestBatch,
   isQueueOverload,
+  pollDelaySecondsFor,
   resumeTerminalSnapshot,
 } from './consumer';
 import type { IngestMessage } from './messages';
@@ -761,5 +762,147 @@ describe('handleRescoreBatch', () => {
     await handleIngestBatch(batchFor(sentiment, []), env);
     const labeled = await db.select().from(entityScores);
     expect(labeled.every((row) => row.sentiment === 'neutral')).toBe(true);
+  });
+});
+
+describe('pollDelaySecondsFor', () => {
+  test('polls quickly through the healthy window', () => {
+    expect(pollDelaySecondsFor(0)).toBe(60);
+    expect(pollDelaySecondsFor(29 * 60_000)).toBe(60);
+  });
+
+  test('slows down once a batch is well past healthy', () => {
+    expect(pollDelaySecondsFor(30 * 60_000)).toBe(300);
+    expect(pollDelaySecondsFor(3 * 60 * 60_000)).toBe(300);
+  });
+});
+
+describe('handlePoll deadline', () => {
+  const realFetch = globalThis.fetch;
+
+  const pollEnv = (
+    sent: { message: IngestMessage; opts?: { delaySeconds?: number } }[],
+  ) =>
+    ({
+      DB: lastD1,
+      BRIGHTDATA_API_TOKEN: 'token',
+      RAW: { put: async () => ({}), get: async () => null },
+      INGEST: {
+        send: async (
+          message: IngestMessage,
+          opts?: { delaySeconds?: number },
+        ) => {
+          sent.push({ message, opts });
+        },
+        sendBatch: async () => {},
+      },
+    }) as unknown as AppEnv;
+
+  const pollMessage = (polls: number): IngestMessage => ({
+    kind: 'brightdata_poll',
+    runId: 60,
+    workspaceId: 9,
+    surface: 'google_ai_mode',
+    sample: 1,
+    chunk: 3,
+    snapshotId: 'sd_existing',
+    prompts: [
+      { id: 86, text: 'p86' },
+      { id: 87, text: 'p87' },
+    ],
+    polls,
+  });
+
+  const seedTriggered = async (db: Db, createdAt: number) => {
+    await db
+      .update(runs)
+      .set({ status: 'running', totalCount: 2 })
+      .where(eq(runs.id, 60));
+    const id = await insertSnapshot(db);
+    await db.update(snapshots).set({ createdAt }).where(eq(snapshots.id, id));
+  };
+
+  const stubProgressRunning = () => {
+    globalThis.fetch = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'running' }),
+    })) as unknown as typeof fetch;
+  };
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  test('keeps polling a young batch and re-enqueues with the fast delay', async () => {
+    const db = await setup();
+    const sent: { message: IngestMessage; opts?: { delaySeconds?: number } }[] =
+      [];
+    await seedTriggered(db, Date.now() - 60_000);
+    stubProgressRunning();
+
+    await handleIngestBatch(batchFor(pollMessage(0)), pollEnv(sent));
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.message).toMatchObject({
+      kind: 'brightdata_poll',
+      polls: 1,
+    });
+    expect(sent[0]?.opts?.delaySeconds).toBe(60);
+    expect((await snapshotOf(db))?.status).toBe('triggered');
+  });
+
+  test('slows the poll interval once the batch is well past healthy', async () => {
+    const db = await setup();
+    const sent: { message: IngestMessage; opts?: { delaySeconds?: number } }[] =
+      [];
+    await seedTriggered(db, Date.now() - 45 * 60_000);
+    stubProgressRunning();
+
+    await handleIngestBatch(batchFor(pollMessage(5)), pollEnv(sent));
+
+    expect(sent[0]?.opts?.delaySeconds).toBe(300);
+  });
+
+  // The regression: the old guard counted polls from the first backstop poll
+  // (25m after the trigger), so a batch was written off at ~90 minutes of wall
+  // clock. On 2026-09-27 two of twelve google_ai_mode batches were still running
+  // at the provider then, one of them ready on the final permitted poll.
+  test('waits out a slow batch past the old poll ceiling instead of failing it', async () => {
+    const db = await setup();
+    const sent: { message: IngestMessage; opts?: { delaySeconds?: number } }[] =
+      [];
+    await seedTriggered(db, Date.now() - 100 * 60_000);
+    stubProgressRunning();
+
+    await handleIngestBatch(batchFor(pollMessage(60)), pollEnv(sent));
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.message).toMatchObject({ polls: 61 });
+    expect((await snapshotOf(db))?.status).toBe('triggered');
+  });
+
+  test('gives up only once the trigger-to-now deadline passes, naming the wait', async () => {
+    const db = await setup();
+    const sent: { message: IngestMessage; opts?: { delaySeconds?: number } }[] =
+      [];
+    await seedTriggered(db, Date.now() - 181 * 60_000);
+    stubProgressRunning();
+
+    await handleIngestBatch(batchFor(pollMessage(4)), pollEnv(sent));
+
+    expect(sent).toHaveLength(0);
+    const snap = await snapshotOf(db);
+    expect(snap?.status).toBe('failed');
+    expect(snap?.finishedAt).not.toBeNull();
+
+    const failed = await db
+      .select({ error: results.error })
+      .from(results)
+      .where(eq(results.runId, 60));
+    expect(failed).toHaveLength(2);
+    for (const row of failed) {
+      expect(row.error).toMatch(/still running at provider after 181m/);
+    }
   });
 });

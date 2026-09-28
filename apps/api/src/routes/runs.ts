@@ -13,7 +13,9 @@ import {
   runs,
   snapshots,
 } from '../db/schema';
+import { runDispatchPlanSchema } from '../ingest/dispatch';
 import type { IngestMessage } from '../ingest/messages';
+import { runProgress } from '../ingest/progress';
 import {
   answerTextFromRaw,
   rescoreProgress,
@@ -294,7 +296,30 @@ runRoutes.get('/:id', async (c) => {
     return c.json({ error: 'not found' }, 404);
   }
 
-  const { brand } = await loadEntitiesWithBrand(db, ws);
+  const [{ brand }, planRow, inFlightRows] = await Promise.all([
+    loadEntitiesWithBrand(db, ws),
+    db
+      .select({ dispatchPlan: runs.dispatchPlan })
+      .from(runs)
+      .where(eq(runs.id, id)),
+    db
+      .select({
+        surface: snapshots.surface,
+        sample: snapshots.sample,
+        chunk: snapshots.chunk,
+        polls: snapshots.polls,
+        createdAt: snapshots.createdAt,
+      })
+      .from(snapshots)
+      .where(
+        and(
+          eq(snapshots.runId, id),
+          eq(snapshots.provider, 'brightdata'),
+          eq(snapshots.status, 'triggered'),
+        ),
+      ),
+  ]);
+  const plan = runDispatchPlanSchema.safeParse(planRow[0]?.dispatchPlan);
 
   const rows = await db
     .select({
@@ -326,7 +351,15 @@ runRoutes.get('/:id', async (c) => {
     .where(eq(results.runId, id))
     .orderBy(prompts.id, results.surface, results.sample);
 
-  return c.json({ run, results: rows });
+  const progress = runProgress({
+    plan: plan.success ? plan.data : null,
+    totalCount: run.totalCount,
+    results: rows.map((row) => ({ surface: row.surface, ok: row.ok })),
+    triggered: inFlightRows,
+    now: Date.now(),
+  });
+
+  return c.json({ run, results: rows, progress });
 });
 
 // Full detail for the result side pane: scores, citations, and the answer

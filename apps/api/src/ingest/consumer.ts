@@ -28,6 +28,7 @@ import {
   ingestMessageSchema,
   type RunPrompt,
 } from './messages';
+import { SNAPSHOT_HEALTHY_MS } from './progress';
 import {
   answerFromRaw,
   rescoreStoredResult,
@@ -47,7 +48,17 @@ import {
 
 const POLL_DELAY_SECONDS = 60;
 const BACKSTOP_DELAY_SECONDS = 1500;
-const MAX_POLLS = 60; // give a snapshot up to ~1h before declaring it lost
+// A healthy batch is ready ~25-27m after its trigger, so the deadline below is
+// generous by design. On 2026-09-27 two of twelve google_ai_mode batches were
+// still "running" at the provider after 91 minutes, and one of them was ready on
+// the final permitted poll of the old 60-poll budget. Giving up earlier is a
+// data-loss decision, so it is measured from the trigger, not from a poll
+// counter, and the backstop delay cannot silently consume it.
+const SNAPSHOT_DEADLINE_MS = 3 * 60 * 60 * 1000;
+const POLL_DELAY_SECONDS_SLOW = 300;
+
+export const pollDelaySecondsFor = (ageMs: number): number =>
+  ageMs >= SNAPSHOT_HEALTHY_MS ? POLL_DELAY_SECONDS_SLOW : POLL_DELAY_SECONDS;
 
 // Cloudflare Queues producer backpressure (error 10250). Only the enqueue of
 // follow-on work failed, never the provider call the message stands for, and
@@ -119,6 +130,22 @@ export const failWholeSnapshot = async (
     .update(snapshots)
     .set({ status: 'failed', finishedAt: now, polls })
     .where(snapshotKey);
+  // A lost batch is paid-for data that will never arrive, and nothing else in
+  // the pipeline surfaces it: the run just quietly finishes short. Log it so
+  // the shortfall is greppable in worker logs.
+  console.error(
+    JSON.stringify({
+      message: 'brightdata snapshot failed',
+      runId,
+      surface,
+      sample,
+      chunk,
+      prompts: promptsInRun.length,
+      waitedMs: durationMs,
+      polls,
+      reason: error,
+    }),
+  );
   await refreshRunStatus(db, runId);
 };
 
@@ -474,7 +501,12 @@ const handlePoll = async (
   const progress = await checkProgress(env, msg.snapshotId);
 
   if (progress === 'running') {
-    if (msg.polls >= MAX_POLLS) {
+    // The single give-up rule, measured from the trigger rather than from a
+    // poll counter: createdAt is a stored column, so the deadline holds across
+    // redeliveries, deploys and a restart, and the chain cannot outlive it no
+    // matter how many times it is re-enqueued.
+    const ageMs = Date.now() - snap.createdAt;
+    if (ageMs >= SNAPSHOT_DEADLINE_MS) {
       await failWholeSnapshot(
         env,
         msg.runId,
@@ -482,7 +514,7 @@ const handlePoll = async (
         msg.sample,
         msg.chunk,
         msg.prompts,
-        `snapshot ${msg.snapshotId} still running after ${MAX_POLLS} polls`,
+        `snapshot ${msg.snapshotId} still running at provider after ${Math.round(ageMs / 60_000)}m`,
         msg.polls,
       );
       return;
@@ -490,7 +522,7 @@ const handlePoll = async (
     await env.INGEST.send(
       { ...msg, polls: msg.polls + 1 } satisfies IngestMessage,
       {
-        delaySeconds: POLL_DELAY_SECONDS,
+        delaySeconds: pollDelaySecondsFor(ageMs),
       },
     );
     return;
