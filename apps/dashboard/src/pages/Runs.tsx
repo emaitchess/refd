@@ -35,7 +35,7 @@ import {
 } from '@/hooks/useFuzzySearch';
 import { api, apiPath, useAsyncAction, useQuery } from '@/lib/api';
 import { pct, SURFACE_ORDER, surfaceLabel, timestamp } from '@/lib/format';
-import type { RunResultRow, RunRow } from '@/lib/types';
+import type { RunProgress, RunResultRow, RunRow } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 const ALL_STATUSES = 'all statuses';
@@ -149,6 +149,106 @@ const durationLabel = (milliseconds: number | null) => {
 
 const runDuration = (run: RunRow) =>
   run.completedAt === null ? null : run.completedAt - run.createdAt;
+
+const waitLabel = (milliseconds: number) => {
+  const minutes = Math.max(0, Math.round(milliseconds / 60_000));
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+};
+
+// The run page's answer to "is it stuck, and if so where". A run completes on
+// row count, so a surface that lost batches used to end it quietly short with
+// nothing but okCount/totalCount on screen, which cannot say whether the
+// remainder is still in flight, already failed, or simply young.
+const CollectionProgress = ({
+  progress,
+  run,
+}: {
+  progress: RunProgress;
+  run: RunRow;
+}) => {
+  const failedCells = progress.surfaces.reduce(
+    (sum, surface) => sum + surface.failed,
+    0,
+  );
+  const slowBatches = progress.inFlight.filter((batch) => batch.slow).length;
+  const running = run.status === 'running';
+  // Nothing to say on a clean finished run, or before collection has started.
+  if (
+    !running &&
+    progress.missing === 0 &&
+    failedCells === 0 &&
+    progress.inFlight.length === 0
+  ) {
+    return null;
+  }
+
+  return (
+    <div className="border border-border bg-bg-elevated">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-border border-b px-5 py-2.5">
+        <h2 className="section-label text-primary">Collection progress</h2>
+        <p className="font-mono text-[11px] text-muted tabular-nums">
+          {progress.stored}/{progress.expected} units stored
+          {progress.missing > 0 ? ` · ${progress.missing} not yet in` : ''}
+        </p>
+      </div>
+      <ul className="divide-y divide-border">
+        {progress.surfaces.map((surface) => {
+          const short = (surface.missing ?? 0) + surface.failed;
+          return (
+            <li
+              key={surface.surface}
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2"
+            >
+              <span className="flex w-40 shrink-0 items-center gap-2 text-secondary">
+                <SurfaceLogo surface={surface.surface} className="size-3.5" />
+                <span className="truncate">
+                  {surfaceLabel(surface.surface)}
+                </span>
+              </span>
+              <span className="font-mono text-[11px] text-primary tabular-nums">
+                {surface.expected === null
+                  ? `${surface.stored} stored`
+                  : `${surface.stored}/${surface.expected}`}
+              </span>
+              {surface.failed > 0 ? (
+                <Badge tone="fail">{surface.failed} failed</Badge>
+              ) : null}
+              {(surface.missing ?? 0) > 0 ? (
+                <Badge tone="neutral">{surface.missing} missing</Badge>
+              ) : null}
+              {short === 0 && surface.stored > 0 ? (
+                <span className="font-mono text-[11px] text-muted">
+                  all units collected
+                </span>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+      {progress.inFlight.length > 0 ? (
+        <p
+          className={cn(
+            'border-border border-t px-5 py-2.5 font-mono text-[11px]',
+            slowBatches > 0 ? 'text-warning' : 'text-muted',
+          )}
+        >
+          {progress.inFlight.length}{' '}
+          {progress.inFlight.length === 1 ? 'batch' : 'batches'} in flight
+          {progress.oldestWaitMs !== null
+            ? ` · longest waiting ${waitLabel(progress.oldestWaitMs)}`
+            : ''}
+          {slowBatches > 0
+            ? ` · ${slowBatches} past the ${waitLabel(progress.healthyMs)} a batch normally takes`
+            : ''}
+        </p>
+      ) : null}
+    </div>
+  );
+};
 
 const runStatusLabel = (run: RunRow) => {
   if (run.dispatchState === 'exhausted') {
@@ -611,6 +711,7 @@ export const RunDetail = () => {
   const { data, loading, error, refetch } = useQuery<{
     run: RunRow;
     results: RunResultRow[];
+    progress: RunProgress;
   }>(`/runs/${id}`);
   const rows = data?.results ?? EMPTY_RESULTS;
   const toast = useToast();
@@ -867,6 +968,10 @@ export const RunDetail = () => {
               </div>
             ) : null}
           </section>
+
+          {run && data?.progress ? (
+            <CollectionProgress progress={data.progress} run={run} />
+          ) : null}
 
           <Card className="overflow-hidden p-0">
             <div className="flex flex-col gap-3 border-border border-b px-4 py-3 xl:flex-row xl:items-center xl:justify-between">

@@ -423,3 +423,32 @@ export interface RunResultRow {
   brandCited: number;
   brandSentiment: 'positive' | 'neutral' | 'negative' | null;
 }
+
+export interface RunSurfaceProgress {
+  surface: string;
+  expected: number | null;
+  stored: number;
+  ok: number;
+  failed: number;
+  missing: number | null;
+}
+
+export interface RunInFlightBatch {
+  surface: string;
+  sample: number;
+  chunk: number;
+  polls: number | null;
+  waitingMs: number;
+  slow: boolean;
+}
+
+export interface RunProgress {
+  expected: number;
+  stored: number;
+  missing: number;
+  settled: boolean;
+  healthyMs: number;
+  surfaces: RunSurfaceProgress[];
+  inFlight: RunInFlightBatch[];
+  oldestWaitMs: number | null;
+}

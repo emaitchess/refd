@@ -162,7 +162,7 @@ export const GLOSSARY_TERMS: GlossaryDefinition<TermCategory>[] = [
     definition:
       'A collection batch covering the active prompts and enabled AI surfaces at a point in time.',
     details:
-      'Runs freeze their prompt set when they start, so edits made during collection do not change the work already in progress.',
+      'Runs freeze their prompt set when they start, so edits made during collection do not change the work already in progress. A run is finished once every unit it promised has an outcome, which is not the same as every unit succeeding: check the per-surface breakdown for units that failed or never arrived.',
   },
   {
     id: 'run-trigger',
@@ -178,7 +178,7 @@ export const GLOSSARY_TERMS: GlossaryDefinition<TermCategory>[] = [
     category: 'Collection and scoring',
     definition: 'One result for a specific prompt and AI surface within a run.',
     details:
-      'A successful unit completed provider collection. For Google AI Overviews, a successful unit may still contain no overview because that is a valid outcome.',
+      'A successful unit completed provider collection. For Google AI Overviews, a successful unit may still contain no overview because that is a valid outcome. A unit is also the unit of failure: when a batch of prompts cannot be collected, every unit in that batch is recorded as failed rather than silently absent, which is what lets a run finish and still report a shortfall.',
   },
   {
     id: 'scoring',
