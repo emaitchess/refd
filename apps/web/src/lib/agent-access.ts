@@ -260,6 +260,10 @@ export const AGENT_TOOLS: [name: string, description: string][] = [
     'Every distinct prompt population the workspace has run against, and what changed between them.',
   ],
   [
+    'get_attribute_performance',
+    'Per-capability visibility, flagging an attribute measured by a single prompt as unmeasured.',
+  ],
+  [
     'get_prompt_citations',
     'The URLs cited for one prompt, with counts and an isOurs flag, in a single call.',
   ],

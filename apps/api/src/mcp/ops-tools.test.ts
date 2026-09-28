@@ -14,6 +14,7 @@ import {
 } from '../db/schema';
 import type { AppEnv } from '../env';
 import type { IngestMessage } from '../ingest/messages';
+import { MIGRATIONS as migrationFiles } from '../lib/test-migrations';
 import type { McpPrincipal, McpWorkspace } from './context';
 import {
   addCompetitor,
@@ -37,28 +38,7 @@ import {
 
 // Migrations applied to an in-memory SQLite so the gates, limits, and
 // run-creation execute against real rows, not mocks.
-const MIGRATIONS = [
-  '0000_init.sql',
-  '0001_outgoing_sally_floyd.sql',
-  '0002_luxuriant_lilandra.sql',
-  '0003_tiny_otto_octavius.sql',
-  '0004_tearful_killmonger.sql',
-  '0005_worried_sinister_six.sql',
-  '0006_ancient_wildside.sql',
-  '0007_dazzling_prima.sql',
-  '0008_tricky_war_machine.sql',
-  '0009_amazing_hydra.sql',
-  '0010_nostalgic_swarm.sql',
-  '0011_spotty_hairball.sql',
-  '0012_youthful_yellow_claw.sql',
-  '0013_skinny_mindworm.sql',
-  '0014_calm_tomorrow_man.sql',
-  '0015_true_the_phantom.sql',
-  '0016_careless_queen_noir.sql',
-  '0017_chief_maelstrom.sql',
-  '0019_flat_energizer.sql',
-  '0020_yummy_reaper.sql',
-];
+const MIGRATIONS = migrationFiles;
 
 const makeD1 = (sqlite: Database) => ({
   prepare: (query: string) => {
