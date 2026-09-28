@@ -417,7 +417,9 @@ describe('getPromptPerformance cohorts', () => {
     expect(result.prompts.map((p) => p.id)).toEqual([discoveryA, discoveryB]);
     // Both discovery prompts have answers and a zero mention rate, so both
     // belong in zeroVisibility; the brand-defining prompt must not appear.
-    expect(result.zeroVisibility.map((p) => p.id)).toEqual([
+    expect(result.zeroVisibility.count).toBe(2);
+    expect(result.zeroVisibility.truncated).toBeFalse();
+    expect(result.zeroVisibility.prompts.map((p) => p.id)).toEqual([
       discoveryA,
       discoveryB,
     ]);

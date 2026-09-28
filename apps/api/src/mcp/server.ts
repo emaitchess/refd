@@ -284,7 +284,7 @@ export const createRefdMcpServer = (
     {
       title: 'Get prompt performance',
       description:
-        'Returns every tracked buyer question with visibility and citation rates, per-surface performance, and the zero-visibility prompt list. Pass summary: true for headline metrics per prompt without the per-surface breakdowns.',
+        'Returns every tracked buyer question with visibility and citation rates, per-surface performance, and the zero-visibility prompts. Pass summary: true for headline metrics per prompt without the per-surface breakdowns; that caps zeroVisibility at ten entries and sets truncated, so read the count for the true population.',
       inputSchema: promptPerformanceArgsSchema,
       annotations: MCP_TOOL_ANNOTATIONS,
     },

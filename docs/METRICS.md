@@ -96,6 +96,38 @@ The taxonomy is `discovery`, `problem`, `market_perception`, `alternative`, and
   member is a stage, not the absence of a tracked name. The two are independent
   and frequently disagree, which is why `tags` could not carry the cohort.
 
+## Surfaces: configured versus measured
+
+A surface can be switched off and still have results inside the window being
+read, because a 30-day window outlives a configuration change. Two responses
+previously answered "which surfaces" differently, and neither said which answer it
+was giving: `get_workspace_info` reported the **configured** set, while
+`get_visibility_overview` and `get_competitor_landscape` reported the set
+**derived from rows in the window**. A reader comparing denominators had no way
+to reconcile them, and a coverage figure for a departed surface could not be
+interpreted at all.
+
+- **Every surface carries a status, and it travels with its figures.** A resolved
+  registry covers the union of the configured set and anything with data in the
+  window, ordering surfaces canonically rather than alphabetically so chart series
+  and colours stay stable. Each is `enabled` or `historical`, and the per-surface
+  objects in the overview and landscape repeat the status, so a number and its
+  provenance cannot be read apart.
+- **`historical` is a real period, not a defect.** Its figures belong to a period
+  when the surface was running, which is exactly why they are labelled rather than
+  dropped: excluding them silently would make a run where collection was
+  interrupted look like a run where the surface scored zero.
+- **Absence of data is not absence of a surface.** An enabled surface that has not
+  collected yet is still present in the registry, so "what are we tracking" and
+  "what have we measured" are answerable separately and neither implies the other.
+
+## Bounded lists
+
+`get_prompt_performance` with `summary: true` caps `zeroVisibility` at ten entries
+and reports the true `count` alongside a `truncated` flag. A caller reading only
+the count is never misled by the cap, and the cap never hides a prompt: the
+default, untruncated read returns the whole list up to a 200-entry ceiling.
+
 ## Mention detection
 
 - **Alias sets replace single names.** `entities` carries an `aliases` JSON
