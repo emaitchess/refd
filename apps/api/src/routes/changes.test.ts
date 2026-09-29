@@ -13,7 +13,7 @@ import {
   TREND_WINDOWS,
   type WindowSlice,
 } from './changes';
-import type { EntityInfo, ScoreRow } from './metrics';
+import { type EntityInfo, type ScoreRow, sentimentReading } from './metrics';
 
 const BRAND = 1;
 const COMP = 2;
@@ -391,17 +391,15 @@ describe('detectChanges', () => {
   });
 
   test('reports a sentiment shift on the larger-moving share', () => {
+    // Fully classified in both windows. One unclassified mention withholds the
+    // event, which is the rule this test now pins from the other side.
     const previous = slice(
       1,
-      prompts.map((p) =>
-        row(1, p, { mentioned: true, sentiment: p === 4 ? null : 'neutral' }),
-      ),
+      prompts.map((p) => row(1, p, { mentioned: true, sentiment: 'neutral' })),
     );
     const latest = slice(
       2,
-      prompts.map((p) =>
-        row(2, p, { mentioned: true, sentiment: p === 4 ? null : 'negative' }),
-      ),
+      prompts.map((p) => row(2, p, { mentioned: true, sentiment: 'negative' })),
     );
     const report = detectChanges(
       latest,
@@ -807,5 +805,92 @@ describe('population caveats on a change report', () => {
     expect(report.activePromptCount).toBeNull();
     expect(report.caveat).toContain('could not be established');
     expect(report.liveSetUnchanged).toBeFalse();
+  });
+});
+
+describe('sentiment classification completeness', () => {
+  test('a partly classified window reports no tone change', () => {
+    // Two positive out of two classified reads as 100% positive, and reporting
+    // that while more mentions are still pending would report the queue's
+    // progress as a change in tone.
+    const previous = slice(
+      1,
+      prompts.map((p) => row(1, p, { mentioned: true, sentiment: 'positive' })),
+    );
+    const latest = slice(
+      2,
+      prompts.map((p) =>
+        p === 4
+          ? row(2, p, { mentioned: true, sentiment: null })
+          : row(2, p, { mentioned: true, sentiment: 'negative' }),
+      ),
+    );
+    const report = detectChanges(
+      latest,
+      previous,
+      entities,
+      brand,
+      prompts.length,
+    );
+    expect(report.events.some((e) => e.type === 'sentiment')).toBeFalse();
+  });
+
+  test('an unclassified mention is not counted as neutral', () => {
+    const rows = [
+      {
+        entityId: 1,
+        mentioned: true,
+        sentiment: 'positive' as const,
+        position: 1,
+      },
+      { entityId: 1, mentioned: true, sentiment: null, position: 1 },
+      {
+        entityId: 1,
+        mentioned: true,
+        sentiment: 'negative' as const,
+        position: 1,
+      },
+    ];
+    const reading = sentimentReading(rows as never, 1);
+    expect(reading.mentionedAnswers).toBe(3);
+    expect(reading.classifiedAnswers).toBe(2);
+    expect(reading.unclassifiedAnswers).toBe(1);
+    expect(reading.status).toBe('measured');
+    expect(reading.note).toContain('pending');
+  });
+
+  test('each reason for a missing reading is distinguishable', () => {
+    // The defect this fixes: all four returned null, so a reader could not tell
+    // "never mentioned" from "not classified yet".
+    const mentioned = {
+      entityId: 1,
+      mentioned: true,
+      sentiment: null,
+      position: 1,
+    };
+    const absent = {
+      entityId: 1,
+      mentioned: false,
+      sentiment: null,
+      position: null,
+    };
+
+    const nothing = sentimentReading([], 1);
+    expect(nothing.status).toBe('no-answers');
+    expect(nothing.note).toContain('nothing to classify');
+
+    const notMentioned = sentimentReading([absent] as never, 1);
+    expect(notMentioned.status).toBe('not-mentioned');
+    expect(notMentioned.note).toContain('not a neutral tone');
+
+    const pending = sentimentReading([mentioned, mentioned] as never, 1);
+    expect(pending.status).toBe('pending');
+    expect(pending.note).toContain('none are classified yet');
+
+    const measured = sentimentReading(
+      [{ ...mentioned, sentiment: 'neutral' }] as never,
+      1,
+    );
+    expect(measured.status).toBe('measured');
   });
 });

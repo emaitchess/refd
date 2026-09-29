@@ -27,6 +27,7 @@ import {
   loadEntitiesWithBrand,
   loadScoreRows,
   sentimentDist,
+  sentimentReading,
 } from './metrics';
 
 export const promptRoutes = new Hono<WorkspaceBindings>();
@@ -68,6 +69,7 @@ promptRoutes.get('/', async (c) => {
         kind: promptKindOrDiscovery(p.kind),
         active: p.active,
         sentiment: sentimentDist(mine, brand.id),
+        sentimentReading: sentimentReading(mine, brand.id),
         surfaces: [...new Set(mine.map((r) => r.surface))].sort().map((s) => {
           const scope = mine.filter((r) => r.surface === s);
           return {

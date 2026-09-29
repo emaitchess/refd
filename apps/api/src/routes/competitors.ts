@@ -12,6 +12,7 @@ import {
   positionedAnswerCount,
   runSeries,
   sentimentDist,
+  sentimentReading,
   shareOf,
 } from './metrics';
 
@@ -42,6 +43,7 @@ competitorRoutes.get('/', async (c) => {
       positionedAnswers: positionedAnswerCount(rows, entity.id),
       firstMentionShare: shareOf(firstShares, entity.id),
       sentiment: sentimentDist(rows, entity.id),
+      sentimentReading: sentimentReading(rows, entity.id),
       surfaces: surfaceList.map((s) => ({
         surface: s,
         mentionRate: cellRate(

@@ -63,6 +63,7 @@ import {
   prominenceDist,
   type ScoreRow,
   sentimentDist,
+  sentimentReading,
   shareOf,
 } from '../routes/metrics';
 
@@ -194,6 +195,7 @@ export const getVisibilityOverview = async (
     firstNamedShare: r3(shareOf(first, brand.id)),
     prominence: prominenceDist(scope, brand.id),
     sentiment: sentimentDist(scope, brand.id),
+    sentimentReading: sentimentReading(scope, brand.id),
   });
   const sovFor = (scope: ScoreRow[]) =>
     hasCompetitors ? pooledSov(scope, 'mentioned') : null;
@@ -342,6 +344,7 @@ export const getCompetitorLandscape = async (
       ).length,
       firstNamedShare: r3(shareOf(firstShares, entity.id)),
       sentiment: sentimentDist(rows, entity.id),
+      sentimentReading: sentimentReading(rows, entity.id),
       surfaces: surfaceList.map(({ surface, status }) => {
         const scope = rows.filter((row) => row.surface === surface);
         return {
@@ -422,6 +425,7 @@ export const getPromptPerformance = async (
       mentionRate,
       citationRate: r3(cellRate(rows, brand.id, 'cited')),
       sentiment: sentimentDist(rows, brand.id),
+      sentimentReading: sentimentReading(rows, brand.id),
       // summary=true skips the per-surface breakdown: with 30+ prompts the
       // full response outruns what an audit needs, and the headline numbers
       // live above regardless.

@@ -284,6 +284,7 @@ export const Overview = () => {
     ];
   }, [data]);
 
+  const reading = data?.sentimentReading ?? null;
   const sentimentRows = useMemo(() => {
     if (!data?.sentiment) {
       return [];
@@ -638,7 +639,13 @@ export const Overview = () => {
     },
     sentiment: {
       title: (
-        <>brand sentiment · share of classified mentions · {displayedRange}</>
+        <>
+          brand sentiment · share of classified mentions
+          {reading && reading.mentionedAnswers > 0
+            ? ` (${reading.classifiedAnswers} of ${reading.mentionedAnswers} mentions classified)`
+            : ''}{' '}
+          · {displayedRange}
+        </>
       ),
       body:
         sentimentRows.length > 0 ? (
@@ -655,8 +662,18 @@ export const Overview = () => {
           </BarChart>
         ) : (
           <EmptyState
-            title="no classified mentions"
-            hint="New runs classify how answers portray the brand once it is mentioned."
+            title={
+              reading?.status === 'not-mentioned'
+                ? 'the brand was not mentioned in this period'
+                : 'no classified mentions yet'
+            }
+            hint={
+              reading?.status === 'not-mentioned'
+                ? 'Sentiment is measured only where the brand appears, so an absence of mentions has no tone to read.'
+                : reading?.status === 'pending'
+                  ? `The brand was mentioned in ${reading.mentionedAnswers} answers and none are classified yet. Classification follows scoring by a queue hop.`
+                  : 'New runs classify how answers portray the brand once it is mentioned.'
+            }
             className="min-h-64"
           />
         ),

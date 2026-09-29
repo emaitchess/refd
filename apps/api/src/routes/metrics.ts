@@ -318,22 +318,94 @@ export const prominenceDist = (
   return n === 0 ? null : dist;
 };
 
-// Distribution over the entity's *classified* mentions. Unclassified (null)
-// mentions are excluded from the denominator: sentiment lags scoring by a
-// queue hop and pre-sentiment history is all null — neither is "neutral".
+// Sentiment, and the reason it may be missing.
+//
+// The counts are over CLASSIFIED mentions only, because an unclassified mention
+// is not a neutral one: sentiment lags scoring by a queue hop, and pre-sentiment
+// history is unclassified forever. The old return could not say which of four
+// very different situations produced a null, and a reader seeing an em dash had
+// no way to tell "the brand was never mentioned" from "classification has not
+// caught up yet", which are opposite findings about the brand.
+export type SentimentReading = {
+  status: 'measured' | 'pending' | 'not-mentioned' | 'no-answers';
+  positive: number;
+  neutral: number;
+  negative: number;
+  // The denominators, so a partial classification is legible rather than looking
+  // like a complete one: 2 positive of 5 mentions is a different claim from 2
+  // positive of 2.
+  mentionedAnswers: number;
+  classifiedAnswers: number;
+  unclassifiedAnswers: number;
+  note: string;
+};
+
+export const sentimentReading = (
+  rows: ScoreRow[],
+  entityId: number,
+): SentimentReading => {
+  const counts = { positive: 0, neutral: 0, negative: 0 };
+  let mentioned = 0;
+  let classified = 0;
+  for (const row of rows) {
+    if (row.entityId !== entityId || !row.mentioned) {
+      continue;
+    }
+    mentioned += 1;
+    if (row.sentiment) {
+      counts[row.sentiment] += 1;
+      classified += 1;
+    }
+  }
+  const unclassified = mentioned - classified;
+  const base = {
+    ...counts,
+    mentionedAnswers: mentioned,
+    classifiedAnswers: classified,
+    unclassifiedAnswers: unclassified,
+  };
+  if (mentioned === 0) {
+    return {
+      ...base,
+      status: rows.length === 0 ? 'no-answers' : 'not-mentioned',
+      note:
+        rows.length === 0
+          ? 'no answers were collected in this scope, so there is nothing to classify'
+          : 'the brand was not mentioned in this scope, so there is no sentiment to measure; that is an absence, not a neutral tone',
+    };
+  }
+  if (classified === 0) {
+    return {
+      ...base,
+      status: 'pending',
+      note: `the brand was mentioned in ${mentioned} answers and none are classified yet; sentiment lags scoring by a queue hop, and none of these are neutral`,
+    };
+  }
+  return {
+    ...base,
+    status: 'measured',
+    note:
+      unclassified > 0
+        ? `${classified} of ${mentioned} mentions classified; the rest are pending and are not counted as neutral`
+        : `all ${mentioned} mentions classified`,
+  };
+};
+
+// The bare counts, for the paths that only need a distribution. Null when
+// nothing is classified, which is the pre-existing contract.
 export const sentimentDist = (
   rows: ScoreRow[],
   entityId: number,
 ): { positive: number; neutral: number; negative: number } | null => {
-  const dist = { positive: 0, neutral: 0, negative: 0 };
-  let n = 0;
-  for (const row of rows) {
-    if (row.entityId === entityId && row.mentioned && row.sentiment) {
-      dist[row.sentiment] += 1;
-      n += 1;
-    }
+  const reading = sentimentReading(rows, entityId);
+  if (reading.classifiedAnswers === 0) {
+    return null;
   }
-  return n === 0 ? null : dist;
+  return {
+    positive: reading.positive,
+    neutral: reading.neutral,
+    negative: reading.negative,
+  };
 };
 
 // AIO coverage ("AIO appeared on N% of prompts") + per-surface source
