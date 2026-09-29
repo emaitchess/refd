@@ -182,6 +182,30 @@ invalidates it on the next request; deleting the workspace or account removes
 its tokens. Tokens never appear in logs, and a token cannot be listed,
 exported, or narrowed to fewer prompts than the workspace tracks.
 
+## Reading a cohort-filtered number
+
+`kind` accepts a comma-separated string or a JSON array of cohort names, and an
+unknown name is refused rather than dropped. Omitted, `get_visibility_overview`,
+`get_competitor_landscape` and `get_attribute_performance` report the **discovery**
+cohort, because a prompt naming the brand scores near 1.0 by construction and a
+blend flatters the brand; `get_prompt_performance` and `get_citation_sources`
+report **every** cohort. Read the `population` or `headlineScope` field rather than
+assuming either, since the default differs by tool.
+
+## Reading a change event
+
+Every event from `get_recent_changes` carries `measuredOver: 'shared-cells'`: the
+engine compares only the prompt and surface cells present in **both** windows, so
+an event is a comparison of the same questions even when the live prompt set has
+changed. Set-relative events (share of voice, position) are withheld unless the
+tracked entity and prompt sets are unchanged across the comparison.
+
+`status` is `population-moved` when the prompt set has changed since the window was
+measured. That is a valid report, not a failure: the events stand for the shared
+cells, and `caveat` carries one sentence saying which case applies.
+`liveSetUnchanged` says whether the questions are still tracked now, and
+`populationMatches` is the older combined flag equal to it.
+
 ## Available tools
 
 | Tool | Purpose |
@@ -196,7 +220,7 @@ exported, or narrowed to fewer prompts than the workspace tracks.
 | `read_answer` | Clipped, ownership-checked AI answer evidence |
 | `get_digest` | Complete grounded workspace snapshot |
 | `get_run_history` | Recent run cycles, newest first: date, trigger, status, collected/total answers, dispatch state, entity-set hash, the frozen prompt count, `promptSetVersionId`, and `promptSetHash` |
-| `get_prompt_set_timeline` | Every distinct prompt population the workspace has run against, oldest first: version id, prompt ids and count, surfaces, what changed to get there, and how many runs were collected on it |
+| `get_prompt_set_timeline` | Every distinct prompt population the workspace has run against, oldest first: version id, prompt ids and count, surfaces, what changed to get there, and how many runs were collected on it. `sequence` is this workspace's own order while `versionId` is a global row id, so a sequence starting above 1 is not missing history; `historyComplete` is false when a run's population could not be recovered |
 | `get_attribute_performance` | Per-attribute visibility, worst first: tracked prompts, prompts inside the reported population, active variants, answers, mention and citation rate, share of voice, and an `unmeasured` flag for an attribute measured by a single prompt |
 | `get_prompt_changes` | Per-prompt diff of the two most recent completed runs: mention/citation rate deltas, zero-visibility transitions, and prompts that entered or exited the set |
 | `get_prompt_citations` | The URLs cited for one prompt over a range, grouped by URL with counts and an isOurs flag |
@@ -250,11 +274,20 @@ prompts falls back to every cohort and says so in `population: "all"`.
 So one call answers "how visible am I when nobody asked by name".
 
 **This was a breaking change.** The top-level `mentionRate`, `citationRate`,
-`shareOfVoice`, `citationShareOfVoice`, `averagePosition`, `firstNamedShare`,
+`shareOfVoice`, `citationShareOfVoice`, `averagePositionWhenMentioned`, `firstNamedShare`,
 `prominence`, `sentiment` and `answers` fields now live under `headline` and
 `blended`, an unfiltered call reports discovery rather than the blend, and
 `headlineScope` became `headline.population` plus `headline.scope`.
 `get_competitor_landscape` returns `population` and `populationScope`.
+
+**Position is conditional on mention, and says so.** `averagePosition` is now
+`averagePositionWhenMentioned`, reported with `positionedAnswers`, the count of
+answers the mean covers. The mean is arithmetically correct but a surface where the
+brand is mentioned in 3% of answers can still post exactly 1.0, because the surface
+opens with the most prominent entity. Under the old name that read as a position the
+brand holds across the surface, which is the reverse of the truth, and placed beside
+a mention rate it invited a comparison the two figures do not support. There is no
+threshold that hides it: leading with the brand when it names it is worth knowing.
 
 `get_digest` deliberately takes no `kind`. It is a whole-workspace rollup that
 already carries every cohort side by side in `sections.prompts.cohorts`, and

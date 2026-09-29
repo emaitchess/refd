@@ -18,6 +18,7 @@ import {
   loadEntitiesWithBrand,
   loadScoreRows,
   pooledSov,
+  positionedAnswerCount,
   prominenceDist,
   runSeries,
   type ScoreRow,
@@ -68,7 +69,8 @@ overviewRoutes.get('/', async (c) => {
       citationSov: hasCompetitors
         ? shareOf(pooledSov(scope, 'cited'), brand.id)
         : null,
-      avgPosition: avgPosition(scope, brand.id),
+      averagePositionWhenMentioned: avgPosition(scope, brand.id),
+      positionedAnswers: positionedAnswerCount(scope, brand.id),
       firstMentionShare: shareOf(firstMentionShare(scope), brand.id),
       answers: answerCount(scope),
     };
@@ -81,7 +83,8 @@ overviewRoutes.get('/', async (c) => {
       surface: s,
       mentionRate: cellRate(scope, brand.id, 'mentioned'),
       citationRate: cellRate(scope, brand.id, 'cited'),
-      avgPosition: avgPosition(scope, brand.id),
+      averagePositionWhenMentioned: avgPosition(scope, brand.id),
+      positionedAnswers: positionedAnswerCount(scope, brand.id),
       answers: answerCount(scope),
     };
   });

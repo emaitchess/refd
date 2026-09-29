@@ -89,11 +89,15 @@ const seed = async (
     mentioned?: number;
   },
 ) => {
-  const runId = Math.abs(hash(opts.surface + opts.date)) % 100000;
+  // Keyed by surface, date and batch, because a test may seed several batches of
+  // prompts against one surface on one date.
+  const runId =
+    Math.abs(hash(`${opts.surface}${opts.date}${opts.promptIds[0] ?? 0}`)) %
+    100000;
   await db.insert(runs).values({
     id: runId,
     workspaceId: 9,
-    key: `cron:9:${opts.date}:${opts.surface}`,
+    key: `cron:9:${opts.date}:${opts.surface}:${opts.promptIds[0] ?? 0}`,
     date: opts.date,
     trigger: 'cron',
     status: 'complete',
@@ -118,6 +122,9 @@ const seed = async (
       entityId: 50,
       mentioned: i < (opts.mentioned ?? 0),
       cited: false,
+      // Position is what the report turned on, so the seed has to set it: a
+      // mentioned brand that is named first is the 1.0 case.
+      position: i < (opts.mentioned ?? 0) ? 1 : null,
     } as unknown as typeof entityScores.$inferInsert);
     i += 1;
   }
@@ -179,6 +186,11 @@ describe('surface registry', () => {
     expect(bySurface.get('perplexity')).toBe('historical');
     expect(r.surfaceRegistry.historical).toEqual(['perplexity']);
     expect(r.surfaceRegistry.note).toContain('not currently enabled');
+    // The figures are in the aggregates; saying otherwise is what made the note
+    // a false statement about the data beside it.
+    expect(r.surfaceRegistry.note).toContain(
+      'included in the aggregate figures',
+    );
 
     // The status travels with the number, so the two cannot be read apart.
     const perplexity = r.surfaces.find((s) => s.surface === 'perplexity');
@@ -203,6 +215,71 @@ describe('surface registry', () => {
     expect(r.surfaceRegistry.enabled).toEqual(['chatgpt', 'gemini']);
     expect(r.surfaceRegistry.historical).toEqual([]);
     expect(r.surfaceRegistry.note).toContain('currently enabled');
+  });
+
+  // The reported failure: position pinned to exactly 1.000 on a surface where the
+  // brand is mentioned in under 3% of answers. The mean is arithmetically right;
+  // the name claimed it described every answer.
+  test('position is reported as conditional on mention, with its denominator', async () => {
+    const { db, env, workspaceId } = await setup(['google_ai_mode']);
+    const ids = await addPrompts(db, 20);
+    // Mentioned in 2 of 20 answers, always first: the conditional mean is 1.0.
+    await seed(db, {
+      surface: 'google_ai_mode',
+      date: '2026-09-25',
+      promptIds: ids.slice(0, 2),
+      mentioned: 2,
+    });
+    await seed(db, {
+      surface: 'google_ai_mode',
+      date: '2026-09-25',
+      promptIds: ids.slice(2),
+      mentioned: 0,
+    });
+
+    const r = await getVisibilityOverview(env, workspaceId, '30d');
+    if (r.needsSetup) throw new Error('expected data');
+    const brand = r.surfaces.find((s) => s.surface === 'google_ai_mode');
+    expect(brand?.averagePositionWhenMentioned).toBe(1);
+    // The denominator is beside it, so 1.0 reads as "1.0 of 2 of 20 answers"
+    // rather than a position the brand holds across the surface.
+    expect(brand?.positionedAnswers).toBe(2);
+    expect(brand?.answers).toBe(20);
+    expect(brand?.mentionRate).toBeCloseTo(0.1, 5);
+    // The field the old name exposed is gone.
+    expect('averagePosition' in (brand ?? {})).toBeFalse();
+  });
+
+  test('a brand that is never mentioned has no position and says so', async () => {
+    const { db, env, workspaceId } = await setup(['google_ai_mode']);
+    const ids = await addPrompts(db, 20);
+    await seed(db, {
+      surface: 'google_ai_mode',
+      date: '2026-09-25',
+      promptIds: ids,
+      mentioned: 0,
+    });
+    const r = await getVisibilityOverview(env, workspaceId, '30d');
+    if (r.needsSetup) throw new Error('expected data');
+    const brand = r.surfaces.find((s) => s.surface === 'google_ai_mode');
+    expect(brand?.averagePositionWhenMentioned).toBeNull();
+    expect(brand?.positionedAnswers).toBe(0);
+  });
+
+  test('the headline carries the position denominator too', async () => {
+    const { db, env, workspaceId } = await setup(['chatgpt']);
+    const ids = await addPrompts(db, 4);
+    await seed(db, {
+      surface: 'chatgpt',
+      date: '2026-09-25',
+      promptIds: ids,
+      mentioned: 2,
+    });
+    const r = await getVisibilityOverview(env, workspaceId, '30d');
+    if (r.needsSetup) throw new Error('expected data');
+    expect(r.headline.averagePositionWhenMentioned).toBe(1);
+    expect(r.headline.positionedAnswers).toBe(2);
+    expect('averagePosition' in r.headline).toBeFalse();
   });
 
   test('surfaces are ordered canonically, not alphabetically', async () => {

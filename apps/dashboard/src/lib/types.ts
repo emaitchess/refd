@@ -22,7 +22,11 @@ export interface TileValues {
   citationRate: number | null;
   sov: number | null;
   citationSov: number | null;
-  avgPosition: number | null;
+  // Conditional on mention, with the count of answers it covers. A bare 1.0
+  // beside a low mention rate reads as a position the brand holds across the
+  // surface, which is the opposite of the truth.
+  averagePositionWhenMentioned: number | null;
+  positionedAnswers: number;
   firstMentionShare: number | null;
   answers: number;
 }
@@ -32,7 +36,11 @@ export interface RunPointEntity {
   citationRate: number | null;
   sov: number | null;
   citationSov: number | null;
-  avgPosition: number | null;
+  // Conditional on mention, with the count of answers it covers. A bare 1.0
+  // beside a low mention rate reads as a position the brand holds across the
+  // surface, which is the opposite of the truth.
+  averagePositionWhenMentioned: number | null;
+  positionedAnswers: number;
 }
 
 export interface OverviewPoint {
@@ -48,7 +56,11 @@ export interface SurfaceStat {
   surface: string;
   mentionRate: number | null;
   citationRate: number | null;
-  avgPosition: number | null;
+  // Conditional on mention, with the count of answers it covers. A bare 1.0
+  // beside a low mention rate reads as a position the brand holds across the
+  // surface, which is the opposite of the truth.
+  averagePositionWhenMentioned: number | null;
+  positionedAnswers: number;
   answers: number;
 }
 
@@ -94,6 +106,8 @@ export interface ChangeEvent {
     | 'sentiment'
     | 'competitor';
   span: 'shift' | 'drift';
+  // How the event was measured, restated on the event itself.
+  measuredOver?: 'shared-cells';
   scope: string;
   entity: string;
   direction: 'up' | 'down';
@@ -118,7 +132,9 @@ export interface ChangeWindowRef {
 
 export interface ChangesResponse {
   needsSetup?: boolean;
-  status?: 'ok' | 'needs-runs' | 'thin-overlap';
+  // 'population-moved' is a valid report, not a missing one: the events compare
+  // the cells the two windows share, and the prompt set has changed since.
+  status?: 'ok' | 'needs-runs' | 'thin-overlap' | 'population-moved';
   windowDays?: number;
   latest?: ChangeWindowRef | null;
   previous?: ChangeWindowRef | null;
@@ -126,10 +142,22 @@ export interface ChangesResponse {
   cells?: number;
   trendCells?: number;
   promptCount?: number;
-  activePromptCount?: number;
+  // Null when the count could not be established, which is not the same as
+  // zero: a zero would read as an empty workspace.
+  activePromptCount?: number | null;
+  // What the events are measured over, kept apart from whether the questions
+  // are still tracked now.
+  comparedOverSharedCells?: boolean;
+  liveSetUnchanged?: boolean;
+  // The combined flag, retained for existing consumers.
   populationMatches?: boolean;
+  // One sentence on the population, so the client does not re-derive it.
+  caveat?: string | null;
+  trendPopulationKnown?: boolean | null;
   surfaceCount?: number;
   entitySetChanged?: boolean;
+  promptSetChanged?: boolean;
+  promptSetKnown?: boolean;
   events?: ChangeEvent[];
 }
 
@@ -168,7 +196,11 @@ export interface CompetitorEntity extends EntityInfo {
   citationRate: number | null;
   sov: number | null;
   citationSov: number | null;
-  avgPosition: number | null;
+  // Conditional on mention, with the count of answers it covers. A bare 1.0
+  // beside a low mention rate reads as a position the brand holds across the
+  // surface, which is the opposite of the truth.
+  averagePositionWhenMentioned: number | null;
+  positionedAnswers: number;
   firstMentionShare: number | null;
   sentiment: SentimentDist;
   surfaces: { surface: string; mentionRate: number | null }[];
@@ -235,7 +267,11 @@ export interface SetupReport {
         citationRate: number | null;
         sov: number | null;
         citationSov: number | null;
-        avgPosition: number | null;
+        // Conditional on mention, with the count of answers it covers. A bare 1.0
+        // beside a low mention rate reads as a position the brand holds across the
+        // surface, which is the opposite of the truth.
+        averagePositionWhenMentioned: number | null;
+        positionedAnswers: number;
         firstMentionShare: number | null;
         answers: number;
       } | null;
@@ -249,7 +285,11 @@ export interface SetupReport {
       surface: string;
       mentionRate: number | null;
       citationRate: number | null;
-      avgPosition: number | null;
+      // Conditional on mention, with the count of answers it covers. A bare 1.0
+      // beside a low mention rate reads as a position the brand holds across the
+      // surface, which is the opposite of the truth.
+      averagePositionWhenMentioned: number | null;
+      positionedAnswers: number;
       answers: number;
     }[];
     entities: {

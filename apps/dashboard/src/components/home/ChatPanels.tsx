@@ -129,7 +129,10 @@ const renderPanel = (
             ['mention rate', pct(num(d.mentionRate))],
             ['share of voice', pct(num(d.sov))],
             ['citation rate', pct(num(d.citationRate))],
-            ['avg position', position(num(d.avgPosition))],
+            [
+              'avg position when mentioned',
+              position(num(d.averagePositionWhenMentioned)),
+            ],
             ['sentiment +/·/−', sentimentSplit(dist(d.sentiment))],
           ]}
         />
@@ -149,7 +152,7 @@ const renderPanel = (
             surfaceLabel(str(s.surface)),
             pct(num(s.mentionRate)),
             pct(num(s.citationRate)),
-            position(num(s.avgPosition)),
+            position(num(s.averagePositionWhenMentioned)),
           ])}
         />
       </PanelFrame>
@@ -168,7 +171,7 @@ const renderPanel = (
             `${str(e.name)}${e.isBrand === true ? ' (you)' : ''}`,
             pct(num(e.mentionRate)),
             pct(num(e.sov)),
-            position(num(e.avgPosition)),
+            position(num(e.averagePositionWhenMentioned)),
             sentimentSplit(dist(e.sentiment)),
           ])}
         />

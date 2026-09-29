@@ -409,8 +409,8 @@ export const OnboardingReport = ({
       info: METRIC_INFO.shareOfVoice,
     },
     {
-      label: 'Avg position',
-      value: position(tiles?.avgPosition),
+      label: 'Avg position when mentioned',
+      value: position(tiles?.averagePositionWhenMentioned),
       info: METRIC_INFO.averagePosition,
     },
     {

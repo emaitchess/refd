@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+import { promptKindFilterSchema } from '@refd/core/prompt-cohorts';
 import { PUBLIC_SKILL_PATHS } from '@refd/core/public-skills';
+import { z } from 'zod';
 import {
+  createRefdMcpServer,
   digestArgsSchema,
   emptyArgsSchema,
   MCP_INSTRUCTIONS,
@@ -212,5 +215,89 @@ describe('MCP skill discovery', () => {
     for (const path of PUBLIC_SKILL_PATHS) {
       expect(MCP_INSTRUCTIONS).toContain(`https://refd.ai${path}`);
     }
+  });
+});
+
+// Every assertion in this file reads a Zod object. A client reads the PUBLISHED
+// JSON Schema, and the two are produced by different code. These two tests are
+// the ones that read the published side, because that is the side a broken
+// argument is rejected on.
+describe('MCP published schemas', () => {
+  const shapeOf = (inputSchema: unknown): Record<string, unknown> | null => {
+    const candidate = inputSchema as {
+      def?: { shape?: Record<string, unknown> };
+      shape?: Record<string, unknown>;
+    };
+    return candidate?.def?.shape ?? candidate?.shape ?? null;
+  };
+
+  test('every published tool schema advertises the arguments its handler parses', () => {
+    const server = createRefdMcpServer(
+      {} as never,
+      {
+        waitUntil: () => {},
+      } as never,
+    ) as unknown as {
+      _registeredTools: Record<string, { inputSchema: unknown }>;
+    };
+    const names = Object.keys(server._registeredTools);
+    expect(names.length).toBeGreaterThan(0);
+    const missing: string[] = [];
+    for (const [name, tool] of Object.entries(server._registeredTools)) {
+      const shape = shapeOf(tool.inputSchema);
+      if (!shape) continue;
+      const published = (
+        z as unknown as {
+          toJSONSchema: (
+            s: unknown,
+            o: Record<string, unknown>,
+          ) => { properties?: Record<string, unknown> };
+        }
+      ).toJSONSchema(z.object(shape), { io: 'input' });
+      const advertised = new Set(Object.keys(published.properties ?? {}));
+      for (const key of Object.keys(shape)) {
+        if (!advertised.has(key)) {
+          missing.push(`${name}.${key}`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  test('the kind filter takes a comma-separated string or an array alike', () => {
+    const asString = promptPerformanceArgsSchema.safeParse({
+      range: '30d',
+      kind: 'discovery,alternative',
+    });
+    const asArray = promptPerformanceArgsSchema.safeParse({
+      range: '30d',
+      kind: ['discovery', 'alternative'],
+    });
+    expect(asString.success && asString.data.kind).toEqual([
+      'discovery',
+      'alternative',
+    ]);
+    expect(asArray.success && asArray.data.kind).toEqual([
+      'discovery',
+      'alternative',
+    ]);
+    // An unknown cohort is still refused rather than silently dropped.
+    expect(
+      promptPerformanceArgsSchema.safeParse({ range: '30d', kind: 'nonsense' })
+        .success,
+    ).toBeFalse();
+    // And the published schema says both shapes are valid, so a client that
+    // validates before sending cannot reject the array we now accept.
+    const published = (
+      z as unknown as {
+        toJSONSchema: (s: unknown, o: Record<string, unknown>) => unknown;
+      }
+    ).toJSONSchema(promptKindFilterSchema, { io: 'input' }) as {
+      anyOf?: { type?: string }[];
+    };
+    expect(published.anyOf?.map((entry) => entry.type).sort()).toEqual([
+      'array',
+      'string',
+    ]);
   });
 });

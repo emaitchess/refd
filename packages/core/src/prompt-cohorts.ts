@@ -38,15 +38,22 @@ export const promptKindField = z
   .transform((value) => value ?? null);
 
 // Comma-separated on the wire because that is what an agent composing a filter
-// by hand writes; an empty or absent filter means every cohort (blended), which
-// callers read as null. `.optional()` is outermost so the field stays optional
-// in the generated JSON Schema rather than looking required.
+// by hand writes, and an array is accepted because that is what an agent
+// building one programmatically sends. An empty or absent filter means every
+// cohort (blended), which callers read as null. `.optional()` is outermost so
+// the field stays optional in the generated JSON Schema rather than looking
+// required.
+// A caller may reasonably send the cohorts already split, because the field is
+// described as a list and an agent that reads the description literally will
+// send an array. Rejecting that shape produced "The tool arguments did not match
+// the published schema", which blames the schema for a value the schema never
+// claimed to reject, and the caller has no way to tell a shape problem from a
+// genuine unknown cohort. Both shapes now parse; the published JSON Schema is
+// the union, so a client validating against it is told about both.
 const promptKindFilterValue = z
-  .string()
-  .trim()
+  .union([z.string(), z.array(z.string())])
   .transform((value) =>
-    value
-      .split(',')
+    (Array.isArray(value) ? value : value.split(','))
       .map((part) => part.trim().toLowerCase())
       .filter((part) => part.length > 0),
   )

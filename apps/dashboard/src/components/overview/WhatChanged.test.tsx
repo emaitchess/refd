@@ -1,4 +1,4 @@
-import { expect, mock, test } from 'bun:test';
+import { describe, expect, mock, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router';
 import type { ChangeEvent, ChangesResponse } from '@/lib/types';
@@ -158,4 +158,34 @@ test('renders nothing until two comparable windows exist', () => {
   expect(render({ status: 'needs-runs' })).toBe('');
   expect(render({ needsSetup: true })).toBe('');
   expect(render(report({ status: 'thin-overlap' }))).toBe('');
+});
+
+describe('WhatChanged with a changed prompt population', () => {
+  // A change of questions is not a visibility event, but suppressing the card
+  // hides a comparison that was genuinely measured over the shared cells.
+  test('population-moved renders and states the caveat', () => {
+    const out = render(
+      report({
+        status: 'population-moved',
+        caveat:
+          'the prompt set has changed since this window was measured; the events below are valid for the cells both windows share',
+        events: [event({ measuredOver: 'shared-cells' })],
+      }),
+    );
+    expect(out).toContain('What changed');
+    expect(out).toContain(
+      'the prompt set has changed since this window was measured',
+    );
+  });
+
+  test('no caveat renders nothing extra when the population is stable', () => {
+    const out = render(report({ status: 'ok', caveat: null }));
+    expect(out).toContain('What changed');
+    expect(out).not.toContain('the prompt set has changed');
+  });
+
+  test('a report with no comparable runs still renders nothing', () => {
+    expect(render(report({ status: 'thin-overlap' }))).toBe('');
+    expect(render(report({ status: 'needs-runs' }))).toBe('');
+  });
 });

@@ -20,6 +20,7 @@ import {
   loadEntitiesWithBrand,
   loadScoreRowsForRuns,
   pooledSov,
+  positionedAnswerCount,
   type ScoreRow,
   sentimentDist,
   shareOf,
@@ -61,7 +62,11 @@ export interface SetupReport {
         citationRate: number | null;
         sov: number | null;
         citationSov: number | null;
-        avgPosition: number | null;
+        // Conditional on mention, with the count of answers it covers. The
+        // onboarding report shows one run, so a rank of 1.0 beside a 3% mention
+        // rate is the exact combination that reads as "we hold first place".
+        averagePositionWhenMentioned: number | null;
+        positionedAnswers: number;
         firstMentionShare: number | null;
         answers: number;
       } | null;
@@ -75,7 +80,8 @@ export interface SetupReport {
       surface: string;
       mentionRate: number | null;
       citationRate: number | null;
-      avgPosition: number | null;
+      averagePositionWhenMentioned: number | null;
+      positionedAnswers: number;
       answers: number;
     }[];
     entities: {
@@ -234,7 +240,8 @@ export const getSetupReport = async (
       citationSov: hasCompetitors
         ? shareOf(pooledSov(scope, 'cited'), brand.id)
         : null,
-      avgPosition: avgPosition(scope, brand.id),
+      averagePositionWhenMentioned: avgPosition(scope, brand.id),
+      positionedAnswers: positionedAnswerCount(scope, brand.id),
       firstMentionShare: shareOf(firstMentionShare(scope), brand.id),
       answers: answerCount(scope),
     };
@@ -248,7 +255,8 @@ export const getSetupReport = async (
         surface,
         mentionRate: cellRate(scope, brand.id, 'mentioned'),
         citationRate: cellRate(scope, brand.id, 'cited'),
-        avgPosition: avgPosition(scope, brand.id),
+        averagePositionWhenMentioned: avgPosition(scope, brand.id),
+        positionedAnswers: positionedAnswerCount(scope, brand.id),
         answers: answerCount(scope),
       };
     });

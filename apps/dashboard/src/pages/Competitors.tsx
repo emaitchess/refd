@@ -65,7 +65,7 @@ const SORTS: SortAccessors<CompetitorEntity> = {
   domains: (entity) => entity.domains.join(' ').toLowerCase(),
   mention: (entity) => entity.mentionRate,
   sov: (entity) => entity.sov,
-  position: (entity) => entity.avgPosition,
+  position: (entity) => entity.averagePositionWhenMentioned,
   citation: (entity) => entity.citationRate,
   first: (entity) => entity.firstMentionShare,
   sentiment: (entity) => positiveShare(entity.sentiment),
@@ -948,7 +948,7 @@ export const Competitors = () => {
                       resizer={resizer('sov', 'share of voice')}
                     />
                     <Th
-                      label="Avg position"
+                      label="Avg position when mentioned"
                       info={METRIC_INFO.averagePosition}
                       sortKey="position"
                       sort={sort}
@@ -1077,7 +1077,7 @@ export const Competitors = () => {
                             {pct(entity.sov)}
                           </td>
                           <td className="h-9 px-2 text-right font-mono text-primary tabular-nums">
-                            {position(entity.avgPosition)}
+                            {position(entity.averagePositionWhenMentioned)}
                           </td>
                           <td className="h-9 px-2 text-right font-mono text-primary tabular-nums">
                             {pct(entity.citationRate)}
