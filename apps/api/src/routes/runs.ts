@@ -21,7 +21,11 @@ import {
   rescoreProgress,
   rescoreStoredResult,
 } from '../ingest/rescore';
-import { createManualRun, entitiesForRun } from '../ingest/runs';
+import {
+  createManualRun,
+  entitiesForRun,
+  previewManualRun,
+} from '../ingest/runs';
 import { gunzipJson } from '../ingest/storage';
 import { parseBody, parseId } from '../lib/http';
 import type { DATASET_SURFACES } from '../providers/types';
@@ -72,6 +76,20 @@ runRoutes.get('/', async (c) => {
     .orderBy(desc(runs.id))
     .limit(100);
   return c.json({ runs: rows });
+});
+
+// The dry run of the paid trigger. Same operator boundary as the real route and
+// same options, but it plans rather than dispatches, so an operator can read the
+// provider record count and the hourly budget before spending either.
+runRoutes.post('/preview', requireOperator, async (c) => {
+  const opts = (await parseBody(c, runOptionsSchema)) ?? {};
+  const preview = await previewManualRun(
+    getDb(c.env),
+    c.env,
+    c.get('workspace').id,
+    { promptIds: opts.promptIds, samples: opts.samples },
+  );
+  return c.json(preview);
 });
 
 runRoutes.post('/', requireOperator, async (c) => {

@@ -7,7 +7,7 @@ import { isOperatorEmail } from '../auth/operator';
 import { getDb } from '../db/client';
 import { prompts, workspaces } from '../db/schema';
 import type { AppEnv } from '../env';
-import { createManualRun } from '../ingest/runs';
+import { createManualRun, previewManualRun } from '../ingest/runs';
 import { attributeLabel, resolveAttributeId } from '../lib/attributes';
 import {
   createEntity,
@@ -346,6 +346,38 @@ export const removePromptTool = async (
 };
 
 export const runNowBodySchema = runOptionsBodySchema;
+export const previewRunBodySchema = runOptionsBodySchema;
+
+export const previewRun = async (
+  env: AppEnv,
+  principal: McpPrincipal,
+  workspace: McpWorkspace,
+  body: z.infer<typeof previewRunBodySchema>,
+) => {
+  // The same ADMIN_EMAILS boundary run_now has: a preview discloses the exact
+  // provider spend a run would make, which is the operator's own information and
+  // nobody else's. The 5/hour budget is reported, not enforced, so previewing a
+  // sixth run still answers.
+  if (!isOperatorEmail(principal.userEmail, env.ADMIN_EMAILS)) {
+    throw new McpAccessError(
+      'run_now_preview describes paid provider spend and is limited to administrator accounts (ADMIN_EMAILS).',
+    );
+  }
+  await ensureOperationalWorkspace(env, workspace);
+  const preview = await previewManualRun(getDb(env), env, workspace.id, {
+    promptIds: body.promptIds,
+    samples: body.samples,
+  });
+  if (!preview.ok) {
+    return promptFailure(
+      'no_workspace',
+      'This workspace no longer exists.',
+      404,
+    );
+  }
+  const { ok: _ok, ...rest } = preview;
+  return { ok: true as const, ...rest };
+};
 
 export const runNow = async (
   env: AppEnv,
@@ -735,6 +767,45 @@ export const registerOpsTools = (
         async (principal, workspace) =>
           unwrapPrompt(
             await removePromptTool(env, principal, workspace, parsed.body),
+          ),
+      );
+    },
+  );
+
+  server.registerTool(
+    'run_now_preview',
+    {
+      title: 'Preview a collection run',
+      description:
+        'Reports what run_now would spend on the same arguments, without spending it: the prompt count, surfaces, samples, the provider records the run would buy, the queue messages it would enqueue, any requested prompt ids that are inactive or unknown, and how many of the 5 hourly manual runs remain. A plan, not a reservation: a real run a moment later can still be rate limited. Administrator accounts only (ADMIN_EMAILS), because it discloses the exact paid spend. Use it to check a prompt subset or sample override before committing to one.',
+      inputSchema: previewRunBodySchema.extend(workspaceSelectorSchema.shape),
+      // Reads rather than writes, but gated by the same operator boundary as the
+      // run it previews, and marked non-idempotent so a client does not cache a
+      // spend figure that goes stale as the prompt set changes.
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (args) => {
+      const parsed = selectorArgs(args, previewRunBodySchema);
+      if (!parsed) {
+        return invalidSetupArgs();
+      }
+      return runSetupTool(
+        env,
+        executionContext,
+        'run_now_preview',
+        {
+          ...MUTATIONS,
+          workspaceArg: parsed.workspaceArg,
+          errorKind: PROMPT_ERROR_KIND,
+        },
+        async (principal, workspace) =>
+          unwrapPrompt(
+            await previewRun(env, principal, workspace, parsed.body),
           ),
       );
     },

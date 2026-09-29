@@ -380,6 +380,7 @@ or after onboarding.
 | `toggle_prompt` | Enables or disables a prompt while keeping its history; re-activating is refused when the workspace is at its active-prompt ceiling |
 | `remove_prompt` | Retires a prompt that has results (history preserved, re-activatable) and deletes one that has none; the only destructive prompt tool |
 | `run_now` | Triggers an immediate collection run over the current active prompt set on every enabled surface. Spends paid provider quota and is limited to administrator accounts (`ADMIN_EMAILS`); at most 5 manual runs per hour per workspace, the same guard the operator HTTP route enforces. Optional `promptIds` select a subset of the active prompts; optional `samples` (1-10) overrides the default |
+| `run_now_preview` | What `run_now` would spend on the same arguments, without spending it: prompts, surfaces, samples, provider records, queue messages, any requested prompt ids that are inactive or unknown, and the remaining hourly budget. Administrator accounts only. A plan, not a reservation |
 | `add_competitor` | Adds one tracked competitor: unique name, 1-10 domains (verify with `check_domain` first), up to 8 aliases; returns the assigned id |
 | `remove_competitor` | Removes a competitor by name; refused when it has scored results (trend data) and for the brand entity |
 | `list_competitors` | The tracked competitors with id, name, domains, and aliases |

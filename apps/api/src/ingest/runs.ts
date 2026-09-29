@@ -13,7 +13,11 @@ import type { AppEnv } from '../env';
 import { configForUser } from '../lib/user-config';
 import { enabledSurfaces } from '../providers/types';
 import type { ScorableEntity } from '../scoring';
-import { buildRunDispatchPlan, resumeRunDispatchWith } from './dispatch';
+import {
+  buildRunDispatchPlan,
+  messageCountFor,
+  resumeRunDispatchWith,
+} from './dispatch';
 import type { RunPrompt } from './messages';
 import { resolvePromptSetVersion } from './prompt-set-versions';
 
@@ -314,6 +318,161 @@ export const MANUAL_RUNS_PER_HOUR = 5;
 export type ManualRunStart =
   | { ok: true; run: CreatedRun; date: string }
   | { ok: false; reason: 'rate_limited' };
+
+// A preview is a plan, not a promise: it reports what createManualRun would do
+// with the same arguments at the moment it was called. It is not a reservation,
+// and a real run a second later can still be rate limited.
+export type ManualRunPreview =
+  | {
+      ok: true;
+      prompts: number;
+      surfaces: string[];
+      samples: number;
+      providerRecords: number;
+      queueMessages: number;
+      promptLimit: number | null;
+      excludedPromptIds: number[];
+      runsUsedThisHour: number;
+      runsRemainingThisHour: number;
+      rateLimited: boolean;
+      note: string;
+    }
+  | {
+      ok: false;
+      reason: 'no-workspace';
+      runsUsedThisHour: number;
+      runsRemainingThisHour: number;
+    };
+
+// What a manual run would cost, without buying it.
+//
+// createManualRun spends real provider quota, so "what would this run" and "run
+// it" being one call is a footgun: the only way to learn the record count was to
+// spend it. This plans the same dispatch the run would build and reports the
+// shape of it, so an operator can check a prompt subset or a surface set before
+// committing. It resolves nothing the real run does not, and dispatches nothing.
+export const previewManualRun = async (
+  db: Db,
+  env: AppEnv,
+  workspaceId: number,
+  opts: { promptIds?: number[]; samples?: number } = {},
+): Promise<ManualRunPreview> => {
+  const hourAgo = Date.now() - 60 * 60 * 1000;
+  const [recent] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(runs)
+    .where(
+      and(
+        eq(runs.trigger, 'manual'),
+        gte(runs.createdAt, hourAgo),
+        eq(runs.workspaceId, workspaceId),
+      ),
+    );
+  const used = recent?.count ?? 0;
+  const remaining = Math.max(0, MANUAL_RUNS_PER_HOUR - used);
+
+  const [ws] = await db
+    .select({ surfaces: workspaces.surfaces, ownerEmail: users.email })
+    .from(workspaces)
+    .innerJoin(users, eq(workspaces.ownerUserId, users.id))
+    .where(eq(workspaces.id, workspaceId))
+    .limit(1);
+  if (!ws) {
+    return {
+      ok: false,
+      reason: 'no-workspace',
+      runsUsedThisHour: used,
+      runsRemainingThisHour: remaining,
+    };
+  }
+  // The same limits the real run resolves, so a preview cannot describe a run
+  // the ceiling would refuse.
+  const config = configForUser(ws.ownerEmail, env.ADMIN_EMAILS);
+  const surfaces = enabledSurfaces(
+    ws.surfaces,
+    config.limits.maxEnabledSurfacesPerWorkspace,
+  );
+  const samples = opts.samples ?? samplesFor(env);
+  const promptSubset = opts.promptIds ? new Set(opts.promptIds) : null;
+
+  const eligible = await db
+    .select({ id: prompts.id, text: prompts.text })
+    .from(prompts)
+    .where(
+      and(
+        eq(prompts.workspaceId, workspaceId),
+        eq(prompts.active, true),
+        isNull(prompts.retiredBy),
+      ),
+    )
+    .orderBy(prompts.id);
+  const activePrompts = (
+    promptSubset ? eligible.filter((p) => promptSubset.has(p.id)) : eligible
+  ).map((p) => ({ id: p.id, text: p.text }));
+  const promptLimit = config.limits.maxActivePromptsPerWorkspace;
+  const selected =
+    promptLimit === null
+      ? activePrompts
+      : activePrompts.slice(0, promptLimit ?? undefined);
+
+  // A requested prompt that is not active is named rather than silently dropped,
+  // because "run these 12" quietly running 9 is the failure this guards.
+  const found = new Set(selected.map((p) => p.id));
+  const excluded = opts.promptIds
+    ? opts.promptIds.filter((id) => !found.has(id))
+    : [];
+  // An empty prompt set is a refusal, not a price: buildRunDispatchPlan requires
+  // at least one prompt because a real run throws rather than collecting nothing.
+  // The preview reports that shape without building a plan it cannot build.
+  if (selected.length === 0) {
+    return {
+      ok: true,
+      prompts: 0,
+      surfaces,
+      samples,
+      providerRecords: 0,
+      queueMessages: 0,
+      promptLimit: promptLimit ?? null,
+      excludedPromptIds: excluded,
+      runsUsedThisHour: used,
+      runsRemainingThisHour: remaining,
+      rateLimited: remaining === 0,
+      note: 'no active prompts to run, so this would spend nothing and the real run would fail',
+    };
+  }
+  const dispatchPlan = buildRunDispatchPlan({
+    prompts: selected,
+    surfaces,
+    samples,
+    promptBatchSize: promptBatchSize(env),
+  });
+
+  return {
+    ok: true,
+    prompts: selected.length,
+    surfaces,
+    samples: dispatchPlan.samples,
+    // What the run would actually cost: one provider record per prompt per
+    // surface per sample.
+    providerRecords: selected.length * surfaces.length * dispatchPlan.samples,
+    // Queue messages, which is the number that decides whether a preview matches
+    // what the run will actually cost in worker invocations. The AIO surface is
+    // fetched per prompt rather than scraped, so it contributes a different
+    // number of messages for the same records.
+    queueMessages: messageCountFor(dispatchPlan),
+    promptLimit: promptLimit ?? null,
+    excludedPromptIds: excluded,
+    runsUsedThisHour: used,
+    runsRemainingThisHour: remaining,
+    rateLimited: remaining === 0,
+    note:
+      selected.length === 0
+        ? 'no active prompts to run, so this would spend nothing and fail'
+        : excluded.length > 0
+          ? `${excluded.length} requested prompt(s) are inactive or unknown and would be skipped`
+          : `this run would spend ${selected.length * surfaces.length * dispatchPlan.samples} provider records`,
+  };
+};
 
 export const createManualRun = async (
   db: Db,

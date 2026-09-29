@@ -668,3 +668,25 @@ describe('run_now operation', () => {
     expect(sixth).toMatchObject({ error: { code: 'manual_run_limit' } });
   });
 });
+
+describe('run_now_preview arguments', () => {
+  test('takes the same options as run_now, so a preview describes a real run', async () => {
+    const { previewRunBodySchema, runNowBodySchema } = await import(
+      './ops-tools'
+    );
+    const args = { promptIds: [1, 2, 3], samples: 3 };
+    expect(previewRunBodySchema.safeParse(args)).toEqual(
+      runNowBodySchema.safeParse(args),
+    );
+  });
+
+  test('refuses an empty prompt list and an out-of-range sample count', async () => {
+    const { previewRunBodySchema } = await import('./ops-tools');
+    expect(
+      previewRunBodySchema.safeParse({ promptIds: [] }).success,
+    ).toBeFalse();
+    expect(previewRunBodySchema.safeParse({ samples: 0 }).success).toBeFalse();
+    expect(previewRunBodySchema.safeParse({ samples: 11 }).success).toBeFalse();
+    expect(previewRunBodySchema.safeParse({}).success).toBeTrue();
+  });
+});
