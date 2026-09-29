@@ -192,6 +192,27 @@ blend flatters the brand; `get_prompt_performance` and `get_citation_sources`
 report **every** cohort. Read the `population` or `headlineScope` field rather than
 assuming either, since the default differs by tool.
 
+## Reading a declared intent
+
+`funnelStage` and `questionType` are **declared on the prompt, never inferred**. The
+cohort filter is different: it is provable from the text, because the same matcher that
+scores a mention decides it. A funnel stage is not — no substring settles where a buyer
+is in a journey, and a guessed value would be indistinguishable from a chosen one once
+stored.
+
+So:
+
+- a prompt with no declared stage or type is in no bucket, and the response counts it
+  under `undeclared` rather than defaulting it to awareness
+- omitting the filter means **every declared value**, which is a different population from
+  the cohort default of discovery; the response names both in `population` and
+  `funnelStageScope`
+- an empty bucket is reported with no rate, and sorts after the measured buckets
+- set them with `add_prompt` (`funnelStage`, `questionType`) or `update_prompt`, where an
+  explicit `null` clears the declaration and omitting the field leaves it alone
+
+The two axes are independent: a question can be `commercial` at `awareness`.
+
 ## Reading a change event
 
 Every event from `get_recent_changes` carries `measuredOver: 'shared-cells'`: the
@@ -220,6 +241,7 @@ cells, and `caveat` carries one sentence saying which case applies.
 | `read_answer` | Clipped, ownership-checked AI answer evidence |
 | `get_digest` | Complete grounded workspace snapshot |
 | `get_run_history` | Recent run cycles, newest first: date, trigger, status, collected/total answers, dispatch state, entity-set hash, the frozen prompt count, `promptSetVersionId`, and `promptSetHash` |
+| `get_intent_performance` | Visibility by declared funnel stage and question type, worst first on each axis: prompt count, measured prompts, answers, mention and citation rate. Both axes are declared on the prompt and never inferred; a prompt with neither is counted under `undeclared` |
 | `get_prompt_set_timeline` | Every distinct prompt population the workspace has run against, oldest first: version id, prompt ids and count, surfaces, what changed to get there, and how many runs were collected on it. `sequence` is this workspace's own order while `versionId` is a global row id, so a sequence starting above 1 is not missing history; `historyComplete` is false when a run's population could not be recovered |
 | `get_attribute_performance` | Per-attribute visibility, worst first: tracked prompts, prompts inside the reported population, active variants, answers, mention and citation rate, share of voice, and an `unmeasured` flag for an attribute measured by a single prompt |
 | `get_prompt_changes` | Per-prompt diff of the two most recent completed runs: mention/citation rate deltas, zero-visibility transitions, and prompts that entered or exited the set |

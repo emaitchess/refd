@@ -7,6 +7,12 @@ import type {
 export type { ChatEvidenceRecord, ChatScope } from '@refd/core/chat';
 
 import type { Alias } from '@refd/core/mentions';
+import {
+  FUNNEL_STAGES,
+  type FunnelStage,
+  QUESTION_TYPES,
+  type QuestionType,
+} from '@refd/core/prompt-axes';
 import { PROMPT_KINDS, type PromptKind } from '@refd/core/prompt-cohorts';
 import type { RunSchedule } from '@refd/core/schedule';
 import type { SiteMetadata } from '@refd/core/site-metadata';
@@ -262,6 +268,16 @@ export const prompts = sqliteTable(
     attributeId: integer('attribute_id').references(() => attributes.id, {
       onDelete: 'set null',
     }),
+    // Two declared intent axes. Both nullable and both never derived: no
+    // substring settles where a buyer is in a journey, and a guessed stage is
+    // indistinguishable from a declared one once it is stored, which is worse
+    // than leaving it null. Null means undeclared, never "awareness".
+    funnelStage: text('funnel_stage', {
+      enum: FUNNEL_STAGES,
+    }).$type<FunnelStage>(),
+    questionType: text('question_type', {
+      enum: QUESTION_TYPES,
+    }).$type<QuestionType>(),
     // Why a prompt stopped being active, when the reason is not the user
     // pressing retire. Null means retired by hand (or by the row-scoped
     // remove_prompt tool), so a setup sync is distinguishable from a person
@@ -273,6 +289,8 @@ export const prompts = sqliteTable(
     uniqueIndex('prompts_ws_text_unique').on(t.workspaceId, t.text),
     index('prompts_ws_idx').on(t.workspaceId),
     index('prompts_ws_kind_idx').on(t.workspaceId, t.kind),
+    index('prompts_ws_stage_idx').on(t.workspaceId, t.funnelStage),
+    index('prompts_ws_type_idx').on(t.workspaceId, t.questionType),
     index('prompts_ws_attribute_idx').on(t.workspaceId, t.attributeId),
   ],
 );

@@ -1,3 +1,10 @@
+import {
+  axisScopeLabel,
+  FUNNEL_STAGES,
+  type FunnelStage,
+  QUESTION_TYPES,
+  type QuestionType,
+} from '@refd/core/prompt-axes';
 import { PROMPT_KINDS, type PromptKind } from '@refd/core/prompt-cohorts';
 import { and, desc, eq, gte, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import type { Db } from '../db/client';
@@ -24,6 +31,7 @@ import {
   listAttributes,
   ungroupedPromptCount,
 } from '../lib/attributes';
+import { type AxisFilter, resolveAxes } from '../lib/prompt-axes';
 import {
   cohortScopeLabel,
   defaultHeadlineKind,
@@ -370,6 +378,8 @@ export const getPromptPerformance = async (
         text: prompts.text,
         tags: prompts.tags,
         kind: prompts.kind,
+        funnelStage: prompts.funnelStage,
+        questionType: prompts.questionType,
         active: prompts.active,
       })
       .from(prompts)
@@ -403,6 +413,10 @@ export const getPromptPerformance = async (
       text: prompt.text,
       tags: prompt.tags,
       kind: promptKindOrDiscovery(prompt.kind),
+      // The declared intent axes, so the per-prompt list and the intent rollup
+      // cannot disagree about which bucket a prompt belongs in.
+      funnelStage: prompt.funnelStage,
+      questionType: prompt.questionType,
       active: prompt.active,
       answers: answerCount(rows),
       mentionRate,
@@ -798,6 +812,118 @@ export const getDigest = async (
 // The point is the denominator. One prompt per attribute reports the wording's
 // score, not the capability's, so an attribute with a single variant is labelled
 // unmeasured rather than reported as a finding.
+// The two declared intent axes, read as a rollup. Separate from the cohort
+// filter because a funnel stage is not a cohort: it has no default, since
+// blending across stages neither flatters nor penalises the brand, and a reader
+// asking for every stage means every stage.
+export const getIntentPerformance = async (
+  env: AppEnv,
+  workspaceId: number,
+  range: Range,
+  kind: readonly PromptKind[] | null = null,
+  filter: AxisFilter = {},
+) => {
+  const db = getDb(env);
+  const { from } = rangeWindows(range);
+  const { brand } = await loadEntitiesWithBrand(db, workspaceId);
+  if (!brand) {
+    return { needsSetup: true as const, range, rangeLabel: rangeLabel(range) };
+  }
+  const headlineKind = await defaultHeadlineKind(db, workspaceId, kind);
+  const cohorts = await workspaceCohorts(db, workspaceId, headlineKind);
+  const axes = await resolveAxes(db, workspaceId, cohorts, filter);
+  const cohortIds = promptIdsForCohorts(cohorts);
+  const [allRows, promptAxes] = await Promise.all([
+    loadScoreRows(
+      db,
+      workspaceId,
+      from,
+      '9999-99-99',
+      axes.promptIds ?? cohortIds ?? undefined,
+    ),
+    db
+      .select({
+        id: prompts.id,
+        funnelStage: prompts.funnelStage,
+        questionType: prompts.questionType,
+      })
+      .from(prompts)
+      .where(eq(prompts.workspaceId, workspaceId)),
+  ]);
+  // A prompt the axes excluded cannot reach any bucket.
+  const rows =
+    axes.promptIds === null
+      ? allRows
+      : allRows.filter((row) => axes.promptIds?.includes(row.promptId));
+
+  const bucket = (
+    values: readonly (FunnelStage | QuestionType)[],
+    read: (id: number) => FunnelStage | QuestionType | null,
+  ) =>
+    values
+      .map((value) => {
+        const ids = new Set(
+          promptAxes
+            .filter((row) => read(row.id) === value)
+            .map((row) => row.id),
+        );
+        const scoped = rows.filter((row) => ids.has(row.promptId));
+        return {
+          value,
+          prompts: ids.size,
+          measuredPrompts: new Set(scoped.map((r) => r.promptId)).size,
+          answers: answerCount(scoped),
+          mentionRate: r3(cellRate(scoped, brand.id, 'mentioned')),
+          citationRate: r3(cellRate(scoped, brand.id, 'cited')),
+        };
+      })
+      // Measured buckets lead, worst first. A bucket with no answers has no
+      // rate, and sorting it above a measured zero would report "undeclared" as
+      // the worst place to be visible, which is a statement nobody made.
+      .sort((a, b) => {
+        if (a.answers === 0 || b.answers === 0) {
+          return a.answers === b.answers ? 0 : a.answers === 0 ? 1 : -1;
+        }
+        return (a.mentionRate ?? -1) - (b.mentionRate ?? -1);
+      });
+
+  const stages = bucket(FUNNEL_STAGES, (id) => stageOf(promptAxes, id));
+  const types = bucket(QUESTION_TYPES, (id) => typeOf(promptAxes, id));
+
+  return {
+    needsSetup: false as const,
+    range,
+    rangeLabel: rangeLabel(range),
+    population: populationLabel(headlineKind),
+    populationScope: cohortScopeLabel(headlineKind),
+    funnelStageScope: axisScopeLabel('stage', filter.funnelStage ?? null),
+    questionTypeScope: axisScopeLabel('type', filter.questionType ?? null),
+    // Worst first on each axis, for the same reason the attribute rollup is:
+    // the zero is what a reader came for.
+    stages,
+    types,
+    // Undeclared is reported as its own bucket rather than folded into a stage,
+    // because a null is a question that was never asked of the prompt, and
+    // dropping those prompts into "awareness" would invent an answer for them.
+    undeclared: {
+      funnelStage: axes.undeclaredStage,
+      questionType: axes.undeclaredType,
+      note: 'tracked prompts with no declared stage or type; they run and are counted, and are excluded from every bucket above',
+    },
+    note: 'Funnel stage and question type are declared on the prompt, never inferred from its text: no substring settles where a buyer is in a journey, and a guessed value would be indistinguishable from a declared one once stored. A bucket with one prompt measures its wording, so treat it as untested. An omitted filter reports every declared value, which is a different population from a cohort default.',
+  };
+};
+
+const stageOf = (
+  rows: { id: number; funnelStage: FunnelStage | null }[],
+  id: number,
+) => rows.find((row) => row.id === id)?.funnelStage ?? null;
+
+const typeOf = (
+  rows: { id: number; questionType: QuestionType | null }[],
+  id: number,
+) => rows.find((row) => row.id === id)?.questionType ?? null;
+
 export const getAttributePerformance = async (
   env: AppEnv,
   workspaceId: number,

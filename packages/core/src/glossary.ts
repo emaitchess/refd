@@ -60,6 +60,24 @@ export const GLOSSARY_TERMS: GlossaryDefinition<TermCategory>[] = [
       'Active prompts join future scheduled and manual runs. Disabling a prompt stops new collection for it without removing its historical results.',
   },
   {
+    id: 'funnel-stage',
+    title: 'Funnel stage',
+    category: 'Tracking setup',
+    definition:
+      'Where the buyer is when they ask the question: finding out a category exists, comparing options, or choosing a specific product.',
+    details:
+      'A stage is declared on each prompt rather than read from its wording, because the same question can be a different stage for different people and no keyword settles which. A prompt with no stage still runs and is counted; the stage report lists how many are undeclared instead of assuming they are early-stage. Stage and question type are independent, so one prompt can be an early-stage commercial question.',
+  },
+  {
+    id: 'question-type',
+    title: 'Question type',
+    category: 'Tracking setup',
+    definition:
+      'The shape of the question: seeking information, looking for a particular page, researching a purchase, or ready to buy.',
+    details:
+      'Declared alongside the funnel stage, and independent of it: a question can be commercial at any stage. Like the stage, it is never inferred from the prompt text, because the distinction between researching a purchase and ready to buy is a judgement about intent rather than a keyword.',
+  },
+  {
     id: 'attribute',
     title: 'Attribute',
     category: 'Tracking setup',

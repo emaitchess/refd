@@ -155,6 +155,13 @@
       "when": 1790551384919,
       "tag": "0021_brainy_blue_blade",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1790675879572,
+      "tag": "0022_absent_wilson_fisk",
+      "breakpoints": true
     }
   ]
 }
