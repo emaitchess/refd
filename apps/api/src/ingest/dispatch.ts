@@ -34,6 +34,15 @@ export const chunk = <T>(items: T[], size: number): T[][] => {
   return batches;
 };
 
+// Exported so a cost preview counts messages the way the dispatcher will, rather
+// than re-deriving the arithmetic and drifting from it.
+export const messageCountFor = (plan: {
+  prompts: RunPrompt[];
+  surfaces: RunDispatchPlan['surfaces'];
+  samples: number;
+  promptBatchSize: number;
+}): number => expectedMessageCount(plan);
+
 const expectedMessageCount = (plan: {
   prompts: RunPrompt[];
   surfaces: RunDispatchPlan['surfaces'];
