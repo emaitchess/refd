@@ -158,6 +158,36 @@ written for.
 - **Ungrouped prompts are reported, not hidden.** A workspace that has not grouped
   anything still gets numbers, plus the count of prompts carrying no attribute.
 
+## Intent axes: declared, never derived
+
+Two axes sit beside cohort: **funnel stage** (awareness, consideration, decision) and
+**question type** (informational, navigational, commercial, transactional). Both are
+declared on the prompt, and neither is ever inferred from its text.
+
+The reason is the same one that keeps `problem` and `market_perception` declared. A
+cohort is provable from a prompt: the matcher that scores a mention answers whether the
+prompt names the brand. A funnel stage is not. Whether "how much do voice tools cost" is
+consideration or decision depends on who is asking and what they already know, and no
+substring settles it. Storing a guess would be worse than storing nothing, because a
+guessed stage and a chosen one are indistinguishable once they are in the column, so a
+reader would trust both.
+
+- **A NULL is undeclared, never a default.** There is no "awareness" fallback. A prompt
+  with no stage runs and is counted under `undeclared`, and the rollup says how many.
+- **The two axes are independent.** A question can be commercial at any stage, so each
+  axis is filtered and reported on its own rather than as a product.
+- **There is no default filter, and that is the difference from cohort.** Cohort defaults
+  to discovery because a brand-named prompt scores near 1.0 *by construction* and so
+  flatters the brand. Blending across stages neither flatters nor penalises it, so an
+  omitted axis filter means every declared value, and the response names that population
+  separately from the cohort it was measured over.
+- **A filter that matches nothing returns nothing.** A stage or type nobody has declared
+  is reported as an empty bucket rather than omitted, because its absence is a fact about
+  the prompt set, and an empty bucket carrying no rate sorts after the measured ones
+  rather than above a measured zero.
+
+Contract: `docs/METRICS.md` "Intent axes: declared, never derived".
+
 ## Mention detection
 
 - **Alias sets replace single names.** `entities` carries an `aliases` JSON

@@ -1,4 +1,5 @@
 import type { Limit } from '@refd/core/config';
+import type { FunnelStage, QuestionType } from '@refd/core/prompt-axes';
 import {
   classifyPromptCohort,
   type PromptKind,
@@ -50,6 +51,12 @@ export interface PromptPatch {
   tags?: string[];
   kind?: PromptKind;
   attributeId?: number | null;
+  // Declared intent axes. Never derived: a patch carries what the caller
+  // asserts, and null clears the declaration rather than defaulting it, because
+  // an absent declaration and a defaulted one are different facts about the
+  // prompt and only one of them is true.
+  funnelStage?: FunnelStage | null;
+  questionType?: QuestionType | null;
   // Never true here: an activation must go through setPromptActive's bound.
   active?: false;
 }
@@ -92,6 +99,10 @@ export const createPrompt = async (
   limit: Limit,
   kind?: PromptKind | null,
   attribute?: string,
+  axes: {
+    funnelStage?: FunnelStage | null;
+    questionType?: QuestionType | null;
+  } = {},
 ): Promise<CreatePromptResult> => {
   const db = getDb(env);
   // The attribute is resolved first so a bad label is refused before the row
@@ -116,6 +127,25 @@ export const createPrompt = async (
     await db
       .update(prompts)
       .set({ attributeId })
+      .where(eq(prompts.id, insertedId));
+  }
+  // Declared axes are written after the insert, and only when the caller stated
+  // one: a prompt with no declared stage is genuinely undeclared, which is a
+  // different row from one defaulted to awareness.
+  if (
+    insertedId !== null &&
+    (axes.funnelStage !== undefined || axes.questionType !== undefined)
+  ) {
+    await db
+      .update(prompts)
+      .set({
+        ...(axes.funnelStage !== undefined
+          ? { funnelStage: axes.funnelStage }
+          : {}),
+        ...(axes.questionType !== undefined
+          ? { questionType: axes.questionType }
+          : {}),
+      })
       .where(eq(prompts.id, insertedId));
   }
   if (insertedId !== null) {
@@ -220,6 +250,14 @@ export const setPromptActive = async (
   if (patch.attributeId !== undefined) {
     assignments.push('attribute_id = ?');
     values.push(patch.attributeId);
+  }
+  if (patch.funnelStage !== undefined) {
+    assignments.push('funnel_stage = ?');
+    values.push(patch.funnelStage);
+  }
+  if (patch.questionType !== undefined) {
+    assignments.push('question_type = ?');
+    values.push(patch.questionType);
   }
   assignments.push('active = 1');
   const row = await env.DB.prepare(

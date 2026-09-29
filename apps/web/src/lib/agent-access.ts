@@ -264,6 +264,10 @@ export const AGENT_TOOLS: [name: string, description: string][] = [
     'Per-capability visibility, flagging an attribute measured by a single prompt as unmeasured.',
   ],
   [
+    'get_intent_performance',
+    'Visibility by declared funnel stage and question type. Both are declared on the prompt, never inferred, so a prompt with neither is counted as undeclared.',
+  ],
+  [
     'get_prompt_citations',
     'The URLs cited for one prompt, with counts and an isOurs flag, in a single call.',
   ],

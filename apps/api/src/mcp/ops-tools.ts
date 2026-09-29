@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import { promptLimitMessage, surfaceLimitMessage } from '@refd/core/config';
+import { funnelStageSchema, questionTypeSchema } from '@refd/core/prompt-axes';
 import { PROMPT_KINDS, promptKindSchema } from '@refd/core/prompt-cohorts';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
@@ -94,6 +95,10 @@ const promptPayload = (
   kind: promptKindOrDiscovery(row.kind),
   attributeId: row.attributeId,
   attribute: attributeLabel,
+  // Null here means undeclared, which the intent rollup reports as its own
+  // bucket rather than folding into a default.
+  funnelStage: row.funnelStage,
+  questionType: row.questionType,
   active: row.active,
 });
 
@@ -186,6 +191,12 @@ export const addPromptBodySchema = z.object({
   // to leave the prompt ungrouped, which is a state the rollup reports rather
   // than hides.
   attribute: attributeLabel.optional(),
+  // Declared intent axes. Neither is inferred from the text: no substring
+  // settles where a buyer is in a journey, and a guessed value stored here is
+  // indistinguishable from one a person chose. Omit to leave the prompt
+  // undeclared, which the rollup counts rather than assuming.
+  funnelStage: funnelStageSchema.optional(),
+  questionType: questionTypeSchema.optional(),
 });
 
 export const addPrompt = async (
@@ -203,6 +214,7 @@ export const addPrompt = async (
     promptLimitFor(env, principal),
     body.kind,
     body.attribute,
+    { funnelStage: body.funnelStage, questionType: body.questionType },
   );
   if (!created.ok) {
     return promptFailure(
@@ -232,14 +244,20 @@ export const updatePromptBodySchema = z
     // Explicit null detaches the prompt from its attribute; omitted leaves the
     // grouping alone.
     attribute: attributeLabel.nullish(),
+    // Explicit null clears the declaration; omitted leaves it alone. Same
+    // distinction as the attribute field above.
+    funnelStage: funnelStageSchema.nullish(),
+    questionType: questionTypeSchema.nullish(),
   })
   .refine(
     (body) =>
       body.text !== undefined ||
       body.category !== undefined ||
       body.kind !== undefined ||
-      body.attribute !== undefined,
-    'Provide text, category, kind, or attribute to update.',
+      body.attribute !== undefined ||
+      body.funnelStage !== undefined ||
+      body.questionType !== undefined,
+    'Provide text, category, kind, attribute, funnelStage, or questionType to update.',
   );
 
 export const updatePrompt = async (
@@ -260,6 +278,14 @@ export const updatePrompt = async (
     ...(body.category !== undefined ? { tags: [body.category] } : {}),
     ...(body.kind !== undefined ? { kind: body.kind } : {}),
     ...(attributeId !== undefined ? { attributeId } : {}),
+    // nullish so an explicit null clears the declaration, which is different
+    // from omitting the field and leaving the prompt as it was.
+    ...(body.funnelStage !== undefined
+      ? { funnelStage: body.funnelStage }
+      : {}),
+    ...(body.questionType !== undefined
+      ? { questionType: body.questionType }
+      : {}),
   });
   if (!result.ok) {
     return result.reason === 'duplicate'
