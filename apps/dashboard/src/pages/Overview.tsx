@@ -232,7 +232,8 @@ export const Overview = () => {
       });
     // Brand-only: null positions (not mentioned that run) drop the point.
     const positionRows = data.series.flatMap((point, i) => {
-      const pos = point.entities[String(data.brandId)]?.avgPosition;
+      const pos =
+        point.entities[String(data.brandId)]?.averagePositionWhenMentioned;
       return pos == null
         ? []
         : [{ date: labels[i] ?? '', position: Math.round(pos * 10) / 10 }];
@@ -386,21 +387,24 @@ export const Overview = () => {
     ),
     position: (handleProps) => (
       <StatTile
-        label="Avg position"
+        label="Avg position when mentioned"
         info={METRIC_INFO.averagePosition}
-        value={position(tiles?.avgPosition)}
+        value={position(tiles?.averagePositionWhenMentioned)}
         delta={
-          tiles?.avgPosition != null && prev?.avgPosition != null
-            ? `${tiles.avgPosition <= prev.avgPosition ? '↑' : '↓'} ${Math.abs(tiles.avgPosition - prev.avgPosition).toFixed(2)}`
+          tiles?.averagePositionWhenMentioned != null &&
+          prev?.averagePositionWhenMentioned != null
+            ? `${tiles.averagePositionWhenMentioned <= prev.averagePositionWhenMentioned ? '↑' : '↓'} ${Math.abs(tiles.averagePositionWhenMentioned - prev.averagePositionWhenMentioned).toFixed(2)}`
             : null
         }
         deltaGood={
-          tiles?.avgPosition != null &&
-          prev?.avgPosition != null &&
-          tiles.avgPosition <= prev.avgPosition
+          tiles?.averagePositionWhenMentioned != null &&
+          prev?.averagePositionWhenMentioned != null &&
+          tiles.averagePositionWhenMentioned <=
+            prev.averagePositionWhenMentioned
         }
         spark={
-          tiles?.avgPosition != null && tiles.mentionRate != null ? (
+          tiles?.averagePositionWhenMentioned != null &&
+          tiles.mentionRate != null ? (
             <p className="font-mono text-[11px] text-muted">
               when mentioned ({pct(tiles.mentionRate)} of answers)
             </p>

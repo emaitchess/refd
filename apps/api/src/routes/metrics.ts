@@ -254,6 +254,11 @@ export const shareOf = (
   entityId: number,
 ): number | null => (shares === null ? null : (shares.get(entityId) ?? 0));
 
+// The number of answers a conditional position mean is computed over, so a
+// reader sees "1.0 of 2 of 20" rather than a bare 1.0.
+export const positionedAnswerCount = (rows: ScoreRow[], entityId: number) =>
+  rows.filter((r) => r.entityId === entityId && r.position !== null).length;
+
 // Conditional on mention — absence is mention rate's job, not position's.
 export const avgPosition = (
   rows: ScoreRow[],
@@ -386,7 +391,12 @@ export interface RunPoint {
       citationRate: number | null;
       sov: number | null;
       citationSov: number | null;
-      avgPosition: number | null;
+      // Named for its denominator, and paired with the count of answers it
+      // covers. A conditional mean next to a mention rate invites a comparison
+      // the two numbers do not support, which is how a surface mentioning the
+      // brand in 3% of answers came to read as holding position 1.0.
+      averagePositionWhenMentioned: number | null;
+      positionedAnswers: number;
     }
   >;
 }
@@ -418,7 +428,8 @@ export const runSeries = (
               citationRate: cellRate(runRows, id, 'cited'),
               sov: shareOf(mentionSov, id),
               citationSov: shareOf(citedSov, id),
-              avgPosition: avgPosition(runRows, id),
+              averagePositionWhenMentioned: avgPosition(runRows, id),
+              positionedAnswers: positionedAnswerCount(runRows, id),
             },
           ]),
         ),

@@ -81,14 +81,20 @@ export const resolveSurfaceRegistry = async (
   const historical = surfaces
     .filter((s) => s.status === 'historical')
     .map((s) => s.surface);
+  const subjects =
+    historical.length === 1 ? 'this surface carries' : 'these surfaces carry';
   return {
     surfaces,
     enabled: [...enabledSet],
     historical,
+    // Stated the other way round on purpose. The figures from a historical
+    // surface ARE in the aggregates, because dropping them would silently
+    // shrink a window that was really collected, and the previous wording here
+    // claimed they were excluded when they were not.
     note:
       historical.length === 0
         ? 'every surface with data in this window is currently enabled'
-        : `${historical.join(', ')} carry data in this window but are not currently enabled: their figures belong to a period when they were running, and are excluded from any current-period denominator`,
+        : `${historical.join(', ')}: ${subjects} data in this window but ${historical.length === 1 ? 'is' : 'are'} not currently enabled, so these figures describe a period when ${historical.length === 1 ? 'it' : 'they'} ${historical.length === 1 ? 'was' : 'were'} running. ${historical.length === 1 ? 'It is' : 'They are'} included in the aggregate figures above, not excluded from them.`,
   };
 };
 

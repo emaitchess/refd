@@ -10,6 +10,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { promptSetVersions, runs } from '../db/schema';
+import { promptSetHash } from './runs';
 
 export interface ResolvedPromptSetVersion {
   id: number | null;
@@ -128,6 +129,129 @@ export const resolvePromptSetVersion = async (
   return { id: raced?.id ?? null, hash, promptIds, changeReason };
 };
 
+// Mints a version for every distinct population a workspace's historical runs
+// already carry, oldest population first, and points those runs at it.
+//
+// Without this the timeline only knows about runs created after this feature
+// shipped, so a workspace with a month of history reports its newest population
+// as "the first recorded population for this workspace" and omits every earlier
+// one. That is worse than an empty timeline: the endpoint's own note tells a
+// reader to compare within a version, and a short list makes that impossible to
+// comply with while looking authoritative.
+//
+// The order matters and is derived from the runs, not the insert sequence: a
+// population is labelled by what changed relative to the one measured before it
+// in time, so minting out of order would describe each version against the
+// wrong predecessor.
+export const backfillPromptSetVersions = async (
+  db: Db,
+  workspaceId: number,
+): Promise<{ minted: number; runsLinked: number }> => {
+  const historical = await db
+    .select({
+      runId: runs.id,
+      date: runs.date,
+      dispatchPlan: runs.dispatchPlan,
+      versionId: runs.promptSetVersionId,
+    })
+    .from(runs)
+    .where(eq(runs.workspaceId, workspaceId))
+    .then((rows) =>
+      rows
+        .map((row) => ({
+          runId: row.runId,
+          date: row.date,
+          versionId: row.versionId,
+          hash: promptSetHash(row.dispatchPlan),
+          promptIds: planPromptIds(row.dispatchPlan),
+          surfaceIds: surfacesFromPlan(row.dispatchPlan),
+        }))
+        .filter(
+          (row): row is typeof row & { hash: string; promptIds: number[] } =>
+            row.hash !== null && row.promptIds.length > 0,
+        )
+        .sort((a, b) =>
+          a.date === b.date ? a.runId - b.runId : a.date < b.date ? -1 : 1,
+        ),
+    );
+  if (historical.length === 0) {
+    return { minted: 0, runsLinked: 0 };
+  }
+
+  const known = await db
+    .select()
+    .from(promptSetVersions)
+    .where(eq(promptSetVersions.workspaceId, workspaceId));
+  const byHash = new Map(known.map((v) => [v.promptSetHash, v]));
+
+  // Oldest population first, so each version is described against its real
+  // predecessor rather than whatever happened to be inserted last.
+  const firstRunByHash = new Map<string, (typeof historical)[number]>();
+  for (const run of historical) {
+    if (!firstRunByHash.has(run.hash)) {
+      firstRunByHash.set(run.hash, run);
+    }
+  }
+  const ordered = [...firstRunByHash.values()].sort((a, b) =>
+    a.date === b.date ? a.runId - b.runId : a.date < b.date ? -1 : 1,
+  );
+
+  let minted = 0;
+  let previousIds: number[] | null = null;
+  for (const population of ordered) {
+    const existing = byHash.get(population.hash);
+    if (existing) {
+      previousIds = existing.promptIds;
+      continue;
+    }
+    const inserted = (
+      await db
+        .insert(promptSetVersions)
+        .values({
+          workspaceId,
+          promptSetHash: population.hash,
+          promptIds: population.promptIds,
+          surfaceIds: population.surfaceIds,
+          changeReason: describeChange(previousIds, population.promptIds),
+        })
+        .returning({ id: promptSetVersions.id })
+    )[0];
+    if (inserted) {
+      byHash.set(population.hash, {
+        id: inserted.id,
+        promptIds: population.promptIds,
+      } as (typeof known)[number]);
+      previousIds = population.promptIds;
+      minted += 1;
+    }
+  }
+
+  let runsLinked = 0;
+  for (const run of historical) {
+    if (run.versionId !== null) {
+      continue;
+    }
+    const version = byHash.get(run.hash);
+    if (!version) {
+      continue;
+    }
+    await db
+      .update(runs)
+      .set({ promptSetVersionId: version.id })
+      .where(eq(runs.id, run.runId));
+    runsLinked += 1;
+  }
+  return { minted, runsLinked };
+};
+
+const surfacesFromPlan = (plan: unknown): string[] => {
+  const surfaces = (plan as { surfaces?: unknown } | null | undefined)
+    ?.surfaces;
+  return Array.isArray(surfaces)
+    ? surfaces.filter((s): s is string => typeof s === 'string')
+    : [];
+};
+
 export interface PromptSetTimelineEntry {
   versionId: number;
   promptSetHash: string;
@@ -157,17 +281,40 @@ export const promptSetTimeline = async (
   if (versions.length === 0) {
     return [];
   }
+  // The hash is derived on read from each run's frozen dispatch plan, because a
+  // stored column would be null for every run that predates the column. Reading
+  // it back is what lets a pre-feature run be attributed to the population it
+  // actually measured, which is the whole point of the history.
   const usage = await db
     .select({
       versionId: runs.promptSetVersionId,
+      dispatchPlan: runs.dispatchPlan,
       runId: runs.id,
       date: runs.date,
     })
     .from(runs)
-    .where(eq(runs.workspaceId, workspaceId));
-  return versions
+    .where(eq(runs.workspaceId, workspaceId))
+    .then((rows) =>
+      rows.map((row) => ({
+        versionId: row.versionId,
+        hash: promptSetHash(row.dispatchPlan),
+        runId: row.runId,
+        date: row.date,
+      })),
+    );
+  const ordered = versions
     .map((version) => {
-      const forVersion = usage.filter((run) => run.versionId === version.id);
+      // Matched by hash, not only by version id. A run recorded before this
+      // feature existed carries the hash but a null version id, so an id-only
+      // match reported a version's first run as the first run that pointed at
+      // it, which understates the history and can put the first run after the
+      // version that already existed. The hash is the identity the version was
+      // keyed on, so it is the one that cannot drift.
+      const forVersion = usage.filter(
+        (run) =>
+          run.versionId === version.id ||
+          (run.hash !== null && run.hash === version.promptSetHash),
+      );
       const earliest = forVersion.reduce<(typeof forVersion)[number] | null>(
         (best, run) =>
           best === null ||
@@ -204,4 +351,15 @@ export const promptSetTimeline = async (
               ? -1
               : 1,
     );
+  return ordered;
 };
+
+// Reads on demand rather than from a migration, because the version rows are
+// derived from each run's frozen dispatch plan and a run is a far better place
+// to read that from than a migration is. Idempotent: a population that already
+// has a version is reused, and a run that already points at one is left alone.
+export const ensurePromptSetHistory = async (
+  db: Db,
+  workspaceId: number,
+): Promise<{ minted: number; runsLinked: number }> =>
+  backfillPromptSetVersions(db, workspaceId);

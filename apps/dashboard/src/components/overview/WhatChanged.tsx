@@ -32,8 +32,14 @@ const deltaText = (event: ChangeEvent): string => {
 
 export const WhatChanged = () => {
   const { data } = useQuery<ChangesResponse>('/changes');
+  // 'population-moved' is a real report, so it renders. What changed since the
+  // last run cannot be absent because the prompt set moved: the events compare
+  // the cells both windows share, and the caveat says the questions have moved on
+  // since. Suppressing the card would have hidden a measured comparison, and
+  // rendering it with no caveat would have let a change-of-questions read as a
+  // visibility event, which is the thing the caveat exists to prevent.
   if (
-    data?.status !== 'ok' ||
+    (data?.status !== 'ok' && data?.status !== 'population-moved') ||
     !data.latest ||
     !data.previous ||
     data.cells == null
@@ -68,6 +74,11 @@ export const WhatChanged = () => {
           {data.surfaceCount} surfaces
         </span>
       </header>
+      {data.caveat ? (
+        <p className="border-border border-b px-5 py-2 text-[12px] text-muted">
+          {data.caveat}
+        </p>
+      ) : null}
 
       {events.length === 0 ? (
         <p className="px-5 py-3 text-[13px] text-muted">

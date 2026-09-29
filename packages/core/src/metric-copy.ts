@@ -56,12 +56,12 @@ export const METRIC_INFO = {
   },
   averagePosition: {
     id: 'average-position',
-    title: 'Average position',
+    title: 'Average position when mentioned',
     category: 'Visibility',
     definition:
-      'The average order in which the brand appears when it is mentioned. Position 1 means it was named first.',
+      'The average order in which the brand appears across the answers that mention it. Position 1 means it was named first.',
     details:
-      'Position is relative to the tracked entities and is averaged only across answers that mention the entity. Absence is represented by mention rate instead of a position penalty.',
+      'Position is relative to the tracked entities, and it is averaged only over answers where the brand is mentioned, so it is not comparable with a mention rate. A surface can lead when the brand appears in it and still be mentioned rarely: a perfect 1.0 alongside a low mention rate means the brand is named first when named, not that it is named often. The count of answers the mean covers is reported as positioned answers, and absence is represented by mention rate rather than a position penalty.',
   },
   firstNamed: {
     id: 'first-named',

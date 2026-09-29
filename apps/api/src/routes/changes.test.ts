@@ -89,7 +89,13 @@ describe('detectChanges', () => {
       2,
       prompts.map((p) => row(2, p)),
     );
-    const report = detectChanges(latest, previous, entities, brand);
+    const report = detectChanges(
+      latest,
+      previous,
+      entities,
+      brand,
+      prompts.length,
+    );
     expect(report.status).toBe('ok');
     const event = report.events[0];
     expect(event?.type).toBe('mention_rate');
@@ -113,7 +119,15 @@ describe('detectChanges', () => {
       2,
       many.map((p) => row(2, p, { mentioned: p <= 24 })),
     );
-    const report = detectChanges(latest, previous, entities, brand);
+    // 50 prompts measured against prompts.length live, so the population is
+    // the live one and status can be 'ok' for the right reason.
+    const report = detectChanges(
+      latest,
+      previous,
+      entities,
+      brand,
+      many.length,
+    );
     expect(report.status).toBe('ok');
     expect(report.events).toHaveLength(0);
   });
@@ -131,7 +145,13 @@ describe('detectChanges', () => {
       2,
       prompts.map((p) => row(2, p + 4, { mentioned: true })),
     );
-    const report = detectChanges(latest, previous, entities, brand);
+    const report = detectChanges(
+      latest,
+      previous,
+      entities,
+      brand,
+      prompts.length,
+    );
     expect(report.status).toBe('ok');
     expect(report.promptCount).toBe(4);
     expect(report.events).toHaveLength(0);
@@ -143,7 +163,13 @@ describe('detectChanges', () => {
       row(1, 2, { mentioned: true }),
     ]);
     const latest = slice(2, [row(2, 1), row(2, 2)]);
-    const report = detectChanges(latest, previous, entities, brand);
+    const report = detectChanges(
+      latest,
+      previous,
+      entities,
+      brand,
+      prompts.length,
+    );
     expect(report.status).toBe('thin-overlap');
     expect(report.cells).toBeLessThan(MIN_CELLS);
     expect(report.events).toHaveLength(0);
@@ -167,7 +193,13 @@ describe('detectChanges', () => {
       ]),
       'h2',
     );
-    const report = detectChanges(latest, previous, entities, brand);
+    const report = detectChanges(
+      latest,
+      previous,
+      entities,
+      brand,
+      prompts.length,
+    );
     expect(report.entitySetChanged).toBe(true);
     expect(report.events.map((e) => e.type)).toEqual(['mention_rate']);
   });
@@ -193,7 +225,13 @@ describe('detectChanges', () => {
       'h',
       'p2',
     );
-    const report = detectChanges(latest, previous, entities, brand);
+    const report = detectChanges(
+      latest,
+      previous,
+      entities,
+      brand,
+      prompts.length,
+    );
     expect(report.promptSetChanged).toBe(true);
     expect(report.promptSetKnown).toBe(true);
     expect(report.events.map((e) => e.type)).toEqual(['mention_rate']);
@@ -212,7 +250,13 @@ describe('detectChanges', () => {
       'h',
       null,
     );
-    const report = detectChanges(latest, previous, entities, brand);
+    const report = detectChanges(
+      latest,
+      previous,
+      entities,
+      brand,
+      prompts.length,
+    );
     // Null means "cannot prove", so the guard still holds, but promptSetKnown
     // says so rather than claiming the questions moved.
     expect(report.promptSetChanged).toBe(true);
@@ -329,7 +373,13 @@ describe('detectChanges', () => {
         row(2, p, { entityId: COMP, mentioned: true }),
       ]),
     );
-    const report = detectChanges(latest, previous, entities, brand);
+    const report = detectChanges(
+      latest,
+      previous,
+      entities,
+      brand,
+      prompts.length,
+    );
     const event = report.events.find((e) => e.type === 'competitor');
     expect(event?.entity).toBe('Rival');
     expect(event?.direction).toBe('up');
@@ -353,7 +403,13 @@ describe('detectChanges', () => {
         row(2, p, { mentioned: true, sentiment: p === 4 ? null : 'negative' }),
       ),
     );
-    const report = detectChanges(latest, previous, entities, brand);
+    const report = detectChanges(
+      latest,
+      previous,
+      entities,
+      brand,
+      prompts.length,
+    );
     const event = report.events.find((e) => e.type === 'sentiment');
     expect(event?.headline).toContain('Negative sentiment');
     expect(event?.direction).toBe('up');
@@ -372,7 +428,13 @@ describe('detectChanges', () => {
         row(2, p, { mentioned: true, sentiment: p <= 2 ? 'negative' : null }),
       ),
     );
-    const report = detectChanges(latest, previous, entities, brand);
+    const report = detectChanges(
+      latest,
+      previous,
+      entities,
+      brand,
+      prompts.length,
+    );
     expect(report.events.find((e) => e.type === 'sentiment')).toBeUndefined();
   });
 
@@ -385,7 +447,13 @@ describe('detectChanges', () => {
       2,
       prompts.map((p) => row(2, p, { mentioned: true, position: 3 })),
     );
-    const report = detectChanges(latest, previous, entities, brand);
+    const report = detectChanges(
+      latest,
+      previous,
+      entities,
+      brand,
+      prompts.length,
+    );
     const event = report.events.find((e) => e.type === 'position');
     expect(event?.unit).toBe('rank');
     expect(event?.direction).toBe('up');
@@ -451,7 +519,13 @@ describe('detectChanges', () => {
       2,
       prompts.map((p) => row(2, p, { mentioned: true, position: 3 })),
     );
-    const report = detectChanges(latest, previous, entities, brand);
+    const report = detectChanges(
+      latest,
+      previous,
+      entities,
+      brand,
+      prompts.length,
+    );
     expect(report.events.length).toBeGreaterThan(0);
     for (const event of report.events) {
       expect(event.subject).not.toMatch(/\d/);
@@ -493,7 +567,13 @@ describe('detectChanges', () => {
       2,
       prompts.map((p) => row(2, p, { cited: p === 1 })),
     );
-    const report = detectChanges(latest, previous, entities, brand);
+    const report = detectChanges(
+      latest,
+      previous,
+      entities,
+      brand,
+      prompts.length,
+    );
     expect(report.events.map((e) => e.type)).toEqual([
       'mention_rate',
       'citation_rate',
@@ -584,7 +664,13 @@ describe('mergeEvents', () => {
     2,
     prompts.map((p) => row(2, p)),
   );
-  const shift = detectChanges(latest, previous, entities, brand).events;
+  const shift = detectChanges(
+    latest,
+    previous,
+    entities,
+    brand,
+    prompts.length,
+  ).events;
 
   test('one metric is one story: the wider reading wins', () => {
     const drift = shift.map((e) => ({
@@ -610,5 +696,116 @@ describe('material-change glossary copy', () => {
     expect(copy).toContain(`${SENTIMENT_PP * 100} points`);
     expect(POSITION_RANKS).toBe(0.25);
     expect(copy).toContain('a quarter of a rank');
+  });
+});
+
+describe('population caveats on a change report', () => {
+  test('rate events survive a population break, and the response says why', () => {
+    // The reported response: populationMatches false, status ok, and events
+    // anyway. The events are measured over shared cells, so they are valid; what
+    // was missing is any way to tell that from a comparison across populations.
+    const ids = Array.from({ length: 32 }, (_, i) => i + 1);
+    const previous = slice(
+      1,
+      ids.map((p) => row(1, p, { mentioned: p <= 20, position: 1 })),
+      'h',
+      'h',
+    );
+    const latest = slice(
+      2,
+      ids.map((p) => row(2, p, { mentioned: p <= 14, position: 1 })),
+      'h',
+      'p',
+    );
+    const report = detectChanges(
+      latest,
+      previous,
+      entities,
+      brand,
+      ids.length + 24,
+    );
+
+    expect(report.populationMatches).toBe(false);
+    expect(report.liveSetUnchanged).toBe(false);
+    // The live set grew past what the windows measured.
+    expect(report.activePromptCount).toBe(56);
+    expect(report.promptCount).toBe(32);
+    // A distinct status, so a consumer keying on it is not told this is clean.
+    expect(report.status).toBe('population-moved');
+    expect(report.status).not.toBe('ok');
+    // The rate events are kept: they compare the same prompts in both windows.
+    expect(report.events.some((e) => e.type === 'mention_rate')).toBeTrue();
+    // Every event states how it was measured.
+    expect(
+      report.events.every((e) => e.measuredOver === 'shared-cells'),
+    ).toBeTrue();
+    // And one sentence says the whole thing, so no client has to re-derive it.
+    expect(report.caveat).toContain('shared cells');
+    expect(report.caveat).toContain('56 live now');
+    expect(report.comparedOverSharedCells).toBeTrue();
+  });
+
+  test('a stable population reports no caveat and status ok', () => {
+    const ids = Array.from({ length: 32 }, (_, i) => i + 1);
+    const previous = slice(
+      1,
+      ids.map((p) => row(1, p, { mentioned: p <= 20 })),
+      'h',
+      'h',
+    );
+    const latest = slice(
+      2,
+      ids.map((p) => row(2, p, { mentioned: p <= 14 })),
+      'h',
+      'h',
+    );
+    const report = detectChanges(latest, previous, entities, brand, ids.length);
+    expect(report.status).toBe('ok');
+    expect(report.caveat).toBeNull();
+    expect(report.liveSetUnchanged).toBeTrue();
+  });
+
+  test('an unprovable population is a different sentence from a proven change', () => {
+    const ids = Array.from({ length: 32 }, (_, i) => i + 1);
+    const previous = slice(
+      1,
+      ids.map((p) => row(1, p, { mentioned: p <= 20 })),
+      'h',
+      null,
+    );
+    const latest = slice(
+      2,
+      ids.map((p) => row(2, p, { mentioned: p <= 14 })),
+      'h',
+      'h',
+    );
+    const report = detectChanges(latest, previous, entities, brand, ids.length);
+    expect(report.promptSetKnown).toBeFalse();
+    expect(report.status).toBe('population-moved');
+    expect(report.caveat).toContain('cannot be proven');
+    // Set-relative events stay withheld across an unprovable population.
+    expect(report.events.some((e) => e.type === 'sov')).toBeFalse();
+  });
+
+  test('an unknown live count is not read as an empty workspace', () => {
+    const ids = Array.from({ length: 32 }, (_, i) => i + 1);
+    const previous = slice(
+      1,
+      ids.map((p) => row(1, p, { mentioned: p <= 20 })),
+      'h',
+      'h',
+    );
+    const latest = slice(
+      2,
+      ids.map((p) => row(2, p, { mentioned: p <= 14 })),
+      'h',
+      'h',
+    );
+    // Omitted, which the caller could not establish. Reporting it as 0 would
+    // read as "the workspace tracks nothing" and mark every window mismatched.
+    const report = detectChanges(latest, previous, entities, brand);
+    expect(report.activePromptCount).toBeNull();
+    expect(report.caveat).toContain('could not be established');
+    expect(report.liveSetUnchanged).toBeFalse();
   });
 });

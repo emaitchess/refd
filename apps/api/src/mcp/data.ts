@@ -12,7 +12,10 @@ import {
   workspaces,
 } from '../db/schema';
 import type { AppEnv } from '../env';
-import { promptSetTimeline } from '../ingest/prompt-set-versions';
+import {
+  ensurePromptSetHistory,
+  promptSetTimeline,
+} from '../ingest/prompt-set-versions';
 import { answerTextFromRaw } from '../ingest/rescore';
 import { promptSetHash } from '../ingest/runs';
 import { gunzipJson } from '../ingest/storage';
@@ -154,7 +157,12 @@ export const getVisibilityOverview = async (
         surface,
         mentionRate: r3(cellRate(scope, brand.id, 'mentioned')),
         citationRate: r3(cellRate(scope, brand.id, 'cited')),
-        averagePosition: r3(avgPosition(scope, brand.id)),
+        averagePositionWhenMentioned: r3(avgPosition(scope, brand.id)),
+        // The denominator travels with the mean: a conditional mean beside a
+        // rate invites a comparison the two numbers do not support.
+        positionedAnswers: scope.filter(
+          (row) => row.entityId === brand.id && row.position !== null,
+        ).length,
         answers: answerCount(scope),
       };
     }),
@@ -171,7 +179,10 @@ export const getVisibilityOverview = async (
     citationRate: r3(cellRate(scope, brand.id, 'cited')),
     shareOfVoice: r3(shareOf(sov, brand.id)),
     citationShareOfVoice: r3(shareOf(cSov, brand.id)),
-    averagePosition: r3(avgPosition(scope, brand.id)),
+    averagePositionWhenMentioned: r3(avgPosition(scope, brand.id)),
+    positionedAnswers: scope.filter(
+      (row) => row.entityId === brand.id && row.position !== null,
+    ).length,
     firstNamedShare: r3(shareOf(first, brand.id)),
     prominence: prominenceDist(scope, brand.id),
     sentiment: sentimentDist(scope, brand.id),
@@ -317,7 +328,10 @@ export const getCompetitorLandscape = async (
       citationRate: r3(cellRate(rows, entity.id, 'cited')),
       shareOfVoice: r3(shareOf(mentionSov, entity.id)),
       citationShareOfVoice: r3(shareOf(citationSov, entity.id)),
-      averagePosition: r3(avgPosition(rows, entity.id)),
+      averagePositionWhenMentioned: r3(avgPosition(rows, entity.id)),
+      positionedAnswers: rows.filter(
+        (row) => row.entityId === entity.id && row.position !== null,
+      ).length,
       firstNamedShare: r3(shareOf(firstShares, entity.id)),
       sentiment: sentimentDist(rows, entity.id),
       surfaces: surfaceList.map(({ surface, status }) => {
@@ -865,10 +879,29 @@ export const getPromptSetTimeline = async (
   env: AppEnv,
   workspaceId: number,
 ) => {
-  const versions = await promptSetTimeline(getDb(env), workspaceId);
+  const db = getDb(env);
+  // Read-time backfill. A workspace whose runs predate prompt_set_versions has
+  // no rows for those populations, and returning only what exists would present
+  // a partial history as a complete one. The work is idempotent and keyed on the
+  // run's own frozen plan, so it is a no-op once every population is recorded.
+  await ensurePromptSetHistory(db, workspaceId);
+  const versions = await promptSetTimeline(db, workspaceId);
+  const unattributed = await unattributedRunCount(db, workspaceId);
+  // The version id is a global row id, so the first version a workspace has is
+  // not numbered 1. Reporting the per-workspace sequence alongside it is what
+  // stops a reader from inferring missing history from a number that never
+  // promised to start at one.
   return {
-    versions,
-    note: 'A direct comparison between two dates is only meaningful when both fall in the same version. Across versions the questions changed, so compare by kind filter or read each version on its own.',
+    versions: versions.map((version, index) => ({
+      ...version,
+      sequence: index + 1,
+    })),
+    // Whether every population the workspace has actually run is represented
+    // here. A run whose frozen plan is unreadable cannot be attributed, and
+    // that is stated rather than left to look like a short history.
+    historyComplete: unattributed === 0,
+    unattributedRuns: unattributed,
+    note: "A direct comparison between two dates is only meaningful when both fall in the same version. Across versions the questions changed, so compare by kind filter or read each version on its own. `sequence` is this workspace's own order, oldest first; `versionId` is a global row id and does not start at 1 for every workspace.",
   };
 };
 
@@ -1189,4 +1222,15 @@ export const getPromptCitations = async (
       answers: Number(row.answers),
     })),
   };
+};
+
+// Runs whose population cannot be read back, so a caller can refuse to treat the
+// timeline as a complete history rather than inferring completeness from a list
+// that looks finished.
+const unattributedRunCount = async (db: Db, workspaceId: number) => {
+  const rows = await db
+    .select({ dispatchPlan: runs.dispatchPlan })
+    .from(runs)
+    .where(eq(runs.workspaceId, workspaceId));
+  return rows.filter((row) => promptSetHash(row.dispatchPlan) === null).length;
 };

@@ -40,6 +40,7 @@ import {
   cellRate,
   loadEntitiesWithBrand,
   loadScoreRows,
+  positionedAnswerCount,
   type ScoreRow,
   sentimentDist,
 } from './metrics';
@@ -736,7 +737,14 @@ const runAggregate = async (
         : f.metric === 'citationRate'
           ? r3(cellRate(groupRows, id, 'cited'))
           : r3(avgPosition(groupRows, id));
-    return `${f.metric}=${value ?? 'null'}`;
+    const isPosition = f.metric === 'position';
+    const label = isPosition ? 'positionWhenMentioned' : f.metric;
+    // The conditional mean's denominator, so a 1.0 is not read as a position
+    // held across every answer.
+    const suffix = isPosition
+      ? ` (over ${positionedAnswerCount(groupRows, id)} positioned answers)`
+      : '';
+    return `${label}=${value ?? 'null'}${suffix}`;
   };
 
   const keys = [...groups.keys()];

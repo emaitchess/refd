@@ -6,6 +6,8 @@ import * as schema from '../db/schema';
 import { promptSetVersions, runs, users, workspaces } from '../db/schema';
 import { MIGRATIONS as migrationFiles } from '../lib/test-migrations';
 import {
+  backfillPromptSetVersions,
+  ensurePromptSetHistory,
   promptSetTimeline,
   resolvePromptSetVersion,
 } from './prompt-set-versions';
@@ -55,16 +57,20 @@ const seedRun = async (
   id: number,
   date: string,
   versionId: number | null,
+  p?: unknown,
 ) => {
   await db.insert(runs).values({
     id,
     workspaceId: 9,
-    key: `cron:9:${date}`,
+    key: `cron:9:${date}:${id}`,
     date,
     trigger: 'cron',
     status: 'complete',
     entitySetHash: 'h1',
     promptSetVersionId: versionId,
+    // A historical run carries the frozen plan it measured, which is the only
+    // place its population can be read from.
+    dispatchPlan: p as never,
   } as typeof runs.$inferInsert);
 };
 
@@ -209,5 +215,120 @@ describe('promptSetTimeline', () => {
     await resolve(db, 9, plan(1));
     await resolve(db, 10, plan(1, 2));
     expect(await promptSetTimeline(db, 9)).toHaveLength(1);
+  });
+});
+
+describe('backfillPromptSetVersions', () => {
+  let db: Db;
+  let workspaceId: number;
+  beforeEach(async () => {
+    ({ db, workspaceId } = await setup());
+  });
+
+  // The reported failure: four runs over three populations existed, and the
+  // timeline returned only the newest, labelled as the first.
+  test('a history recorded before the feature is recovered, oldest first', async () => {
+    const ids = Array.from({ length: 25 }, (_, i) => i + 1);
+    const added10 = Array.from({ length: 10 }, (_, i) => 900 + i);
+    const added21 = Array.from({ length: 21 }, (_, i) => 133 + i);
+    // 25 prompts, then 25 (a second run on the same population), then 35, then
+    // 56: the three populations the report found already in the run history.
+    const p25 = plan(...ids);
+    const p35 = plan(...ids.slice(0, 25), ...added10);
+    const p56 = plan(...ids, ...added10, ...added21.slice(0, 11));
+    await seedRun(db, 90, '2026-09-25', null, p25);
+    await seedRun(db, 93, '2026-09-26', null, p25);
+    await seedRun(db, 96, '2026-09-27', null, p35);
+    await seedRun(db, 98, '2026-09-27', null, p56);
+
+    const result = await backfillPromptSetVersions(db, workspaceId);
+    expect(result.minted).toBe(3);
+    expect(result.runsLinked).toBe(4);
+
+    const timeline = await promptSetTimeline(db, workspaceId);
+    expect(timeline).toHaveLength(3);
+    expect(timeline.map((v) => v.firstRunDate)).toEqual([
+      '2026-09-25',
+      '2026-09-27',
+      '2026-09-27',
+    ]);
+    // Ordered by first run, so the 25-prompt population is genuinely first.
+    expect(timeline[0]?.prompts).toBe(25);
+    expect(timeline[1]?.prompts).toBe(35);
+    expect(timeline[2]?.prompts).toBe(46);
+    // Each version's change is described against the population before it in
+    // time, not against whatever was inserted last.
+    expect(timeline[0]?.changeReason).toBe(
+      'first recorded population for this workspace',
+    );
+    expect(timeline[1]?.changeReason).toBe(
+      '10 added against the previous population',
+    );
+    expect(timeline[2]?.changeReason).toBe(
+      '11 added against the previous population',
+    );
+    // Every historical run is attributed to the population it measured.
+    expect(timeline.map((v) => v.runs)).toEqual([2, 1, 1]);
+  });
+
+  test('the first run date is the first run on that population, not the first that pointed at the version', async () => {
+    // Run 98 carried the newest population a day before the run that minted the
+    // version for it, so matching only on versionId reported the wrong date.
+    const ids = Array.from({ length: 56 }, (_, i) => i + 1);
+    const version = await resolve(db, workspaceId, plan(...ids));
+    await seedRun(db, 98, '2026-09-27', null, plan(...ids));
+    await seedRun(db, 101, '2026-09-28', version.id, plan(...ids));
+
+    const timeline = await promptSetTimeline(db, workspaceId);
+    expect(timeline[0]?.firstRunId).toBe(98);
+    expect(timeline[0]?.firstRunDate).toBe('2026-09-27');
+    expect(timeline[0]?.runs).toBe(2);
+  });
+
+  test('is idempotent', async () => {
+    const ids = Array.from({ length: 5 }, (_, i) => i + 1);
+    await seedRun(db, 1, '2026-09-25', null, plan(...ids));
+    const first = await backfillPromptSetVersions(db, workspaceId);
+    expect(first.minted).toBe(1);
+    const second = await backfillPromptSetVersions(db, workspaceId);
+    expect(second.minted).toBe(0);
+    expect(second.runsLinked).toBe(0);
+    expect(await promptSetTimeline(db, workspaceId)).toHaveLength(1);
+  });
+
+  test('a run with no frozen plan measures nothing and mints no version', async () => {
+    await seedRun(db, 1, '2026-09-25', null, undefined);
+    const result = await backfillPromptSetVersions(db, workspaceId);
+    expect(result.minted).toBe(0);
+    expect(await promptSetTimeline(db, workspaceId)).toHaveLength(0);
+  });
+
+  test('only one workspace is touched', async () => {
+    const ids = Array.from({ length: 3 }, (_, i) => i + 1);
+    await seedRun(db, 1, '2026-09-25', null, plan(...ids));
+    await db
+      .insert(workspaces)
+      .values({ id: 10, name: 'other', ownerUserId: 1 });
+    await db.insert(runs).values({
+      id: 2,
+      workspaceId: 10,
+      key: 'cron:10:2026-09-25',
+      date: '2026-09-25',
+      trigger: 'cron',
+      status: 'complete',
+      entitySetHash: 'h1',
+      promptSetVersionId: null,
+      dispatchPlan: plan(...ids) as never,
+    } as typeof runs.$inferInsert);
+
+    await backfillPromptSetVersions(db, workspaceId);
+    const other = await promptSetTimeline(db, 10);
+    expect(other).toHaveLength(0);
+  });
+
+  test('ensurePromptSetHistory is the same operation', async () => {
+    const ids = Array.from({ length: 4 }, (_, i) => i + 1);
+    await seedRun(db, 1, '2026-09-25', null, plan(...ids));
+    expect((await ensurePromptSetHistory(db, workspaceId)).minted).toBe(1);
   });
 });

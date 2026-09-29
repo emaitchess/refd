@@ -9,6 +9,7 @@ import {
   listEntities,
   loadScoreRows,
   pooledSov,
+  positionedAnswerCount,
   runSeries,
   sentimentDist,
   shareOf,
@@ -37,7 +38,8 @@ competitorRoutes.get('/', async (c) => {
       citationRate: cellRate(rows, entity.id, 'cited'),
       sov: shareOf(mentionSov, entity.id),
       citationSov: shareOf(citedSov, entity.id),
-      avgPosition: avgPosition(rows, entity.id),
+      averagePositionWhenMentioned: avgPosition(rows, entity.id),
+      positionedAnswers: positionedAnswerCount(rows, entity.id),
       firstMentionShare: shareOf(firstShares, entity.id),
       sentiment: sentimentDist(rows, entity.id),
       surfaces: surfaceList.map((s) => ({

@@ -21,6 +21,7 @@ import {
   loadEntitiesWithBrand,
   loadScoreRows,
   pooledSov,
+  positionedAnswerCount,
   type ScoreRow,
   sentimentDist,
   shareOf,
@@ -55,7 +56,8 @@ const entityStats = (rows: ScoreRow[], id: number) => {
     mentionRate: r3(cellRate(rows, id, 'mentioned')),
     citationRate: r3(cellRate(rows, id, 'cited')),
     sov: r3(shareOf(sov, id)),
-    avgPosition: r3(avgPosition(rows, id)),
+    averagePositionWhenMentioned: r3(avgPosition(rows, id)),
+    positionedAnswers: positionedAnswerCount(rows, id),
     sentiment: sentimentDist(rows, id),
   };
 };
@@ -64,7 +66,10 @@ export interface EntityStats {
   mentionRate: number | null;
   citationRate: number | null;
   sov: number | null;
-  avgPosition: number | null;
+  // Conditional on mention, with its denominator beside it. A bare 1.0 beside a
+  // low mention rate reads as a position the brand holds across the surface.
+  averagePositionWhenMentioned: number | null;
+  positionedAnswers: number;
   sentiment: { positive: number; neutral: number; negative: number } | null;
 }
 
@@ -81,7 +86,11 @@ export interface DigestSections {
     surface: string;
     mentionRate: number | null;
     citationRate: number | null;
-    avgPosition: number | null;
+    // Conditional on mention, with its denominator beside it: a bare 1.0 next
+    // to a low mention rate reads as a position the brand holds across the
+    // surface, which is the opposite of the truth.
+    averagePositionWhenMentioned: number | null;
+    positionedAnswers: number;
     answers: number;
   }[];
   competitors: (EntityStats & { name: string; isBrand: boolean })[];
@@ -394,7 +403,8 @@ export const buildDigest = async (
       surface: s,
       mentionRate: r3(cellRate(scope, brand.id, 'mentioned')),
       citationRate: r3(cellRate(scope, brand.id, 'cited')),
-      avgPosition: r3(avgPosition(scope, brand.id)),
+      averagePositionWhenMentioned: r3(avgPosition(scope, brand.id)),
+      positionedAnswers: positionedAnswerCount(scope, brand.id),
       answers: answerCount(scope),
     };
   });

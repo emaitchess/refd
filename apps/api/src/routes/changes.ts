@@ -91,6 +91,9 @@ export type ChangeSpan = 'shift' | 'drift';
 export interface ChangeEvent {
   type: ChangeType;
   span: ChangeSpan;
+  // How this event was measured, restated on the event so a reader never has to
+  // consult the report to know which population the number describes.
+  measuredOver?: 'shared-cells';
   // 'overall' or a surface key. Surface events fire only when the overall
   // delta stayed under threshold: an overall event already tells the story,
   // and a per-surface echo of it would be noise.
@@ -142,7 +145,11 @@ export interface WindowSlice {
 }
 
 export interface ChangeReport {
-  status: 'ok' | 'needs-runs' | 'thin-overlap';
+  // 'population-moved' is not a failure: the events over shared cells are
+  // valid and are returned. It is a distinct state so a consumer keying on
+  // status cannot read a measured comparison against a changed prompt set as
+  // the same clean bill of health as a stable one.
+  status: 'ok' | 'needs-runs' | 'thin-overlap' | 'population-moved';
   // Days per window, so a client can phrase its own copy without guessing.
   windowDays: number;
   latest: WindowRef | null;
@@ -161,11 +168,29 @@ export interface ChangeReport {
   // two differ legitimately, which is why both are reported.
   promptCount: number;
   // The workspace's active prompt set right now, so a reader can see the
-  // distance between what was measured and what is tracked.
-  activePromptCount: number;
+  // distance between what was measured and what is tracked. Null when the count
+  // could not be established, which is not the same as zero: a zero would read
+  // as an empty workspace and turn every window into a population mismatch.
+  activePromptCount: number | null;
   // True only when the compared windows provably shared one prompt population
-  // AND that population is the one live now.
+  // AND that population is the one live now. Kept for existing consumers, but
+  // it answers a question about the LIVE set, and the events below are not
+  // subject to it: they are computed over shared cells, which is a different
+  // and separately true statement. Read the two new fields rather than this
+  // one when deciding what the events mean.
   populationMatches: boolean;
+  // What the events are actually measured over: prompt x surface cells present
+  // in both compared windows, and nothing else. Always true for a response
+  // that carries events, and stated so a reader does not have to infer it from
+  // counts that look like a population.
+  comparedOverSharedCells: boolean;
+  // Whether the live prompt set is the one that was measured. False means the
+  // questions have moved on since, which does not invalidate a comparison over
+  // the cells both windows share.
+  liveSetUnchanged: boolean;
+  // One sentence a client can show or suppress on, rather than each client
+  // re-deriving the caveat from four booleans and getting it subtly wrong.
+  caveat: string | null;
   surfaceCount: number;
   entitySetChanged: boolean;
   promptSetChanged: boolean;
@@ -176,6 +201,9 @@ export interface ChangeReport {
   // Null when the compared windows do not agree on one population, which is the
   // same condition that withholds the set-relative events.
   promptSetVersionId: number | null;
+  // False when any window in the drift span has an unprovable population, null
+  // when there is no full trend span to judge.
+  trendPopulationKnown: boolean | null;
   events: ChangeEvent[];
 }
 
@@ -344,8 +372,11 @@ export const detectChanges = (
   allEntities: EntityInfo[],
   brand: EntityInfo,
   // The workspace's live active-prompt count, read by the caller so this stays
-  // a pure function of the two windows it is handed.
-  activePromptCount = 0,
+  // a pure function of the two windows it is handed. Undefined means the caller
+  // could not establish it, which is not the same as zero: a count of zero
+  // would read as "the workspace tracks nothing", which silently turns every
+  // window into a population mismatch.
+  activePromptCount?: number,
 ): ChangeReport => {
   const shared = sharedCells([latest, previous]);
   const cur = latest.rows.filter((r) => shared.has(cellKey(r)));
@@ -366,6 +397,26 @@ export const detectChanges = (
   const promptSetChanged = promptSetChangedAcross([latest, previous]);
   const promptSetKnown = promptSetKnownAcross([latest, previous]);
 
+  // Rate events are computed over the shared cells, so they compare the same
+  // prompts in both windows and a changed prompt set does not invalidate them.
+  // Set-relative events (SOV, position) depend on the whole tracked set being
+  // the same, so they are withheld across a break. Stating both facts
+  // separately is the point: one boolean was being read as both.
+  const liveSetUnchanged =
+    activePromptCount !== undefined &&
+    !promptSetChanged &&
+    promptSetKnown &&
+    promptIds.size === activePromptCount;
+  const sharedCellNote =
+    'the events below are valid for the cells both windows share, and set-relative events are withheld';
+  const caveat = liveSetUnchanged
+    ? null
+    : activePromptCount === undefined
+      ? `the live prompt count could not be established, so whether the measured population is still tracked is unconfirmed; ${sharedCellNote}`
+      : promptSetKnown
+        ? `the prompt set has changed since this window was measured (${promptIds.size} prompts compared over shared cells, ${activePromptCount} live now); ${sharedCellNote}`
+        : `a run in these windows predates the frozen prompt set, so the population cannot be proven; ${sharedCellNote}`;
+
   const base = {
     windowDays: WINDOW_DAYS,
     latest: latest.window,
@@ -374,11 +425,11 @@ export const detectChanges = (
     cells: shared.size,
     trendCells: 0,
     promptCount: promptIds.size,
-    activePromptCount,
-    populationMatches:
-      !promptSetChanged &&
-      promptSetKnown &&
-      promptIds.size === activePromptCount,
+    activePromptCount: activePromptCount ?? null,
+    populationMatches: liveSetUnchanged,
+    comparedOverSharedCells: true,
+    liveSetUnchanged,
+    caveat,
     surfaceCount: surfaces.length,
     entitySetChanged,
     promptSetChanged,
@@ -390,9 +441,17 @@ export const detectChanges = (
         : null,
   };
   if (shared.size < MIN_CELLS) {
-    return { ...base, status: 'thin-overlap', events: [] };
+    return {
+      ...base,
+      status: 'thin-overlap',
+      trendPopulationKnown: null,
+      events: [],
+    };
   }
 
+  // Stamped on every event here rather than in the composing report, so a caller
+  // using detectChanges directly gets it too: the measurement basis is a
+  // property of the event, not of the response that happens to carry it.
   const events: ChangeEvent[] = [];
 
   const brandRate = (
@@ -560,7 +619,15 @@ export const detectChanges = (
   }
 
   events.sort((a, b) => b.severity - a.severity);
-  return { ...base, status: 'ok', events: events.slice(0, MAX_EVENTS) };
+  return {
+    ...base,
+    status: liveSetUnchanged ? 'ok' : 'population-moved',
+    // No full trend span is read here; buildChangeReport fills it in.
+    trendPopulationKnown: null,
+    events: events
+      .slice(0, MAX_EVENTS)
+      .map((event) => ({ ...event, measuredOver: 'shared-cells' as const })),
+  };
 };
 
 // One overall metric watched across the whole trend span. Per-surface drift
@@ -893,6 +960,10 @@ export const buildChangeReport = async (
       promptCount: 0,
       activePromptCount: await activePromptTotal(db, workspaceId),
       populationMatches: false,
+      comparedOverSharedCells: false,
+      liveSetUnchanged: false,
+      caveat: null,
+      trendPopulationKnown: null,
       surfaceCount: 0,
       entitySetChanged: false,
       promptSetChanged: false,
@@ -909,14 +980,26 @@ export const buildChangeReport = async (
     await activePromptTotal(db, workspaceId),
   );
   const drift = detectDrift(windows, allEntities, brand);
+  // Drift was dropped whenever the shift report was not 'ok', which is how a
+  // four-week reading disappeared because the latest pair of windows had a
+  // population break. Drift is measured over cells present in EVERY window of
+  // its span, so it is a comparison of like with like and does not depend on
+  // the two newest windows agreeing with each other.
+  const promptSetChangedAcrossTrend = windows.length >= TREND_WINDOWS;
+  const events = mergeEvents(report.events, drift.events);
   return {
     ...report,
     trend: windows.map((w) => w.window),
     trendCells: drift.cells,
-    events:
-      report.status === 'ok'
-        ? mergeEvents(report.events, drift.events)
-        : report.events,
+    events: events.map((event) => ({
+      ...event,
+      measuredOver: 'shared-cells' as const,
+    })),
+    // Only true when no window anywhere in the trend span is unprovable, which
+    // is a separate question from the two newest windows agreeing.
+    trendPopulationKnown: promptSetChangedAcrossTrend
+      ? windows.every((w) => w.window.promptSetHash !== null)
+      : null,
   };
 };
 

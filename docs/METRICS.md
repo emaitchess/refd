@@ -120,6 +120,11 @@ interpreted at all.
 - **Absence of data is not absence of a surface.** An enabled surface that has not
   collected yet is still present in the registry, so "what are we tracking" and
   "what have we measured" are answerable separately and neither implies the other.
+- **A historical surface is included in the aggregate, not excluded from it.** Its
+  answers are part of the window, because dropping them would silently shrink a
+  window that was really collected. The registry note says so in those words,
+  because the earlier wording claimed the opposite and was wrong about the data
+  printed beside it.
 
 ## Bounded lists
 
@@ -250,6 +255,28 @@ written for.
   incompatible sets. SOV is unavailable until the workspace tracks at least
   one competitor. There is no composite visibility score.
 
+## Position, when the brand is mentioned
+
+`averagePositionWhenMentioned` is the mean rank across the answers where the brand
+is mentioned, and it is renamed from `averagePosition` because the old name
+claimed a denominator it never had.
+
+The failure this fixes is real and small. A surface where the brand is mentioned in
+3% of answers can still post a position of exactly 1.000, because the surface tends
+to open with the most prominent entity and the conditional mean pins to 1. That
+number is arithmetically correct and simultaneously reads as "this brand holds first
+position across the surface", which is the opposite of the truth. Placed beside a
+mention rate it invited a comparison the two figures do not support: a reader
+comparing a 1.000 against a 1.063 concludes the lower-mention surface is better.
+
+- **The denominator travels with the mean.** `positionedAnswers` reports how many
+  answers the mean covers, so `1.0` of 2 of 20 reads as what it is.
+- **Absence is not a penalty.** A brand that is never mentioned reports `null` with
+  `positionedAnswers: 0`, which is a different statement from a rank.
+- **A threshold would hide the signal.** Suppressing position below some mention
+  rate was considered and rejected: AI Mode leading with the brand when it names it
+  is worth knowing, and an arbitrary cut-off discards it.
+
 ## Position and prominence
 
 - **Rank is first-mention order.** Mentioned tracked entities are ordered by
@@ -302,6 +329,64 @@ written for.
   call). Pre-sentiment rows remain null and leave every sentiment denominator.
 - **Aggregated as a distribution.** `sentimentDist` covers classified mentions
   only. Sentiment is never collapsed into a composite score.
+
+## Change alerts: what an event is measured over
+
+Every event carries `measuredOver: 'shared-cells'`. The engine compares only the
+prompt x surface cells present in **both** windows, so a rate event is a comparison
+of the same questions before and after, even when the live prompt set has moved on.
+Set-relative events (share of voice, position) depend on the whole tracked set
+agreeing, so they are withheld across a break in either the entity set or the
+prompt set.
+
+The distinction is stated on the report rather than left to be inferred, because one
+flag was being read as two things:
+
+| Field | Question it answers |
+| --- | --- |
+| `comparedOverSharedCells` | What the numbers are over: the cells both windows share, always true when events are present |
+| `liveSetUnchanged` | Whether the questions measured are still the ones tracked now |
+| `populationMatches` | The old combined flag, equal to `liveSetUnchanged`; kept for existing consumers and no longer the thing to read |
+
+`status` is `population-moved` when `liveSetUnchanged` is false. It is a distinct
+state, not a failure: the events are valid for the cells both windows share, and a
+consumer keying on `status` can no longer read a comparison made across a changed
+prompt set as the same clean bill of health as a stable one. `caveat` carries one
+sentence saying which case applies, so no client has to re-derive it from four
+booleans and get it subtly wrong. An unprovable population (a run predating the
+frozen prompt set) is a different sentence from a proven change, and says so.
+
+`activePromptCount` is null when the count could not be established, which is not
+the same as zero: a zero reads as an empty workspace and would mark every window as
+a population mismatch.
+
+## Prompt population versions: recovering history
+
+A version row is minted the first time a population is measured, which leaves every
+run that predates the feature with a null `promptSetVersionId`. Left alone, a
+workspace with a month of history reports only its newest population and labels it
+"first recorded population for this workspace", while the endpoint's own note tells
+the reader to compare within a version. A short list makes that instruction
+impossible to follow while looking authoritative.
+
+- **The history is recovered on read.** Each historical run's frozen dispatch plan
+  is the only place its population can be read from, so the backfill derives the
+  hash from it, mints a version per distinct population oldest first, and points
+  those runs at it. It is idempotent, keyed on the run's own plan, and scoped to one
+  workspace.
+- **Runs are matched by hash, not only by version id.** A run recorded before the
+  feature carries the hash and a null id, so an id-only match reported a version's
+  first run as the first run that *pointed* at it, which put the first run after the
+  version that already existed. The hash is the identity the version was keyed on.
+- **Each version is described against its real predecessor.** Change reasons are
+  computed in run order, not insert order, so "10 added against the previous
+  population" means the population measured before it in time.
+- **`sequence` is the workspace's own order.** `versionId` is a global row id, so the
+  first version a workspace has is not numbered 1, and reporting both stops a reader
+  inferring missing history from a number that never promised to start at one.
+- **Incompleteness is stated.** `historyComplete` is false and `unattributedRuns`
+  counts the runs whose population cannot be read, rather than returning a short
+  list that reads as a complete history.
 
 ## Change alerts
 
