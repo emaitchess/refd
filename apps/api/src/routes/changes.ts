@@ -41,7 +41,7 @@ import {
   loadScoreRows,
   pooledSov,
   type ScoreRow,
-  sentimentDist,
+  sentimentReading,
   shareOf,
 } from './metrics';
 
@@ -345,23 +345,34 @@ const activePromptTotal = async (
   return row?.n ?? 0;
 };
 
-const negativeShare = (rows: ScoreRow[], entityId: number): number | null => {
-  const dist = sentimentDist(rows, entityId);
-  if (!dist) {
+// A tone share needs the classification to have caught up, not merely some
+// classified rows. Two positive answers out of two classified reads as a clean
+// 100% positive, and reporting that while fifty more mentions are still pending
+// would report a queue's progress as a change in tone. So a partial
+// classification yields no event, which is a different statement from a share
+// that genuinely held steady.
+const conditionalSentimentShare = (
+  rows: ScoreRow[],
+  entityId: number,
+  pick: (dist: {
+    positive: number;
+    neutral: number;
+    negative: number;
+  }) => number,
+): number | null => {
+  const reading = sentimentReading(rows, entityId);
+  if (reading.unclassifiedAnswers > 0 || reading.mentionedAnswers === 0) {
     return null;
   }
-  const n = dist.positive + dist.neutral + dist.negative;
-  return n >= MIN_CONDITIONAL_N ? dist.negative / n : null;
+  const n = reading.positive + reading.neutral + reading.negative;
+  return n >= MIN_CONDITIONAL_N ? pick(reading) / n : null;
 };
 
-const positiveShare = (rows: ScoreRow[], entityId: number): number | null => {
-  const dist = sentimentDist(rows, entityId);
-  if (!dist) {
-    return null;
-  }
-  const n = dist.positive + dist.neutral + dist.negative;
-  return n >= MIN_CONDITIONAL_N ? dist.positive / n : null;
-};
+const negativeShare = (rows: ScoreRow[], entityId: number): number | null =>
+  conditionalSentimentShare(rows, entityId, (dist) => dist.negative);
+
+const positiveShare = (rows: ScoreRow[], entityId: number): number | null =>
+  conditionalSentimentShare(rows, entityId, (dist) => dist.positive);
 
 const positionedCount = (rows: ScoreRow[], entityId: number): number =>
   rows.filter((r) => r.entityId === entityId && r.position !== null).length;

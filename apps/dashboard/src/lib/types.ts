@@ -78,6 +78,26 @@ export type SentimentDist = {
   negative: number;
 } | null;
 
+// Why a reading may be missing, and over how much. Null sentiment alone cannot
+// distinguish "the brand was never mentioned" from "classification has not
+// caught up", which are opposite findings, so the reason travels with it.
+export type SentimentStatus =
+  | 'measured'
+  | 'pending'
+  | 'not-mentioned'
+  | 'no-answers';
+
+export interface SentimentReading {
+  status: SentimentStatus;
+  positive: number;
+  neutral: number;
+  negative: number;
+  mentionedAnswers: number;
+  classifiedAnswers: number;
+  unclassifiedAnswers: number;
+  note: string;
+}
+
 export interface OverviewResponse {
   range: string;
   kind: PromptKind[] | null;
@@ -88,6 +108,7 @@ export interface OverviewResponse {
   tiles: { current: TileValues | null; previous: TileValues | null };
   prominence: { lead: number; body: number; list: number } | null;
   sentiment: SentimentDist;
+  sentimentReading?: SentimentReading;
   coverage: CoverageStats;
   series: OverviewPoint[];
   surfaces: SurfaceStat[];
@@ -169,6 +190,7 @@ export interface PromptRow {
   active: boolean;
   // Brand's stance distribution across the prompt's classified mentions.
   sentiment: SentimentDist;
+  sentimentReading?: SentimentReading;
   surfaces: {
     surface: string;
     mentionRate: number | null;
@@ -203,6 +225,7 @@ export interface CompetitorEntity extends EntityInfo {
   positionedAnswers: number;
   firstMentionShare: number | null;
   sentiment: SentimentDist;
+  sentimentReading?: SentimentReading;
   surfaces: { surface: string; mentionRate: number | null }[];
 }
 

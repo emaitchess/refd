@@ -328,6 +328,20 @@ comparing a 1.000 against a 1.063 concludes the lower-mention surface is better.
 
 ## Sentiment
 
+- **A null reading states which of four situations produced it.** `sentimentReading`
+  reports `measured`, `pending`, `not-mentioned` or `no-answers` with the
+  denominators (`mentionedAnswers`, `classifiedAnswers`, `unclassifiedAnswers`).
+  The distribution alone cannot: an em dash read identically for "the brand was
+  never mentioned" and "classification has not caught up", which are opposite
+  findings about the brand. One is an absence to fix, the other is a queue still
+  draining, and a reader had no way to tell them apart.
+- **A partial classification is visible, not silently complete.** Two positive
+  answers out of two classified reads as 100% positive, so the reading says "2 of
+  5 mentions classified" and the dashboard title states the same denominator.
+- **A tone change event requires the classification to have caught up.** The
+  engine withholds the sentiment event unless every mention in the window is
+  classified, not merely while some are. Reporting a share computed from a
+  partly-drained queue would report the queue's progress as a change in tone.
 - **Enrichment, not scoring.** Classification runs outside the deterministic
   scoring path. After a result is scored, a `sentiment_score` queue message
   fills `entity_scores.sentiment` with positive, neutral, or negative. Null

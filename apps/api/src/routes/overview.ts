@@ -23,6 +23,7 @@ import {
   runSeries,
   type ScoreRow,
   sentimentDist,
+  sentimentReading,
   shareOf,
 } from './metrics';
 
@@ -99,6 +100,7 @@ overviewRoutes.get('/', async (c) => {
     tiles: { current: tile(rows), previous: tile(prevRows) },
     prominence: prominenceDist(rows, brand.id),
     sentiment: sentimentDist(rows, brand.id),
+    sentimentReading: sentimentReading(rows, brand.id),
     coverage: coverageStats(covRows),
     series: runSeries(
       rows,
